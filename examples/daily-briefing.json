@@ -1,0 +1,144 @@
+{
+  "name": "daily-briefing",
+  "version": 1,
+  "description": "每日 AI 情报简报：搜索→清洗→(并行)环境采集→AI 摘要→质量分支→落盘；可选图片生成分支。覆盖 web_search / python / bash / subagent(AI) / if 分支 / merge 合流 / set_var / file_save / log / image_generate(多模态)。inputs.run_media 置 1 开启图片分支（需图片 API）；model 必填（dsh 已配置的模型 id，GUI /models 可查）。",
+  "inputs": {
+    "topic": "AI Agent 框架",
+    "model": "dsh:custom-model:glm-5.3-flash",
+    "run_media": "0",
+    "img_baseURL": "",
+    "img_key": "",
+    "img_model": "wanx-v1"
+  },
+  "nodes": [
+    { "id": "start", "type": "start" },
+    {
+      "id": "set_topic",
+      "type": "set_var",
+      "params": { "vars": { "topic": "{{inputs.topic}}" } }
+    },
+    {
+      "id": "ws",
+      "type": "web_search",
+      "params": { "query": "{{vars.topic}} 最新进展", "provider": "auto", "count": 6 }
+    },
+    {
+      "id": "py_clean",
+      "type": "python",
+      "params": {
+        "code": "import json\nraw = r'''{{ws.out}}'''\nd = json.loads(raw)\nitems = d.get('results', [])\nlines = []\nfor i, it in enumerate(items[:6], 1):\n    lines.append(f\"{i}. {str(it.get('title',''))[:70]} | {it.get('url','')}\")\nout = {\"engine\": d.get('engine',''), \"count\": len(items), \"sources_count\": len(lines), \"sources_text\": chr(10).join(lines)}\nprint(json.dumps(out, ensure_ascii=False))",
+        "timeoutMs": 15000
+      }
+    },
+    {
+      "id": "py_env",
+      "type": "python",
+      "params": {
+        "code": "import platform, sys, json, datetime\ninfo = {\"python\": sys.version.split()[0], \"platform\": platform.platform(), \"time\": datetime.datetime.now().isoformat(timespec='seconds')}\nprint(json.dumps(info, ensure_ascii=False))",
+        "timeoutMs": 15000
+      }
+    },
+    {
+      "id": "sh_stamp",
+      "type": "bash",
+      "params": {
+        "code": "PY='{{py_env.out}}'\necho \"stamp=$(date '+%F %T')\"\necho \"py_env=$PY\"",
+        "timeoutMs": 15000
+      }
+    },
+    {
+      "id": "merge",
+      "type": "merge",
+      "params": { "keys": ["sources", "env", "stamp"] }
+    },
+    {
+      "id": "ai_sum",
+      "type": "subagent",
+      "params": {
+        "model": "{{inputs.model}}",
+        "prompt": "你是情报分析员。基于以下搜索结果，用中文写一份不超过 200 字的简报，最后列出 3 个要点（每条一行，以 - 开头）。\n搜索结果：\n{{merge.out.sources}}\n直接输出简报正文，不要解释。",
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "py_gate",
+      "type": "python",
+      "params": {
+        "code": "a = '''{{ai_sum.out}}'''\nprint(1 if len(a.strip()) > 50 else 0)",
+        "timeoutMs": 10000
+      }
+    },
+    {
+      "id": "len_gate",
+      "type": "if",
+      "params": { "condition": "Number(results.py_gate) > 0" }
+    },
+    {
+      "id": "save",
+      "type": "file_save",
+      "params": {
+        "source": "text",
+        "filename": "briefing-{{vars.topic}}.md",
+        "content": "# {{vars.topic}} 情报简报\n\n## 采集环境\n{{merge.out.env}}\n\n## 采集时间\n{{merge.out.stamp}}\n\n## AI 简报\n{{ai_sum.out}}\n\n## 来源（{{ws.out.count}} 条，引擎 {{ws.out.engine}}）\n{{merge.out.sources}}\n"
+      }
+    },
+    {
+      "id": "warn_log",
+      "type": "log",
+      "params": { "level": "warn", "message": "AI 简报过短（≤50 字），未生成文件——检查搜索结果质量或模型输出" }
+    },
+    {
+      "id": "media_gate",
+      "type": "if",
+      "params": { "condition": "Number(inputs.run_media) == 1" }
+    },
+    {
+      "id": "img",
+      "type": "image_generate",
+      "params": {
+        "prompt": "科技感插画：数据流与齿轮交织的 AI 情报中心，深空蓝配色",
+        "baseURL": "{{inputs.img_baseURL}}",
+        "apiKey": "{{inputs.img_key}}",
+        "model": "{{inputs.img_model}}",
+        "size": "512*512",
+        "filenamePrefix": "briefing",
+        "timeoutMs": 60000
+      },
+      "onError": { "goto": "skip_log" }
+    },
+    {
+      "id": "img_log",
+      "type": "log",
+      "params": { "level": "info", "message": "图片已生成：{{img.out.images.0.path}}（{{img.out.images.0.bytes}} bytes）" }
+    },
+    {
+      "id": "skip_log",
+      "type": "log",
+      "params": { "level": "info", "message": "图片分支未产出（run_media=0 或生成失败，见对应节点状态）" }
+    },
+    { "id": "end_ok", "type": "end" },
+    { "id": "end_short", "type": "end" }
+  ],
+  "edges": [
+    { "from": "start", "to": "set_topic" },
+    { "from": "set_topic", "to": "ws" },
+    { "from": "set_topic", "to": "py_env" },
+    { "from": "set_topic", "to": "media_gate" },
+    { "from": "ws", "to": "py_clean" },
+    { "from": "py_env", "to": "sh_stamp" },
+    { "from": "py_clean", "to": "merge" },
+    { "from": "sh_stamp", "to": "merge" },
+    { "from": "merge", "to": "ai_sum" },
+    { "from": "ai_sum", "to": "py_gate" },
+    { "from": "py_gate", "to": "len_gate" },
+    { "from": "len_gate", "to": "save", "when": "true" },
+    { "from": "len_gate", "to": "warn_log", "when": "false" },
+    { "from": "save", "to": "end_ok" },
+    { "from": "warn_log", "to": "end_short" },
+    { "from": "media_gate", "to": "img", "when": "true" },
+    { "from": "media_gate", "to": "skip_log", "when": "false" },
+    { "from": "img", "to": "img_log" },
+    { "from": "img_log", "to": "end_ok" },
+    { "from": "skip_log", "to": "end_ok" }
+  ]
+}

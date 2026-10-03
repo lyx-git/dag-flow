@@ -1,0 +1,9 @@
+{
+  "name": "smoke-priority",
+  "version": 1,
+  "nodes": [
+    { "id": "start", "type": "start", "params": {}, "next": "py" },
+    { "id": "py", "type": "python", "params": { "code": "print('INLINE_CODE_SHOULD_LOSE')", "codePath": "scripts/smoke-priority/win.py", "timeoutMs": 15000 }, "next": "end" },
+    { "id": "end", "type": "end", "params": {} }
+  ]
+}

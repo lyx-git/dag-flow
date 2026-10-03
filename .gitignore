@@ -1,0 +1,10 @@
+# 运行时数据（工作流/运行记录/日志/临时/脚本）——插件运行时才生成，不入仓库
+.dag-flow/
+
+# 依赖与构建产物
+node_modules/
+dist/
+
+# 系统文件
+Thumbs.db
+.DS_Store

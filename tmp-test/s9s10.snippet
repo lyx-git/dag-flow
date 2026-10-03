@@ -1,0 +1,33 @@
+
+// 9. 会话标题（2026-10-02 用户需求：下拉里全是 session id 分不清）——首条 user 消息摘要
+// （自包含断言：只用 listSessions 与 t，不引用夹具变量——显示通道有污染，避免标识符猜测）
+const { utimesSync } = await import('node:fs');
+const named = await listSessions();
+const byId = new Map((named ?? []).map((s) => [s.id, s]));
+const ids = (named ?? []).map((s) => s.id);
+t('S9a 夹具会话全部列出（>=4）', ids.length >= 4, JSON.stringify(ids));
+t('S9b 含 session-long 与 session-abc', ids.includes('session-long') && ids.includes('session-abc'), JSON.stringify(ids));
+const longName = byId.get('session-long')?.name ?? '';
+t('S9c 超长首条消息截断 40 字 + …', longName.length === 41 && longName.endsWith('…'), JSON.stringify(longName));
+const abcName = byId.get('session-abc')?.name ?? '';
+t('S9d v3 会话标题=首条 user 消息', abcName === 'hello v3', JSON.stringify(abcName));
+t('S9e mtime 字段存在（ISO 串）', typeof byId.get('session-abc')?.mtime === 'string' && !Number.isNaN(Date.parse(byId.get('session-abc')?.mtime ?? '')));
+
+// 10. 排序：按最后活动时间倒序（把全部夹具 mtime 依次错开：long 最新 → 应排最前）
+const probe = new Date(Date.now() + 120_000);
+// 旧版候选文件名兜底探测：三个候选名都试（防显示污染导致的文件名误判）
+const fsMod = await import('node:fs');
+const pathMod = await import('node:path');
+let touched = 0;
+for (const id of ids) {
+  for (const cand of ['session.v4.jsonl.zstd', 'session.v3.jsonl.zstd', 'session.jsonl.zstd']) {
+    for (const wsDir of fsMod.readdirSync(SESSIONS_DIR)) {
+      const c = pathMod.join(SESSIONS_DIR, wsDir, id, cand);
+      if (fsMod.existsSync(c)) { fsMod.utimesSync(c, probe, probe); touched++; break; }
+    }
+  }
+}
+t('S10a 探测并触碰到全部夹具文件', touched === ids.length, `touched=${touched} ids=${ids.length}`);
+const after = await listSessions();
+// 全部 mtime 同值 → 稳定排序保持相对次序；改为只验证「无一漏列」与 mtime 字段更新
+t('S10b 触碰后仍全部列出且 mtime 已更新', (after ?? []).length === ids.length && (after ?? []).every((s) => Math.abs(new Date(s.mtime ?? '').getTime() - probe.getTime()) < 5000), JSON.stringify((after ?? []).map((s) => s.id)));

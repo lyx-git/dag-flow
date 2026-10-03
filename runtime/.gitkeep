@@ -1,0 +1,20 @@
+# 占位文件 — runtime 目录结构
+# 实际二进制通过 `pnpm run fetch:runtime` 下载
+# 见 RUNTIME_SETUP.md
+
+# Windows x64 (v0.1 默认打包)
+runtime/python/3.12.12+20260901/win-x64/.gitkeep
+runtime/bash/2.55.0.5/win-x64/.gitkeep
+runtime/uv/0.4.18/win-x64/.gitkeep
+
+# 其他平台 (按需下载)
+runtime/python/3.12.12+20260901/mac-arm64/.gitkeep
+runtime/python/3.12.12+20260901/mac-x64/.gitkeep
+runtime/python/3.12.12+20260901/linux-x64/.gitkeep
+runtime/python/3.12.12+20260901/linux-arm64/.gitkeep
+runtime/python/3.12.12+20260901/linux-musl-x64/.gitkeep
+runtime/uv/0.4.18/mac-arm64/.gitkeep
+runtime/uv/0.4.18/mac-x64/.gitkeep
+runtime/uv/0.4.18/linux-x64/.gitkeep
+runtime/uv/0.4.18/linux-arm64/.gitkeep
+runtime/uv/0.4.18/linux-musl-x64/.gitkeep

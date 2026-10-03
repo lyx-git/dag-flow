@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>工作流入口弹窗 · 无底部按钮版（右上角 ✕ 关闭 / 回车打开创建 / 行内删除）</title>
+<style>
+  body{margin:0;background:#0b1120;font-family:'Segoe UI','Microsoft YaHei',sans-serif;color:#e6edf7}
+  :root{ --wf-panel:#101a2b; --wf-border-strong:#2a3a56; --wf-text:#e6edf7; --wf-muted:#8b9bb3;
+    --wf-bg:#0b1120; --wf-border:#22304a; --wf-accent:#4f8cff; --wf-panel2:#162135;
+    --wf-shadow:0 4px 16px rgba(0,0,0,.32); --wf-danger:#f87171; }
+  .report{position:fixed;right:12px;top:12px;font:12px/1.7 Consolas,monospace;background:#fff;color:#111;
+    padding:12px 14px;border-radius:10px;min-width:430px;white-space:pre-wrap;z-index:20000;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+</style>
+</head>
+<body>
+<div class="report" id="report">measuring…</div>
+<script src="./picker-test.js"></script>
+<script>
+  var opened = [];
+  function onOpen(def) { opened.push(def); }
+  function appendLine(line) { document.getElementById('report').textContent += '\n' + line; }
+  function overlayGone() { return !document.querySelector('.dag-flow-picker-overlay'); }
+  // 重新打开弹窗并等列表数据到达（空输入 = 全量行）
+  function reopenThen(cb) {
+    opened.length = 0;
+    DagFlowPicker.openWorkflowPicker(onOpen);
+    var t = 0;
+    (function waitData() {
+      var card = document.querySelector('.dag-flow-picker');
+      var list = card && card.querySelector('.dag-flow-combo-list');
+      if (list && list.querySelector('.dag-flow-combo-row')) return void cb(card);
+      if (t++ < 100) return void setTimeout(waitData, 20);
+      appendLine('FAIL  列表数据未到达（reopen 超时）');
+    })();
+  }
+  function setVal(input, v) { input.value = v; input.dispatchEvent(new Event('input', { bubbles: true })); }
+  function pressEnter(input) {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  }
+
+  DagFlowPicker.openWorkflowPicker(onOpen);
+  // 等 fixture 列表数据到达（workflows.length>0）再测量，避免与 fetch 竞态
+  var tries = 0;
+  function whenReady() {
+    var card0 = document.querySelector('.dag-flow-picker');
+    var list0 = card0 && card0.querySelector('.dag-flow-combo-list');
+    if (list0 && list0.querySelector('.dag-flow-combo-row')) return void runChecks(card0);
+    if (tries++ < 100) return void setTimeout(whenReady, 20);
+    document.getElementById('report').textContent = 'FAIL 列表数据未到达';
+  }
+
+  function runChecks(card) {
+    var input = card.querySelector('input');
+    var list = card.querySelector('.dag-flow-combo-list');
+    // 列表几何（空输入 = 12 条全量展示）
+    var row = list.querySelector('.dag-flow-combo-row');
+    var rowH = row ? row.getBoundingClientRect().height : 0;
+    var visibleRows = rowH ? list.clientHeight / rowH : 0;
+    var scrollable = list.scrollHeight > list.clientHeight + 1;
+    var width = card.getBoundingClientRect().width;
+    var closeBtn = card.querySelector('.dag-flow-picker-title .dag-flow-picker-close');
+    var checks = [
+      ['1 弹窗宽度≈680(含边框)', Math.abs(width - 680) <= 2.5, 'width=' + width.toFixed(1)],
+      ['2 列表默认可见行数≈5',       Math.abs(visibleRows - 5) <= 0.6, 'rowH=' + rowH.toFixed(1) + ' clientH=' + list.clientHeight + ' visible=' + visibleRows.toFixed(2)],
+      ['2 >5条时可滚动',            scrollable, 'scrollH=' + list.scrollHeight + ' clientH=' + list.clientHeight],
+      ['3 底部按钮行已移除',         !card.querySelector('.dag-flow-picker-foot') && !card.querySelector('[data-act]'), 'foot=null'],
+      ['3 右上角 ✕ 关闭按钮存在',    !!closeBtn, 'close=' + !!closeBtn],
+      ['4 行尾删除按钮齐备',         (function () {
+            var rs = list.querySelectorAll('.dag-flow-combo-row');
+            var ds = list.querySelectorAll('.dag-flow-combo-row .del');
+            return rs.length >= 10 && ds.length === rs.length;
+          })(), 'rows=' + list.querySelectorAll('.dag-flow-combo-row').length + ' del=' + list.querySelectorAll('.dag-flow-combo-row .del').length]
+    ];
+    var pass = 0;
+    var lines = checks.map(function (c) { if (c[1]) pass++; return (c[1] ? 'PASS' : 'FAIL') + '  ' + c[0] + '   (' + c[2] + ')'; });
+    document.getElementById('report').textContent =
+      '工作流入口弹窗 无底部按钮版测试：' + pass + '/' + checks.length + ' PASS\n' + lines.join('\n');
+    input.focus();
+    // 静态模式（?static=1）：只做结构/几何检查，保持弹窗打开供截图
+    if (/[?&]static=1/.test(location.search)) return;
+
+    // 删除流程实测：🗑 → 行内确认态 → 删除 → 行退场
+    var beforeRows = list.querySelectorAll('.dag-flow-combo-row').length;
+    var firstDel = list.querySelector('.dag-flow-combo-row .del');
+    if (firstDel) firstDel.click();
+    setTimeout(function () {
+      var yes = list.querySelector('.dag-flow-combo-row .del-yes');
+      var hasConfirm = !!yes;
+      if (yes) yes.click();
+      setTimeout(function () {
+        var afterRows = list.querySelectorAll('.dag-flow-combo-row').length;
+        appendLine((hasConfirm && afterRows === beforeRows - 1 ? 'PASS' : 'FAIL') +
+          '  5 行内确认→删除生效   (确认态=' + hasConfirm + ', ' + beforeRows + ' → ' + afterRows + ')');
+        // ── 阶段 B：回车创建（输入不存在名 → ➕ 行 → POST save → 关闭 + onOpen）──
+        setVal(input, '回车创建的工作流');
+        pressEnter(input);
+        setTimeout(function () {
+          var ok = overlayGone() && opened.length === 1 && opened[0].name === '回车创建的工作流';
+          appendLine((ok ? 'PASS' : 'FAIL') +
+            '  6 回车创建新工作流   (关闭=' + overlayGone() + ', onOpen=' + (opened[0] && opened[0].name) + ')');
+          // ── 阶段 C：回车打开已存在（精确名 → 第一行 → GET → 关闭 + onOpen）──
+          reopenThen(function (card2) {
+            var input2 = card2.querySelector('input');
+            setVal(input2, '每周汇总');
+            pressEnter(input2);
+            setTimeout(function () {
+              var ok2 = overlayGone() && opened.length === 1 && opened[0].name === '每周汇总';
+              appendLine((ok2 ? 'PASS' : 'FAIL') +
+                '  7 回车打开已有工作流   (关闭=' + overlayGone() + ', onOpen=' + (opened[0] && opened[0].name) + ')');
+              // ── 阶段 D：右上角 ✕ 关闭 ──
+              reopenThen(function (card3) {
+                var x = card3.querySelector('.dag-flow-picker-close');
+                if (x) x.click();
+                setTimeout(function () {
+                  appendLine((overlayGone() ? 'PASS' : 'FAIL') + '  8 ✕ 关闭弹窗   (关闭=' + overlayGone() + ')');
+                  // 收尾：重算总数，修正表头（异步阶段追加的行也要计入）
+                  var txt = document.getElementById('report').textContent;
+                  var all = txt.match(/^(PASS|FAIL)/gm) || [];
+                  var p = all.filter(function (s) { return s === 'PASS'; }).length;
+                  document.getElementById('report').textContent =
+                    txt.replace(/^工作流入口弹窗[^\n]*/, '工作流入口弹窗 无底部按钮版测试：' + p + '/' + all.length + ' PASS');
+                }, 120);
+              });
+            }, 350);
+          });
+        }, 350);
+      }, 400);
+    }, 120);
+  }
+  whenReady();
+</script>
+</body>
+</html>
