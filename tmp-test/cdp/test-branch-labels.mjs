@@ -43,18 +43,27 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
   ok(await evaluate(cdp, `[...document.querySelectorAll('.dsh-wf-fg-problem')].some((el) => el.textContent.includes('没设分支键'))`), '问题面板列出「这条分支线没设分支键」');
   await evaluate(cdp, `(() => { const c = document.querySelector('.dsh-wf-fg-problems-close'); c && c.click(); })(); true;`);
 
-  // ④ 端口标签：if 两个（真/假）、switch 三个（quick/full/其他）+ 与端口同高
+  // ④ 端口标签：if 保持两个（真/假）+ 与端口同高；switch 改为「端口行删除、只留一行 chips」（2026-10-03 拍板 B）
   const portLabels = await evaluate(cdp, `(() => {
     const card = (kw) => [...document.querySelectorAll('.dsh-wf-fg-card')].find((c) => c.textContent.includes(kw));
     const ifCard = card('条件：有结果？');
     const swCard = card('模式分支');
     const txt = (el) => [...(el?.querySelectorAll('.dsh-wf-fg-branch-label') ?? [])].map((x) => x.textContent.trim());
-    return { ifs: txt(ifCard), sw: txt(swCard), ifTops: [...(ifCard?.querySelectorAll('.dsh-wf-fg-branch-label') ?? [])].map((x) => x.style.top), swH: Math.round(swCard.getBoundingClientRect().height) };
+    return {
+      ifs: txt(ifCard), sw: txt(swCard),
+      ifTops: [...(ifCard?.querySelectorAll('.dsh-wf-fg-branch-label') ?? [])].map((x) => x.style.top),
+      swChips: [...(swCard?.querySelectorAll('.dsh-wf-fg-chip') ?? [])].map((c) => c.textContent.trim()),
+      swRows: swCard?.querySelectorAll('.dsh-wf-fg-rou').length ?? -1,
+      swH: Math.round(swCard.getBoundingClientRect().height),
+    };
   })()`);
   ok(JSON.stringify(portLabels.ifs) === JSON.stringify(['真', '假']), 'if 卡上 真/假 两个端口标签（实际：' + JSON.stringify(portLabels.ifs) + '）');
-  ok(JSON.stringify(portLabels.sw) === JSON.stringify(['quick', 'full', '其他']), 'switch 卡上 quick/full/其他（实际：' + JSON.stringify(portLabels.sw) + '）');
-  ok(JSON.stringify(portLabels.ifTops) === JSON.stringify(['22px', '52px']), '端口标签与端口同高（22px/52px）');
-  ok(portLabels.swH >= 106, 'switch 卡随分支数增高（' + portLabels.swH + 'px ≥ 106，最后一个端口不再落在卡外）');
+  ok(JSON.stringify(portLabels.sw) === JSON.stringify([]), 'switch 卡内逐行端口标签已删除（实际：' + JSON.stringify(portLabels.sw) + '）');
+  ok(portLabels.swRows === 0, 'switch 卡内行序号也已删除（实际：' + portLabels.swRows + '）');
+  ok(JSON.stringify(portLabels.swChips) === JSON.stringify(['quick', 'full', '其他']),
+    'switch 卡上 quick/full/其他 三个 chips（实际：' + JSON.stringify(portLabels.swChips) + '）');
+  ok(JSON.stringify(portLabels.ifTops) === JSON.stringify(['22px', '52px']), 'if 端口标签与端口同高（22px/52px）');
+  ok(portLabels.swH === 91, 'switch 卡高度恒定 91px（普通节点 78px + 一行 chips，不再随分支数增高）实际：' + portLabels.swH);
 
   // ⑥ 点标签就地改分支键：把 if 的「假」线改成…先点 quick 标签改成一个新 case（⑦ 一并验证）
   await evaluate(cdp, `(() => {

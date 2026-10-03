@@ -39,8 +39,9 @@ import { NODE_PALETTE } from '../types';
 import { branchEditStore, branchKeyText, type BranchEditTarget } from './branchEdit';
 import type { RFNode, RFEdge } from '../util/flowDef';
 import { startResize8, readStoredJSON, saveJSON, readStoredWidth, clampNum, type PaletteGeom } from '../util/edge-drag';
-import { DSH_NODE_REGISTRIES } from './nodes';
+import { DSH_NODE_REGISTRIES, SWITCH_NO_CASE } from './nodes';
 import { runStatusStore, selectionStore } from './runStatus';
+import { switchCaseStore } from './switchCaseStore';
 
 // ================= 数据映射 =================
 
@@ -103,6 +104,8 @@ function structSigOf(nodes: RFNode[], edges: RFEdge[]): string {
 //   - 按住拖动 = mousedown + mousemove（node.transform.update）
 //   - 双击 = 拿起（握拳光标，节点跟随鼠标，单击放下 / Esc 还原）
 //   - 单击 = 选中（右侧编辑面板联动，走 onSelectRef → FlowPanel.selectedNodeId）
+//   - 双击 = 进入子工作流（loop 循环体 / subflow 目标；onNodeDoubleClickRef → FlowPanel，
+//     2026-10-03 用户需求。此前的「双击拿起」已取消，双击在本版本无其它绑定）
 interface DragWorldCtx { zoom: number; editorLeft: number; editorTop: number; scrollX: number; scrollY: number }
 
 function readWorldCtx(): DragWorldCtx {
@@ -152,6 +155,13 @@ function DefaultNodeWrapper(props: any) {
       if (dragMoved) { dragMoved = false; return; }
       onSelectRef.current?.(nodeId);
     };
+    // ★ 双击节点 → 进入子工作流（2026-10-03 用户需求）。与 mousedown 的 preventDefault 不冲突
+    //   （preventDefault 只拦 HTML5 拖拽/选词，不拦 dblclick）；是否真跳由 FlowPanel 决定
+    //   （只有 loop 带 body.workflowName / subflow 带 params.workflowName 才跳）。
+    const onNativeDblClick = (e: MouseEvent): void => {
+      e.stopPropagation();
+      onNodeDoubleClickRef.current?.(nodeId);
+    };
     const onNativeDown = (e: MouseEvent): void => {
       if (e.button !== 0) return;
       // 表单控件上按下不拖节点（输入框/下拉等）
@@ -184,6 +194,7 @@ function DefaultNodeWrapper(props: any) {
 
     el.addEventListener('click', onNativeClick);
     el.addEventListener('mousedown', onNativeDown);
+    el.addEventListener('dblclick', onNativeDblClick);
     // ★ mousemove/mouseup 挂 window capture：FlowGram 的 PlaygroundDrag 在 document capture
     //   层 stopImmediatePropagation（合成/程序化事件全被吞），window 层先于 document 可达。
     window.addEventListener('mousemove', onMove, true);
@@ -191,6 +202,7 @@ function DefaultNodeWrapper(props: any) {
     return () => {
       el.removeEventListener('click', onNativeClick);
       el.removeEventListener('mousedown', onNativeDown);
+      el.removeEventListener('dblclick', onNativeDblClick);
       window.removeEventListener('mousemove', onMove, true);
       window.removeEventListener('mouseup', onUp, true);
     };
@@ -488,6 +500,8 @@ function ProblemPanel(props: { problems: FlowProblem[]; onClose: () => void; onS
 
 // onChange/onSelect 的 ref 桥（editorProps 只构建一次，回调始终最新）
 let onSelectRef: { current: ((id: string) => void) | null } = { current: null };
+/** 双击节点回调桥（进入子工作流；editorProps 只构建一次，回调始终最新） */
+let onNodeDoubleClickRef: { current: ((id: string) => void) | null } = { current: null };
 let onChangeRef: { current: ((n: RFNode[], e: RFEdge[]) => void) | null } = { current: null };
 let lastEmittedSig: { current: string } = { current: '' };
 
@@ -512,7 +526,7 @@ let editEdgeKeyRef: { current: ((p: EdgeKeyEditPayload) => void) | null } = { cu
  *  - 点标签就地打开编辑器（方案 C） */
 function LineBranchLabel(props: any) {
   const line = props?.line;
-  const key = String(line?.fromPort?.portID ?? '');
+  const rawKey = String(line?.fromPort?.portID ?? '');
   // ★ 源/目标节点用 line.from/line.to 取——它们与端口无关；未设分支键的线可能没有 fromPort
   //   （若用 fromPort.node.id 取，恰恰是这种最该报警的线取不到节点 → 警示永远不显示）
   const src = String(line?.from?.id ?? line?.fromPort?.node?.id ?? '');
@@ -529,6 +543,15 @@ function LineBranchLabel(props: any) {
   }
   const isBranchNode = nodeType === 'if' || nodeType === 'switch';
   if (!isBranchNode) return null;
+  // ★ switch 单点端口（2026-10-03 用户拍板 B）：端口不再是分支键本身——'out' = 「这条线还没选分支键」，
+  //   与 flowDef.fromRF 的映射一致（端口只决定拖线命中哪个锚点，分支键语义没变）。
+  const key = nodeType === 'switch' && rawKey === 'out' ? '' : rawKey;
+  // ★ 同一对 from→to 的多条线（多个 case 指向同一目标）标签会精确重叠：按它在同名线里的序号错开，
+  //   否则叠成一坨读不出哪个 case 是哪个（?many 夹具就是 8 个 case 指向同一个目标）。
+  const dupIdx = Math.max(0, graphRef.current.edges
+    .filter((e) => e.source === src && e.target === dst)
+    .findIndex((e) => String(e.sourceHandle ?? '') === rawKey));
+  const dupStyle = dupIdx > 0 ? { marginTop: `${dupIdx * 13}px` } : undefined;
   const openEditor = (e: any): void => {
     e.stopPropagation();
     e.preventDefault();
@@ -541,13 +564,17 @@ function LineBranchLabel(props: any) {
   if (!key) {
     return createElement('div', {
       className: 'dsh-wf-fg-line-label is-warn',
-      title: '这条线没设分支键——运行时会把它当作恒激活（if/switch 的所有分支都会执行）。点击设置',
+      style: dupStyle,
+      title: nodeType === 'switch'
+        ? '这条线还没选分支键（switch 里先画线、再点这条线的标签选 case）。不选的话它不会被执行'
+        : '这条线没设分支键——运行时会把它当作恒激活（if/switch 的所有分支都会执行）。点击设置',
       onClick: openEditor,
     }, '未设分支');
   }
   const cls = key === 'true' ? 'is-true' : key === 'false' ? 'is-false' : key === '*' ? 'is-case' : 'is-case';
   return createElement('div', {
     className: `dsh-wf-fg-line-label ${cls}`,
+    style: dupStyle,
     title: `分支键 ${key}（点击修改）`,
     onClick: openEditor,
   }, branchKeyLabel(key));
@@ -648,6 +675,46 @@ function BranchKeyEditor() {
 
 // ================= 编辑器 props =================
 
+/** ★ switch 新线的分支键归属（2026-10-03 用户拍板 B；10-03 真机反馈后改为**与命中端口无关**）。
+ *  背景：用户要「switch 端口行去掉、只留 chips，选择哪个 chips，画线带出来的就是哪个分支」——但 switch 的
+ *  出口端口在视觉上收成了同一个点（多端口同坐标叠着），鼠标命中的是哪个端口由 FlowGram 的绘制顺序决定。
+ *  ★真机实测（用户反馈「这个没实现，没选择时画出来的是其他 else」）：引擎会把新线挂到 **`*` 兜底端口**上，
+ *    我第一版只处理「挂在 `out` 端口上的新线」→ 真机一律不生效。现在**不再看引擎挂了哪个端口**：
+ *  · 选中的 chip → 新线端口改写成这个 case（分支键仍走既有 portID↔when↔next 那套）
+ *  · 没选中 → 新线端口改写成 `out`（＝未设分支，先画线、再在线上点选；绝不静默变成 `*` 兜底）
+ *  · 老线一律不动（只认「同 from→to 的线数超出上一帧快照」的多出来的线），否则改一次选择会把历史线全带跑。
+ *  就地改端口是既有机制（editEdgeKeyRef 同一路：line.updateInfo），不触发整文档重建、不会产生幽灵线。 */
+function adoptChipCaseForNewLines(ctx: any): void {
+  try {
+    const prev = graphRef.current.edges;
+    const prevCount = new Map<string, number>();
+    for (const e of prev) {
+      const k = `${e.source}|${e.target}`;
+      prevCount.set(k, (prevCount.get(k) ?? 0) + 1);
+    }
+    const typeOf = (id: string): string => String(graphRef.current.nodes.find((n) => n.id === id)?.type ?? '');
+    const lm: any = ctx.container.get(WorkflowLinesManager);
+    const seen = new Map<string, number>();
+    for (const l of (lm.getAllLines?.() ?? [])) {
+      if (l?.isDrawing) continue;
+      const src = String(l?.from?.id ?? ''); const dst = String(l?.to?.id ?? '');
+      if (!src || !dst || typeOf(src) !== 'switch') continue;
+      const k = `${src}|${dst}`;
+      const idx = (seen.get(k) ?? 0) + 1;
+      seen.set(k, idx);
+      if (idx <= (prevCount.get(k) ?? 0)) continue;                    // 老线：不动
+      const sel = switchCaseStore.getSel(src);
+      const hasPort = (p: string): boolean => !!l?.from?.ports?.getPortEntityByKey?.('output', p);
+      const want = sel && hasPort(sel) ? sel : SWITCH_NO_CASE;         // 没选中（或 case 端口缺失）→ 归到 out
+      const hit = String(l?.fromPort?.portID ?? '');
+      if (hit === want) { (window as any).__df_lastLineAdopt = { src, dst, hit, want, applied: false, sel: sel ?? null }; continue; }
+      if (!hasPort(want)) continue;
+      l.updateInfo((info: any) => { info.fromPort = want; });
+      (window as any).__df_lastLineAdopt = { src, dst, hit, want, applied: true, sel: sel ?? null };
+    }
+  } catch { /* 归属失败不阻断主流程（线仍在，只是留着「未设分支」） */ }
+}
+
 function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
   return {
     background: false,
@@ -673,6 +740,8 @@ function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
     materials: { renderDefaultNode: DefaultNodeWrapper },
     onContentChange: (ctx: any) => {
       try {
+        // ★ switch 单点端口（2026-10-03 用户拍板 B）：先按节点上选中的 chip 给**刚画的**线定分支键
+        adoptChipCaseForNewLines(ctx);
         const { nodes, edges } = fromFG(ctx.document.toJSON());
         lastEmittedSig.current = structSigOf(nodes, edges);
         onChangeRef.current?.(nodes, edges);
@@ -1039,6 +1108,8 @@ export function Canvas(props: {
   activeEdges?: Set<string>;
   onChange: (nodes: RFNode[], edges: RFEdge[]) => void;
   onSelectNode: (id: string) => void;
+  /** 双击节点（进入 loop 循环体 / subflow 子工作流，2026-10-03 用户需求） */
+  onNodeDoubleClick?: (id: string) => void;
   selectedNodeId?: string | null;
   runResults?: Record<string, { status: string; durationMs?: number }>;
   rightInset?: number; // 缩略图右避让量（右面板宽 + 边距，2026-10-01 夜）
@@ -1048,6 +1119,7 @@ export function Canvas(props: {
   // 回调桥：保持最新（editorProps 只构建一次）
   onChangeRef.current = props.onChange;
   onSelectRef.current = props.onSelectNode;
+  onNodeDoubleClickRef.current = props.onNodeDoubleClick ?? null;
   // 分支标签要按源节点类型/cases 决定候选键（标签在 FlowGram 层渲染，拿不到我们的 RF 数组）
   graphRef.current = { nodes, edges };
 

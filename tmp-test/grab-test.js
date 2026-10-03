@@ -94,28 +94,28 @@
           };
           var ReactDebugCurrentFrame = {};
           var currentExtraStackFrame = null;
-          function setExtraStackFrame(stack) {
+          function setExtraStackFrame(stack2) {
             {
-              currentExtraStackFrame = stack;
+              currentExtraStackFrame = stack2;
             }
           }
           {
-            ReactDebugCurrentFrame.setExtraStackFrame = function(stack) {
+            ReactDebugCurrentFrame.setExtraStackFrame = function(stack2) {
               {
-                currentExtraStackFrame = stack;
+                currentExtraStackFrame = stack2;
               }
             };
             ReactDebugCurrentFrame.getCurrentStack = null;
             ReactDebugCurrentFrame.getStackAddendum = function() {
-              var stack = "";
+              var stack2 = "";
               if (currentExtraStackFrame) {
-                stack += currentExtraStackFrame;
+                stack2 += currentExtraStackFrame;
               }
               var impl = ReactDebugCurrentFrame.getCurrentStack;
               if (impl) {
-                stack += impl() || "";
+                stack2 += impl() || "";
               }
-              return stack;
+              return stack2;
             };
           }
           var enableScopeAPI = false;
@@ -155,10 +155,10 @@
           function printWarning(level, format, args) {
             {
               var ReactDebugCurrentFrame2 = ReactSharedInternals.ReactDebugCurrentFrame;
-              var stack = ReactDebugCurrentFrame2.getStackAddendum();
-              if (stack !== "") {
+              var stack2 = ReactDebugCurrentFrame2.getStackAddendum();
+              if (stack2 !== "") {
                 format += "%s";
-                args = args.concat([stack]);
+                args = args.concat([stack2]);
               }
               var argsWithFormat = args.map(function(item) {
                 return String(item);
@@ -1092,7 +1092,7 @@
             }
             return dispatcher.useContext(Context);
           }
-          function useState14(initialState) {
+          function useState16(initialState) {
             var dispatcher = resolveDispatcher();
             return dispatcher.useState(initialState);
           }
@@ -1100,11 +1100,11 @@
             var dispatcher = resolveDispatcher();
             return dispatcher.useReducer(reducer, initialArg, init2);
           }
-          function useRef9(initialValue) {
+          function useRef10(initialValue) {
             var dispatcher = resolveDispatcher();
             return dispatcher.useRef(initialValue);
           }
-          function useEffect20(create2, deps) {
+          function useEffect21(create2, deps) {
             var dispatcher = resolveDispatcher();
             return dispatcher.useEffect(create2, deps);
           }
@@ -1404,8 +1404,8 @@
             {
               if (element) {
                 var owner = element._owner;
-                var stack = describeUnknownElementTypeFrameInDEV(element.type, element._source, owner ? owner.type : null);
-                ReactDebugCurrentFrame$1.setExtraStackFrame(stack);
+                var stack2 = describeUnknownElementTypeFrameInDEV(element.type, element._source, owner ? owner.type : null);
+                ReactDebugCurrentFrame$1.setExtraStackFrame(stack2);
               } else {
                 ReactDebugCurrentFrame$1.setExtraStackFrame(null);
               }
@@ -1446,8 +1446,8 @@
             {
               if (element) {
                 var owner = element._owner;
-                var stack = describeUnknownElementTypeFrameInDEV(element.type, element._source, owner ? owner.type : null);
-                setExtraStackFrame(stack);
+                var stack2 = describeUnknownElementTypeFrameInDEV(element.type, element._source, owner ? owner.type : null);
+                setExtraStackFrame(stack2);
               } else {
                 setExtraStackFrame(null);
               }
@@ -1887,15 +1887,15 @@
           exports3.useContext = useContext8;
           exports3.useDebugValue = useDebugValue;
           exports3.useDeferredValue = useDeferredValue;
-          exports3.useEffect = useEffect20;
+          exports3.useEffect = useEffect21;
           exports3.useId = useId;
           exports3.useImperativeHandle = useImperativeHandle2;
           exports3.useInsertionEffect = useInsertionEffect;
           exports3.useLayoutEffect = useLayoutEffect7;
           exports3.useMemo = useMemo15;
           exports3.useReducer = useReducer;
-          exports3.useRef = useRef9;
-          exports3.useState = useState14;
+          exports3.useRef = useRef10;
+          exports3.useState = useState16;
           exports3.useSyncExternalStore = useSyncExternalStore3;
           exports3.useTransition = useTransition;
           exports3.version = ReactVersion;
@@ -2423,10 +2423,10 @@
           function printWarning(level, format, args) {
             {
               var ReactDebugCurrentFrame2 = ReactSharedInternals.ReactDebugCurrentFrame;
-              var stack = ReactDebugCurrentFrame2.getStackAddendum();
-              if (stack !== "") {
+              var stack2 = ReactDebugCurrentFrame2.getStackAddendum();
+              if (stack2 !== "") {
                 format += "%s";
-                args = args.concat([stack]);
+                args = args.concat([stack2]);
               }
               var argsWithFormat = args.map(function(item) {
                 return String(item);
@@ -8068,12 +8068,12 @@
                 }
               }
             }
-            var listeners3 = accumulateTwoPhaseListeners(targetInst, eventType);
-            if (listeners3.length > 0) {
+            var listeners4 = accumulateTwoPhaseListeners(targetInst, eventType);
+            if (listeners4.length > 0) {
               var event = new SyntheticCompositionEvent(eventType, domEventName, null, nativeEvent, nativeEventTarget);
               dispatchQueue.push({
                 event,
-                listeners: listeners3
+                listeners: listeners4
               });
               if (fallbackData) {
                 event.data = fallbackData;
@@ -8144,12 +8144,12 @@
             if (!chars) {
               return null;
             }
-            var listeners3 = accumulateTwoPhaseListeners(targetInst, "onBeforeInput");
-            if (listeners3.length > 0) {
+            var listeners4 = accumulateTwoPhaseListeners(targetInst, "onBeforeInput");
+            if (listeners4.length > 0) {
               var event = new SyntheticInputEvent("onBeforeInput", "beforeinput", null, nativeEvent, nativeEventTarget);
               dispatchQueue.push({
                 event,
-                listeners: listeners3
+                listeners: listeners4
               });
               event.data = chars;
             }
@@ -8203,12 +8203,12 @@
           }
           function createAndAccumulateChangeEvent(dispatchQueue, inst, nativeEvent, target) {
             enqueueStateRestore(target);
-            var listeners3 = accumulateTwoPhaseListeners(inst, "onChange");
-            if (listeners3.length > 0) {
+            var listeners4 = accumulateTwoPhaseListeners(inst, "onChange");
+            if (listeners4.length > 0) {
               var event = new SyntheticEvent("onChange", "change", null, nativeEvent, target);
               dispatchQueue.push({
                 event,
-                listeners: listeners3
+                listeners: listeners4
               });
             }
           }
@@ -8706,12 +8706,12 @@
             var currentSelection = getSelection$1(activeElement$1);
             if (!lastSelection || !shallowEqual8(lastSelection, currentSelection)) {
               lastSelection = currentSelection;
-              var listeners3 = accumulateTwoPhaseListeners(activeElementInst$1, "onSelect");
-              if (listeners3.length > 0) {
+              var listeners4 = accumulateTwoPhaseListeners(activeElementInst$1, "onSelect");
+              if (listeners4.length > 0) {
                 var event = new SyntheticEvent("onSelect", "select", null, nativeEvent, nativeEventTarget);
                 dispatchQueue.push({
                   event,
-                  listeners: listeners3
+                  listeners: listeners4
                 });
                 event.target = activeElement$1;
               }
@@ -8985,8 +8985,8 @@
           function processDispatchQueue(dispatchQueue, eventSystemFlags) {
             var inCapturePhase = (eventSystemFlags & IS_CAPTURE_PHASE) !== 0;
             for (var i3 = 0; i3 < dispatchQueue.length; i3++) {
-              var _dispatchQueue$i = dispatchQueue[i3], event = _dispatchQueue$i.event, listeners3 = _dispatchQueue$i.listeners;
-              processDispatchQueueItemsInOrder(event, listeners3, inCapturePhase);
+              var _dispatchQueue$i = dispatchQueue[i3], event = _dispatchQueue$i.event, listeners4 = _dispatchQueue$i.listeners;
+              processDispatchQueueItemsInOrder(event, listeners4, inCapturePhase);
             }
             rethrowCaughtError();
           }
@@ -9130,7 +9130,7 @@
           function accumulateSinglePhaseListeners(targetFiber, reactName, nativeEventType, inCapturePhase, accumulateTargetOnly, nativeEvent) {
             var captureName = reactName !== null ? reactName + "Capture" : null;
             var reactEventName = inCapturePhase ? captureName : reactName;
-            var listeners3 = [];
+            var listeners4 = [];
             var instance = targetFiber;
             var lastHostComponent = null;
             while (instance !== null) {
@@ -9140,7 +9140,7 @@
                 if (reactEventName !== null) {
                   var listener = getListener(instance, reactEventName);
                   if (listener != null) {
-                    listeners3.push(createDispatchListener(instance, listener, lastHostComponent));
+                    listeners4.push(createDispatchListener(instance, listener, lastHostComponent));
                   }
                 }
               }
@@ -9149,11 +9149,11 @@
               }
               instance = instance.return;
             }
-            return listeners3;
+            return listeners4;
           }
           function accumulateTwoPhaseListeners(targetFiber, reactName) {
             var captureName = reactName + "Capture";
-            var listeners3 = [];
+            var listeners4 = [];
             var instance = targetFiber;
             while (instance !== null) {
               var _instance3 = instance, stateNode = _instance3.stateNode, tag = _instance3.tag;
@@ -9161,16 +9161,16 @@
                 var currentTarget = stateNode;
                 var captureListener = getListener(instance, captureName);
                 if (captureListener != null) {
-                  listeners3.unshift(createDispatchListener(instance, captureListener, currentTarget));
+                  listeners4.unshift(createDispatchListener(instance, captureListener, currentTarget));
                 }
                 var bubbleListener = getListener(instance, reactName);
                 if (bubbleListener != null) {
-                  listeners3.push(createDispatchListener(instance, bubbleListener, currentTarget));
+                  listeners4.push(createDispatchListener(instance, bubbleListener, currentTarget));
                 }
               }
               instance = instance.return;
             }
-            return listeners3;
+            return listeners4;
           }
           function getParent(inst) {
             if (inst === null) {
@@ -9215,7 +9215,7 @@
           }
           function accumulateEnterLeaveListenersForEvent(dispatchQueue, event, target, common, inCapturePhase) {
             var registrationName = event._reactName;
-            var listeners3 = [];
+            var listeners4 = [];
             var instance = target;
             while (instance !== null) {
               if (instance === common) {
@@ -9230,21 +9230,21 @@
                 if (inCapturePhase) {
                   var captureListener = getListener(instance, registrationName);
                   if (captureListener != null) {
-                    listeners3.unshift(createDispatchListener(instance, captureListener, currentTarget));
+                    listeners4.unshift(createDispatchListener(instance, captureListener, currentTarget));
                   }
                 } else if (!inCapturePhase) {
                   var bubbleListener = getListener(instance, registrationName);
                   if (bubbleListener != null) {
-                    listeners3.push(createDispatchListener(instance, bubbleListener, currentTarget));
+                    listeners4.push(createDispatchListener(instance, bubbleListener, currentTarget));
                   }
                 }
               }
               instance = instance.return;
             }
-            if (listeners3.length !== 0) {
+            if (listeners4.length !== 0) {
               dispatchQueue.push({
                 event,
-                listeners: listeners3
+                listeners: listeners4
               });
             }
           }
@@ -10511,19 +10511,19 @@
           }
           function getSuspenseInstanceFallbackErrorDetails(instance) {
             var dataset = instance.nextSibling && instance.nextSibling.dataset;
-            var digest, message, stack;
+            var digest, message, stack2;
             if (dataset) {
               digest = dataset.dgst;
               {
                 message = dataset.msg;
-                stack = dataset.stck;
+                stack2 = dataset.stck;
               }
             }
             {
               return {
                 message,
                 digest,
-                stack
+                stack: stack2
               };
             }
           }
@@ -10806,8 +10806,8 @@
             {
               if (element) {
                 var owner = element._owner;
-                var stack = describeUnknownElementTypeFrameInDEV(element.type, element._source, owner ? owner.type : null);
-                ReactDebugCurrentFrame$1.setExtraStackFrame(stack);
+                var stack2 = describeUnknownElementTypeFrameInDEV(element.type, element._source, owner ? owner.type : null);
+                ReactDebugCurrentFrame$1.setExtraStackFrame(stack2);
               } else {
                 ReactDebugCurrentFrame$1.setExtraStackFrame(null);
               }
@@ -13382,11 +13382,11 @@
           }
           function registerMutableSourceForHydration(root3, mutableSource) {
             var getVersion = mutableSource._getVersion;
-            var version = getVersion(mutableSource._source);
+            var version2 = getVersion(mutableSource._source);
             if (root3.mutableSourceEagerHydrationData == null) {
-              root3.mutableSourceEagerHydrationData = [mutableSource, version];
+              root3.mutableSourceEagerHydrationData = [mutableSource, version2];
             } else {
-              root3.mutableSourceEagerHydrationData.push(mutableSource, version);
+              root3.mutableSourceEagerHydrationData.push(mutableSource, version2);
             }
           }
           var ReactCurrentDispatcher$1 = ReactSharedInternals.ReactCurrentDispatcher, ReactCurrentBatchConfig$2 = ReactSharedInternals.ReactCurrentBatchConfig;
@@ -15953,11 +15953,11 @@
               digest: null
             };
           }
-          function createCapturedValue(value, digest, stack) {
+          function createCapturedValue(value, digest, stack2) {
             return {
               value,
               source: null,
-              stack: stack != null ? stack : null,
+              stack: stack2 != null ? stack2 : null,
               digest: digest != null ? digest : null
             };
           }
@@ -15973,8 +15973,8 @@
               var error2 = errorInfo.value;
               if (true) {
                 var source = errorInfo.source;
-                var stack = errorInfo.stack;
-                var componentStack = stack !== null ? stack : "";
+                var stack2 = errorInfo.stack;
+                var componentStack = stack2 !== null ? stack2 : "";
                 if (error2 != null && error2._suppressLogging) {
                   if (boundary.tag === ClassComponent) {
                     return;
@@ -16042,9 +16042,9 @@
                   markLegacyErrorBoundaryAsFailed(this);
                 }
                 var error$12 = errorInfo.value;
-                var stack = errorInfo.stack;
+                var stack2 = errorInfo.stack;
                 this.componentDidCatch(error$12, {
-                  componentStack: stack !== null ? stack : ""
+                  componentStack: stack2 !== null ? stack2 : ""
                 });
                 {
                   if (typeof getDerivedStateFromError !== "function") {
@@ -17275,12 +17275,12 @@
                 );
               }
               if (isSuspenseInstanceFallback(suspenseInstance)) {
-                var digest, message, stack;
+                var digest, message, stack2;
                 {
                   var _getSuspenseInstanceF = getSuspenseInstanceFallbackErrorDetails(suspenseInstance);
                   digest = _getSuspenseInstanceF.digest;
                   message = _getSuspenseInstanceF.message;
-                  stack = _getSuspenseInstanceF.stack;
+                  stack2 = _getSuspenseInstanceF.stack;
                 }
                 var error2;
                 if (message) {
@@ -17288,7 +17288,7 @@
                 } else {
                   error2 = new Error("The server could not finish this Suspense boundary, likely due to an error during server rendering. Switched to client rendering.");
                 }
-                var capturedValue = createCapturedValue(error2, digest, stack);
+                var capturedValue = createCapturedValue(error2, digest, stack2);
                 return retrySuspenseComponentWithoutHydrating(current2, workInProgress2, renderLanes2, capturedValue);
               }
               var hasContextChanged2 = includesSomeLane(renderLanes2, current2.childLanes);
@@ -29443,13 +29443,13 @@
       var isTypedArray2 = require_isTypedArray();
       var safeGet2 = require_safeGet();
       var toPlainObject2 = require_toPlainObject();
-      function baseMergeDeep2(object, source, key, srcIndex, mergeFunc, customizer, stack) {
-        var objValue = safeGet2(object, key), srcValue = safeGet2(source, key), stacked = stack.get(srcValue);
+      function baseMergeDeep2(object, source, key, srcIndex, mergeFunc, customizer, stack2) {
+        var objValue = safeGet2(object, key), srcValue = safeGet2(source, key), stacked = stack2.get(srcValue);
         if (stacked) {
           assignMergeValue2(object, key, stacked);
           return;
         }
-        var newValue = customizer ? customizer(objValue, srcValue, key + "", object, source, stack) : void 0;
+        var newValue = customizer ? customizer(objValue, srcValue, key + "", object, source, stack2) : void 0;
         var isCommon = newValue === void 0;
         if (isCommon) {
           var isArr = isArray5(srcValue), isBuff = !isArr && isBuffer2(srcValue), isTyped = !isArr && !isBuff && isTypedArray2(srcValue);
@@ -29480,9 +29480,9 @@
           }
         }
         if (isCommon) {
-          stack.set(srcValue, newValue);
-          mergeFunc(newValue, srcValue, srcIndex, customizer, stack);
-          stack["delete"](srcValue);
+          stack2.set(srcValue, newValue);
+          mergeFunc(newValue, srcValue, srcIndex, customizer, stack2);
+          stack2["delete"](srcValue);
         }
         assignMergeValue2(object, key, newValue);
       }
@@ -29500,16 +29500,16 @@
       var isObject5 = require_isObject();
       var keysIn2 = require_keysIn();
       var safeGet2 = require_safeGet();
-      function baseMerge2(object, source, srcIndex, customizer, stack) {
+      function baseMerge2(object, source, srcIndex, customizer, stack2) {
         if (object === source) {
           return;
         }
         baseFor2(source, function(srcValue, key) {
-          stack || (stack = new Stack2());
+          stack2 || (stack2 = new Stack2());
           if (isObject5(srcValue)) {
-            baseMergeDeep2(object, source, key, srcIndex, baseMerge2, customizer, stack);
+            baseMergeDeep2(object, source, key, srcIndex, baseMerge2, customizer, stack2);
           } else {
-            var newValue = customizer ? customizer(safeGet2(object, key), srcValue, key + "", object, source, stack) : void 0;
+            var newValue = customizer ? customizer(safeGet2(object, key), srcValue, key + "", object, source, stack2) : void 0;
             if (newValue === void 0) {
               newValue = srcValue;
             }
@@ -30706,23 +30706,23 @@
       var cacheHas2 = require_cacheHas();
       var COMPARE_PARTIAL_FLAG7 = 1;
       var COMPARE_UNORDERED_FLAG5 = 2;
-      function equalArrays2(array, other, bitmask, customizer, equalFunc, stack) {
+      function equalArrays2(array, other, bitmask, customizer, equalFunc, stack2) {
         var isPartial = bitmask & COMPARE_PARTIAL_FLAG7, arrLength = array.length, othLength = other.length;
         if (arrLength != othLength && !(isPartial && othLength > arrLength)) {
           return false;
         }
-        var arrStacked = stack.get(array);
-        var othStacked = stack.get(other);
+        var arrStacked = stack2.get(array);
+        var othStacked = stack2.get(other);
         if (arrStacked && othStacked) {
           return arrStacked == other && othStacked == array;
         }
         var index2 = -1, result = true, seen = bitmask & COMPARE_UNORDERED_FLAG5 ? new SetCache2() : void 0;
-        stack.set(array, other);
-        stack.set(other, array);
+        stack2.set(array, other);
+        stack2.set(other, array);
         while (++index2 < arrLength) {
           var arrValue = array[index2], othValue = other[index2];
           if (customizer) {
-            var compared = isPartial ? customizer(othValue, arrValue, index2, other, array, stack) : customizer(arrValue, othValue, index2, array, other, stack);
+            var compared = isPartial ? customizer(othValue, arrValue, index2, other, array, stack2) : customizer(arrValue, othValue, index2, array, other, stack2);
           }
           if (compared !== void 0) {
             if (compared) {
@@ -30733,20 +30733,20 @@
           }
           if (seen) {
             if (!arraySome2(other, function(othValue2, othIndex) {
-              if (!cacheHas2(seen, othIndex) && (arrValue === othValue2 || equalFunc(arrValue, othValue2, bitmask, customizer, stack))) {
+              if (!cacheHas2(seen, othIndex) && (arrValue === othValue2 || equalFunc(arrValue, othValue2, bitmask, customizer, stack2))) {
                 return seen.push(othIndex);
               }
             })) {
               result = false;
               break;
             }
-          } else if (!(arrValue === othValue || equalFunc(arrValue, othValue, bitmask, customizer, stack))) {
+          } else if (!(arrValue === othValue || equalFunc(arrValue, othValue, bitmask, customizer, stack2))) {
             result = false;
             break;
           }
         }
-        stack["delete"](array);
-        stack["delete"](other);
+        stack2["delete"](array);
+        stack2["delete"](other);
         return result;
       }
       module2.exports = equalArrays2;
@@ -30791,7 +30791,7 @@
       var dataViewTag6 = "[object DataView]";
       var symbolProto4 = Symbol3 ? Symbol3.prototype : void 0;
       var symbolValueOf3 = symbolProto4 ? symbolProto4.valueOf : void 0;
-      function equalByTag2(object, other, tag, bitmask, customizer, equalFunc, stack) {
+      function equalByTag2(object, other, tag, bitmask, customizer, equalFunc, stack2) {
         switch (tag) {
           case dataViewTag6:
             if (object.byteLength != other.byteLength || object.byteOffset != other.byteOffset) {
@@ -30821,14 +30821,14 @@
             if (object.size != other.size && !isPartial) {
               return false;
             }
-            var stacked = stack.get(object);
+            var stacked = stack2.get(object);
             if (stacked) {
               return stacked == other;
             }
             bitmask |= COMPARE_UNORDERED_FLAG5;
-            stack.set(object, other);
-            var result = equalArrays2(convert(object), convert(other), bitmask, customizer, equalFunc, stack);
-            stack["delete"](object);
+            stack2.set(object, other);
+            var result = equalArrays2(convert(object), convert(other), bitmask, customizer, equalFunc, stack2);
+            stack2["delete"](object);
             return result;
           case symbolTag5:
             if (symbolValueOf3) {
@@ -30967,7 +30967,7 @@
       var COMPARE_PARTIAL_FLAG7 = 1;
       var objectProto23 = Object.prototype;
       var hasOwnProperty20 = objectProto23.hasOwnProperty;
-      function equalObjects2(object, other, bitmask, customizer, equalFunc, stack) {
+      function equalObjects2(object, other, bitmask, customizer, equalFunc, stack2) {
         var isPartial = bitmask & COMPARE_PARTIAL_FLAG7, objProps = getAllKeys2(object), objLength = objProps.length, othProps = getAllKeys2(other), othLength = othProps.length;
         if (objLength != othLength && !isPartial) {
           return false;
@@ -30979,22 +30979,22 @@
             return false;
           }
         }
-        var objStacked = stack.get(object);
-        var othStacked = stack.get(other);
+        var objStacked = stack2.get(object);
+        var othStacked = stack2.get(other);
         if (objStacked && othStacked) {
           return objStacked == other && othStacked == object;
         }
         var result = true;
-        stack.set(object, other);
-        stack.set(other, object);
+        stack2.set(object, other);
+        stack2.set(other, object);
         var skipCtor = isPartial;
         while (++index2 < objLength) {
           key = objProps[index2];
           var objValue = object[key], othValue = other[key];
           if (customizer) {
-            var compared = isPartial ? customizer(othValue, objValue, key, other, object, stack) : customizer(objValue, othValue, key, object, other, stack);
+            var compared = isPartial ? customizer(othValue, objValue, key, other, object, stack2) : customizer(objValue, othValue, key, object, other, stack2);
           }
-          if (!(compared === void 0 ? objValue === othValue || equalFunc(objValue, othValue, bitmask, customizer, stack) : compared)) {
+          if (!(compared === void 0 ? objValue === othValue || equalFunc(objValue, othValue, bitmask, customizer, stack2) : compared)) {
             result = false;
             break;
           }
@@ -31006,8 +31006,8 @@
             result = false;
           }
         }
-        stack["delete"](object);
-        stack["delete"](other);
+        stack2["delete"](object);
+        stack2["delete"](other);
         return result;
       }
       module2.exports = equalObjects2;
@@ -31107,7 +31107,7 @@
       var objectTag6 = "[object Object]";
       var objectProto23 = Object.prototype;
       var hasOwnProperty20 = objectProto23.hasOwnProperty;
-      function baseIsEqualDeep2(object, other, bitmask, customizer, equalFunc, stack) {
+      function baseIsEqualDeep2(object, other, bitmask, customizer, equalFunc, stack2) {
         var objIsArr = isArray5(object), othIsArr = isArray5(other), objTag = objIsArr ? arrayTag4 : getTag2(object), othTag = othIsArr ? arrayTag4 : getTag2(other);
         objTag = objTag == argsTag5 ? objectTag6 : objTag;
         othTag = othTag == argsTag5 ? objectTag6 : othTag;
@@ -31120,22 +31120,22 @@
           objIsObj = false;
         }
         if (isSameTag && !objIsObj) {
-          stack || (stack = new Stack2());
-          return objIsArr || isTypedArray2(object) ? equalArrays2(object, other, bitmask, customizer, equalFunc, stack) : equalByTag2(object, other, objTag, bitmask, customizer, equalFunc, stack);
+          stack2 || (stack2 = new Stack2());
+          return objIsArr || isTypedArray2(object) ? equalArrays2(object, other, bitmask, customizer, equalFunc, stack2) : equalByTag2(object, other, objTag, bitmask, customizer, equalFunc, stack2);
         }
         if (!(bitmask & COMPARE_PARTIAL_FLAG7)) {
           var objIsWrapped = objIsObj && hasOwnProperty20.call(object, "__wrapped__"), othIsWrapped = othIsObj && hasOwnProperty20.call(other, "__wrapped__");
           if (objIsWrapped || othIsWrapped) {
             var objUnwrapped = objIsWrapped ? object.value() : object, othUnwrapped = othIsWrapped ? other.value() : other;
-            stack || (stack = new Stack2());
-            return equalFunc(objUnwrapped, othUnwrapped, bitmask, customizer, stack);
+            stack2 || (stack2 = new Stack2());
+            return equalFunc(objUnwrapped, othUnwrapped, bitmask, customizer, stack2);
           }
         }
         if (!isSameTag) {
           return false;
         }
-        stack || (stack = new Stack2());
-        return equalObjects2(object, other, bitmask, customizer, equalFunc, stack);
+        stack2 || (stack2 = new Stack2());
+        return equalObjects2(object, other, bitmask, customizer, equalFunc, stack2);
       }
       module2.exports = baseIsEqualDeep2;
     }
@@ -31146,14 +31146,14 @@
     "node_modules/lodash/_baseIsEqual.js"(exports3, module2) {
       var baseIsEqualDeep2 = require_baseIsEqualDeep();
       var isObjectLike2 = require_isObjectLike();
-      function baseIsEqual2(value, other, bitmask, customizer, stack) {
+      function baseIsEqual2(value, other, bitmask, customizer, stack2) {
         if (value === other) {
           return true;
         }
         if (value == null || other == null || !isObjectLike2(value) && !isObjectLike2(other)) {
           return value !== value && other !== other;
         }
-        return baseIsEqualDeep2(value, other, bitmask, customizer, baseIsEqual2, stack);
+        return baseIsEqualDeep2(value, other, bitmask, customizer, baseIsEqual2, stack2);
       }
       module2.exports = baseIsEqual2;
     }
@@ -31186,11 +31186,11 @@
               return false;
             }
           } else {
-            var stack = new Stack2();
+            var stack2 = new Stack2();
             if (customizer) {
-              var result = customizer(objValue, srcValue, key, object, source, stack);
+              var result = customizer(objValue, srcValue, key, object, source, stack2);
             }
-            if (!(result === void 0 ? baseIsEqual2(srcValue, objValue, COMPARE_PARTIAL_FLAG7 | COMPARE_UNORDERED_FLAG5, customizer, stack) : result)) {
+            if (!(result === void 0 ? baseIsEqual2(srcValue, objValue, COMPARE_PARTIAL_FLAG7 | COMPARE_UNORDERED_FLAG5, customizer, stack2) : result)) {
               return false;
             }
           }
@@ -32550,7 +32550,7 @@
       module2.exports = tarjan;
       function tarjan(g4) {
         var index2 = 0;
-        var stack = [];
+        var stack2 = [];
         var visited = {};
         var results = [];
         function dfs2(v5) {
@@ -32559,7 +32559,7 @@
             lowlink: index2,
             index: index2++
           };
-          stack.push(v5);
+          stack2.push(v5);
           g4.successors(v5).forEach(function(w5) {
             if (!visited.hasOwnProperty(w5)) {
               dfs2(w5);
@@ -32572,7 +32572,7 @@
             var cmpt = [];
             var w4;
             do {
-              w4 = stack.pop();
+              w4 = stack2.pop();
               visited[w4].onStack = false;
               cmpt.push(w4);
             } while (v5 !== w4);
@@ -32659,17 +32659,17 @@
     "node_modules/@dagrejs/graphlib/lib/alg/topsort.js"(exports3, module2) {
       function topsort(g4) {
         var visited = {};
-        var stack = {};
+        var stack2 = {};
         var results = [];
         function visit(node2) {
-          if (stack.hasOwnProperty(node2)) {
+          if (stack2.hasOwnProperty(node2)) {
             throw new CycleException();
           }
           if (!visited.hasOwnProperty(node2)) {
-            stack[node2] = true;
+            stack2[node2] = true;
             visited[node2] = true;
             g4.predecessors(node2).forEach(visit);
-            delete stack[node2];
+            delete stack2[node2];
             results.push(node2);
           }
         }
@@ -32729,28 +32729,28 @@
         return acc;
       }
       function postOrderDfs(v5, navigation, visited, acc) {
-        var stack = [[v5, false]];
-        while (stack.length > 0) {
-          var curr = stack.pop();
+        var stack2 = [[v5, false]];
+        while (stack2.length > 0) {
+          var curr = stack2.pop();
           if (curr[1]) {
             acc.push(curr[0]);
           } else {
             if (!visited.hasOwnProperty(curr[0])) {
               visited[curr[0]] = true;
-              stack.push([curr[0], true]);
-              forEachRight(navigation(curr[0]), (w4) => stack.push([w4, false]));
+              stack2.push([curr[0], true]);
+              forEachRight(navigation(curr[0]), (w4) => stack2.push([w4, false]));
             }
           }
         }
       }
       function preOrderDfs(v5, navigation, visited, acc) {
-        var stack = [v5];
-        while (stack.length > 0) {
-          var curr = stack.pop();
+        var stack2 = [v5];
+        while (stack2.length > 0) {
+          var curr = stack2.pop();
           if (!visited.hasOwnProperty(curr)) {
             visited[curr] = true;
             acc.push(curr);
-            forEachRight(navigation(curr), (w4) => stack.push(w4));
+            forEachRight(navigation(curr), (w4) => stack2.push(w4));
           }
         }
       }
@@ -40558,13 +40558,15 @@
     return { nodes, edges };
   }
   function fromRF(def, rfNodes, rfEdges) {
+    const typeOf = (id3) => rfNodes.find((n2) => n2.id === id3)?.type ?? "";
     const perSource = /* @__PURE__ */ new Map();
     for (const e2 of rfEdges) {
+      let handle = normHandle(e2.sourceHandle);
+      if (handle === "out" && typeOf(e2.source) === "switch") handle = "";
       const list = perSource.get(e2.source) ?? [];
-      list.push({ handle: normHandle(e2.sourceHandle), target: e2.target });
+      list.push({ handle, target: e2.target });
       perSource.set(e2.source, list);
     }
-    const typeOf = (id3) => rfNodes.find((n2) => n2.id === id3)?.type ?? "";
     const next2 = {};
     for (const [source, list] of perSource) {
       const handles = list.map((x4) => x4.handle);
@@ -40656,12 +40658,12 @@
     const startId = nodes.find((n2) => n2.type === "start")?.id;
     const reachable = /* @__PURE__ */ new Set();
     if (startId) {
-      const stack = [startId];
-      while (stack.length) {
-        const id3 = stack.pop();
+      const stack2 = [startId];
+      while (stack2.length) {
+        const id3 = stack2.pop();
         if (reachable.has(id3)) continue;
         reachable.add(id3);
-        stack.push(...adj.get(id3) ?? []);
+        stack2.push(...adj.get(id3) ?? []);
       }
     }
     const unreachable = nodes.filter((n2) => !reachable.has(n2.id)).map((n2) => n2.id);
@@ -40669,17 +40671,17 @@
   }
   function findCyclePath(adj, remaining) {
     const color = /* @__PURE__ */ new Map();
-    const stack = [];
+    const stack2 = [];
     for (const n2 of remaining) color.set(n2, 0);
     const dfs2 = (u4) => {
       color.set(u4, 1);
-      stack.push(u4);
+      stack2.push(u4);
       for (const v5 of adj.get(u4) ?? []) {
         if (!remaining.includes(v5)) continue;
         const c4 = color.get(v5);
         if (c4 === 1) {
-          const idx = stack.indexOf(v5);
-          return [...stack.slice(idx), v5];
+          const idx = stack2.indexOf(v5);
+          return [...stack2.slice(idx), v5];
         }
         if (c4 === 0) {
           const r5 = dfs2(v5);
@@ -40687,7 +40689,7 @@
         }
       }
       color.set(u4, 2);
-      stack.pop();
+      stack2.pop();
       return null;
     };
     for (const n2 of remaining) {
@@ -42424,10 +42426,10 @@
   var cloneableTags = {};
   cloneableTags[argsTag3] = cloneableTags[arrayTag2] = cloneableTags[arrayBufferTag3] = cloneableTags[dataViewTag4] = cloneableTags[boolTag3] = cloneableTags[dateTag3] = cloneableTags[float32Tag3] = cloneableTags[float64Tag3] = cloneableTags[int8Tag3] = cloneableTags[int16Tag3] = cloneableTags[int32Tag3] = cloneableTags[mapTag5] = cloneableTags[numberTag3] = cloneableTags[objectTag4] = cloneableTags[regexpTag3] = cloneableTags[setTag5] = cloneableTags[stringTag3] = cloneableTags[symbolTag3] = cloneableTags[uint8Tag3] = cloneableTags[uint8ClampedTag3] = cloneableTags[uint16Tag3] = cloneableTags[uint32Tag3] = true;
   cloneableTags[errorTag2] = cloneableTags[funcTag3] = cloneableTags[weakMapTag3] = false;
-  function baseClone(value, bitmask, customizer, key, object, stack) {
+  function baseClone(value, bitmask, customizer, key, object, stack2) {
     var result, isDeep = bitmask & CLONE_DEEP_FLAG, isFlat = bitmask & CLONE_FLAT_FLAG, isFull = bitmask & CLONE_SYMBOLS_FLAG;
     if (customizer) {
-      result = object ? customizer(value, key, object, stack) : customizer(value);
+      result = object ? customizer(value, key, object, stack2) : customizer(value);
     }
     if (result !== void 0) {
       return result;
@@ -42458,19 +42460,19 @@
         result = initCloneByTag_default(value, tag, isDeep);
       }
     }
-    stack || (stack = new Stack_default());
-    var stacked = stack.get(value);
+    stack2 || (stack2 = new Stack_default());
+    var stacked = stack2.get(value);
     if (stacked) {
       return stacked;
     }
-    stack.set(value, result);
+    stack2.set(value, result);
     if (isSet_default(value)) {
       value.forEach(function(subValue) {
-        result.add(baseClone(subValue, bitmask, customizer, subValue, value, stack));
+        result.add(baseClone(subValue, bitmask, customizer, subValue, value, stack2));
       });
     } else if (isMap_default(value)) {
       value.forEach(function(subValue, key2) {
-        result.set(key2, baseClone(subValue, bitmask, customizer, key2, value, stack));
+        result.set(key2, baseClone(subValue, bitmask, customizer, key2, value, stack2));
       });
     }
     var keysFunc = isFull ? isFlat ? getAllKeysIn_default : getAllKeys_default : isFlat ? keysIn_default : keys_default;
@@ -42480,7 +42482,7 @@
         key2 = subValue;
         subValue = value[key2];
       }
-      assignValue_default(result, key2, baseClone(subValue, bitmask, customizer, key2, value, stack));
+      assignValue_default(result, key2, baseClone(subValue, bitmask, customizer, key2, value, stack2));
     });
     return result;
   }
@@ -42548,23 +42550,23 @@
   // node_modules/lodash-es/_equalArrays.js
   var COMPARE_PARTIAL_FLAG = 1;
   var COMPARE_UNORDERED_FLAG = 2;
-  function equalArrays(array, other, bitmask, customizer, equalFunc, stack) {
+  function equalArrays(array, other, bitmask, customizer, equalFunc, stack2) {
     var isPartial = bitmask & COMPARE_PARTIAL_FLAG, arrLength = array.length, othLength = other.length;
     if (arrLength != othLength && !(isPartial && othLength > arrLength)) {
       return false;
     }
-    var arrStacked = stack.get(array);
-    var othStacked = stack.get(other);
+    var arrStacked = stack2.get(array);
+    var othStacked = stack2.get(other);
     if (arrStacked && othStacked) {
       return arrStacked == other && othStacked == array;
     }
     var index2 = -1, result = true, seen = bitmask & COMPARE_UNORDERED_FLAG ? new SetCache_default() : void 0;
-    stack.set(array, other);
-    stack.set(other, array);
+    stack2.set(array, other);
+    stack2.set(other, array);
     while (++index2 < arrLength) {
       var arrValue = array[index2], othValue = other[index2];
       if (customizer) {
-        var compared = isPartial ? customizer(othValue, arrValue, index2, other, array, stack) : customizer(arrValue, othValue, index2, array, other, stack);
+        var compared = isPartial ? customizer(othValue, arrValue, index2, other, array, stack2) : customizer(arrValue, othValue, index2, array, other, stack2);
       }
       if (compared !== void 0) {
         if (compared) {
@@ -42575,20 +42577,20 @@
       }
       if (seen) {
         if (!arraySome_default(other, function(othValue2, othIndex) {
-          if (!cacheHas_default(seen, othIndex) && (arrValue === othValue2 || equalFunc(arrValue, othValue2, bitmask, customizer, stack))) {
+          if (!cacheHas_default(seen, othIndex) && (arrValue === othValue2 || equalFunc(arrValue, othValue2, bitmask, customizer, stack2))) {
             return seen.push(othIndex);
           }
         })) {
           result = false;
           break;
         }
-      } else if (!(arrValue === othValue || equalFunc(arrValue, othValue, bitmask, customizer, stack))) {
+      } else if (!(arrValue === othValue || equalFunc(arrValue, othValue, bitmask, customizer, stack2))) {
         result = false;
         break;
       }
     }
-    stack["delete"](array);
-    stack["delete"](other);
+    stack2["delete"](array);
+    stack2["delete"](other);
     return result;
   }
   var equalArrays_default = equalArrays;
@@ -42629,7 +42631,7 @@
   var dataViewTag5 = "[object DataView]";
   var symbolProto3 = Symbol_default ? Symbol_default.prototype : void 0;
   var symbolValueOf2 = symbolProto3 ? symbolProto3.valueOf : void 0;
-  function equalByTag(object, other, tag, bitmask, customizer, equalFunc, stack) {
+  function equalByTag(object, other, tag, bitmask, customizer, equalFunc, stack2) {
     switch (tag) {
       case dataViewTag5:
         if (object.byteLength != other.byteLength || object.byteOffset != other.byteOffset) {
@@ -42659,14 +42661,14 @@
         if (object.size != other.size && !isPartial) {
           return false;
         }
-        var stacked = stack.get(object);
+        var stacked = stack2.get(object);
         if (stacked) {
           return stacked == other;
         }
         bitmask |= COMPARE_UNORDERED_FLAG2;
-        stack.set(object, other);
-        var result = equalArrays_default(convert(object), convert(other), bitmask, customizer, equalFunc, stack);
-        stack["delete"](object);
+        stack2.set(object, other);
+        var result = equalArrays_default(convert(object), convert(other), bitmask, customizer, equalFunc, stack2);
+        stack2["delete"](object);
         return result;
       case symbolTag4:
         if (symbolValueOf2) {
@@ -42681,7 +42683,7 @@
   var COMPARE_PARTIAL_FLAG3 = 1;
   var objectProto17 = Object.prototype;
   var hasOwnProperty14 = objectProto17.hasOwnProperty;
-  function equalObjects(object, other, bitmask, customizer, equalFunc, stack) {
+  function equalObjects(object, other, bitmask, customizer, equalFunc, stack2) {
     var isPartial = bitmask & COMPARE_PARTIAL_FLAG3, objProps = getAllKeys_default(object), objLength = objProps.length, othProps = getAllKeys_default(other), othLength = othProps.length;
     if (objLength != othLength && !isPartial) {
       return false;
@@ -42693,22 +42695,22 @@
         return false;
       }
     }
-    var objStacked = stack.get(object);
-    var othStacked = stack.get(other);
+    var objStacked = stack2.get(object);
+    var othStacked = stack2.get(other);
     if (objStacked && othStacked) {
       return objStacked == other && othStacked == object;
     }
     var result = true;
-    stack.set(object, other);
-    stack.set(other, object);
+    stack2.set(object, other);
+    stack2.set(other, object);
     var skipCtor = isPartial;
     while (++index2 < objLength) {
       key = objProps[index2];
       var objValue = object[key], othValue = other[key];
       if (customizer) {
-        var compared = isPartial ? customizer(othValue, objValue, key, other, object, stack) : customizer(objValue, othValue, key, object, other, stack);
+        var compared = isPartial ? customizer(othValue, objValue, key, other, object, stack2) : customizer(objValue, othValue, key, object, other, stack2);
       }
-      if (!(compared === void 0 ? objValue === othValue || equalFunc(objValue, othValue, bitmask, customizer, stack) : compared)) {
+      if (!(compared === void 0 ? objValue === othValue || equalFunc(objValue, othValue, bitmask, customizer, stack2) : compared)) {
         result = false;
         break;
       }
@@ -42720,8 +42722,8 @@
         result = false;
       }
     }
-    stack["delete"](object);
-    stack["delete"](other);
+    stack2["delete"](object);
+    stack2["delete"](other);
     return result;
   }
   var equalObjects_default = equalObjects;
@@ -42733,7 +42735,7 @@
   var objectTag5 = "[object Object]";
   var objectProto18 = Object.prototype;
   var hasOwnProperty15 = objectProto18.hasOwnProperty;
-  function baseIsEqualDeep(object, other, bitmask, customizer, equalFunc, stack) {
+  function baseIsEqualDeep(object, other, bitmask, customizer, equalFunc, stack2) {
     var objIsArr = isArray_default(object), othIsArr = isArray_default(other), objTag = objIsArr ? arrayTag3 : getTag_default(object), othTag = othIsArr ? arrayTag3 : getTag_default(other);
     objTag = objTag == argsTag4 ? objectTag5 : objTag;
     othTag = othTag == argsTag4 ? objectTag5 : othTag;
@@ -42746,34 +42748,34 @@
       objIsObj = false;
     }
     if (isSameTag && !objIsObj) {
-      stack || (stack = new Stack_default());
-      return objIsArr || isTypedArray_default(object) ? equalArrays_default(object, other, bitmask, customizer, equalFunc, stack) : equalByTag_default(object, other, objTag, bitmask, customizer, equalFunc, stack);
+      stack2 || (stack2 = new Stack_default());
+      return objIsArr || isTypedArray_default(object) ? equalArrays_default(object, other, bitmask, customizer, equalFunc, stack2) : equalByTag_default(object, other, objTag, bitmask, customizer, equalFunc, stack2);
     }
     if (!(bitmask & COMPARE_PARTIAL_FLAG4)) {
       var objIsWrapped = objIsObj && hasOwnProperty15.call(object, "__wrapped__"), othIsWrapped = othIsObj && hasOwnProperty15.call(other, "__wrapped__");
       if (objIsWrapped || othIsWrapped) {
         var objUnwrapped = objIsWrapped ? object.value() : object, othUnwrapped = othIsWrapped ? other.value() : other;
-        stack || (stack = new Stack_default());
-        return equalFunc(objUnwrapped, othUnwrapped, bitmask, customizer, stack);
+        stack2 || (stack2 = new Stack_default());
+        return equalFunc(objUnwrapped, othUnwrapped, bitmask, customizer, stack2);
       }
     }
     if (!isSameTag) {
       return false;
     }
-    stack || (stack = new Stack_default());
-    return equalObjects_default(object, other, bitmask, customizer, equalFunc, stack);
+    stack2 || (stack2 = new Stack_default());
+    return equalObjects_default(object, other, bitmask, customizer, equalFunc, stack2);
   }
   var baseIsEqualDeep_default = baseIsEqualDeep;
 
   // node_modules/lodash-es/_baseIsEqual.js
-  function baseIsEqual(value, other, bitmask, customizer, stack) {
+  function baseIsEqual(value, other, bitmask, customizer, stack2) {
     if (value === other) {
       return true;
     }
     if (value == null || other == null || !isObjectLike_default(value) && !isObjectLike_default(other)) {
       return value !== value && other !== other;
     }
-    return baseIsEqualDeep_default(value, other, bitmask, customizer, baseIsEqual, stack);
+    return baseIsEqualDeep_default(value, other, bitmask, customizer, baseIsEqual, stack2);
   }
   var baseIsEqual_default = baseIsEqual;
 
@@ -42800,11 +42802,11 @@
           return false;
         }
       } else {
-        var stack = new Stack_default();
+        var stack2 = new Stack_default();
         if (customizer) {
-          var result = customizer(objValue, srcValue, key, object, source, stack);
+          var result = customizer(objValue, srcValue, key, object, source, stack2);
         }
-        if (!(result === void 0 ? baseIsEqual_default(srcValue, objValue, COMPARE_PARTIAL_FLAG5 | COMPARE_UNORDERED_FLAG3, customizer, stack) : result)) {
+        if (!(result === void 0 ? baseIsEqual_default(srcValue, objValue, COMPARE_PARTIAL_FLAG5 | COMPARE_UNORDERED_FLAG3, customizer, stack2) : result)) {
           return false;
         }
       }
@@ -43139,13 +43141,13 @@
   var toPlainObject_default = toPlainObject;
 
   // node_modules/lodash-es/_baseMergeDeep.js
-  function baseMergeDeep(object, source, key, srcIndex, mergeFunc, customizer, stack) {
-    var objValue = safeGet_default(object, key), srcValue = safeGet_default(source, key), stacked = stack.get(srcValue);
+  function baseMergeDeep(object, source, key, srcIndex, mergeFunc, customizer, stack2) {
+    var objValue = safeGet_default(object, key), srcValue = safeGet_default(source, key), stacked = stack2.get(srcValue);
     if (stacked) {
       assignMergeValue_default(object, key, stacked);
       return;
     }
-    var newValue = customizer ? customizer(objValue, srcValue, key + "", object, source, stack) : void 0;
+    var newValue = customizer ? customizer(objValue, srcValue, key + "", object, source, stack2) : void 0;
     var isCommon = newValue === void 0;
     if (isCommon) {
       var isArr = isArray_default(srcValue), isBuff = !isArr && isBuffer_default(srcValue), isTyped = !isArr && !isBuff && isTypedArray_default(srcValue);
@@ -43176,25 +43178,25 @@
       }
     }
     if (isCommon) {
-      stack.set(srcValue, newValue);
-      mergeFunc(newValue, srcValue, srcIndex, customizer, stack);
-      stack["delete"](srcValue);
+      stack2.set(srcValue, newValue);
+      mergeFunc(newValue, srcValue, srcIndex, customizer, stack2);
+      stack2["delete"](srcValue);
     }
     assignMergeValue_default(object, key, newValue);
   }
   var baseMergeDeep_default = baseMergeDeep;
 
   // node_modules/lodash-es/_baseMerge.js
-  function baseMerge(object, source, srcIndex, customizer, stack) {
+  function baseMerge(object, source, srcIndex, customizer, stack2) {
     if (object === source) {
       return;
     }
     baseFor_default(source, function(srcValue, key) {
-      stack || (stack = new Stack_default());
+      stack2 || (stack2 = new Stack_default());
       if (isObject_default(srcValue)) {
-        baseMergeDeep_default(object, source, key, srcIndex, baseMerge, customizer, stack);
+        baseMergeDeep_default(object, source, key, srcIndex, baseMerge, customizer, stack2);
       } else {
-        var newValue = customizer ? customizer(safeGet_default(object, key), srcValue, key + "", object, source, stack) : void 0;
+        var newValue = customizer ? customizer(safeGet_default(object, key), srcValue, key + "", object, source, stack2) : void 0;
         if (newValue === void 0) {
           newValue = srcValue;
         }
@@ -51525,16 +51527,16 @@ This message will only show in development mode. It won't appear in production. 
       this._gestureKey = gestureKey;
     }
     add(element, device, action, handler, options) {
-      const listeners3 = this._listeners;
+      const listeners4 = this._listeners;
       const type = toDomEventType(device, action);
       const _options = this._gestureKey ? this._ctrl.config[this._gestureKey].eventOptions : {};
       const eventOptions = { ..._options, ...options };
       element.addEventListener(type, handler, eventOptions);
       const remove2 = () => {
         element.removeEventListener(type, handler, eventOptions);
-        listeners3.delete(remove2);
+        listeners4.delete(remove2);
       };
-      listeners3.add(remove2);
+      listeners4.add(remove2);
       return remove2;
     }
     clean() {
@@ -52055,22 +52057,22 @@ Please add \`${key}Action\` when creating your handler.`
       this.schedule = new PlaygroundSchedule();
       this.fireEntityChanged = (entity) => {
         const entityType = typeof entity === "string" ? entity : entity.type;
-        let version = this.entityVersionMap.get(entityType) || 0;
-        if (version === Number.MAX_SAFE_INTEGER) {
-          version = 0;
+        let version2 = this.entityVersionMap.get(entityType) || 0;
+        if (version2 === Number.MAX_SAFE_INTEGER) {
+          version2 = 0;
         }
-        this.entityVersionMap.set(entityType, version + 1);
+        this.entityVersionMap.set(entityType, version2 + 1);
         if (this.changeEntityLocked) return;
         this.schedule.push(entityType, () => {
           this.onEntityChangeEmitter.fire(entityType);
         });
       };
       this.fireEntityDataChanged = (entityType, entityDataType) => {
-        let version = this.entityDataVersionMap.get(entityDataType) || 0;
-        if (version === Number.MAX_SAFE_INTEGER) {
-          version = 0;
+        let version2 = this.entityDataVersionMap.get(entityDataType) || 0;
+        if (version2 === Number.MAX_SAFE_INTEGER) {
+          version2 = 0;
         }
-        this.entityDataVersionMap.set(entityDataType, version + 1);
+        this.entityDataVersionMap.set(entityDataType, version2 + 1);
         this.schedule.push(`${entityType}/${entityDataType}`, () => {
           this.onEntityDataChangeEmitter.fire({ entityType, entityDataType });
         });
@@ -52658,8 +52660,8 @@ Please add \`${key}Action\` when creating your handler.`
       let entityChanged = false;
       selector.entities.forEach((registry2) => {
         const entities = this.entityManager.getEntities(registry2);
-        const version = this.entityManager.getEntityVersion(registry2);
-        entityVersion.set(registry2.type, version);
+        const version2 = this.entityManager.getEntityVersion(registry2);
+        entityVersion.set(registry2.type, version2);
         for (const item of entities) {
           allEntities.add(item);
         }
@@ -52686,8 +52688,8 @@ Please add \`${key}Action\` when creating your handler.`
       selector.datas.forEach((registries) => {
         const [entityRegistry, entityDataRegistry] = registries;
         const entityDatas = this.entityManager.getEntityDatas(entityRegistry, entityDataRegistry);
-        const version = this.entityManager.getEntityDataVersion(entityDataRegistry);
-        dataVersion.set(entityDataRegistry.type, version);
+        const version2 = this.entityManager.getEntityDataVersion(entityDataRegistry);
+        dataVersion.set(entityDataRegistry.type, version2);
         for (const item of entityDatas) {
           allDatas.push(item);
         }
@@ -65373,21 +65375,21 @@ Please add \`${key}Action\` when creating your handler.`
         const bbox = domUtils.createDivWithClass("");
         const input = domUtils.createDivWithClass("");
         const output = domUtils.createDivWithClass("");
-        const version = domUtils.createDivWithClass("");
+        const version2 = domUtils.createDivWithClass("");
         bbox.title = transform.key;
         input.title = transform.key + "(input)";
         output.title = transform.key + "(output)";
-        version.title = transform.key;
+        version2.title = transform.key;
         this.boundsNodes.appendChild(bbox);
         this.pointsNodes.appendChild(input);
         this.pointsNodes.appendChild(output);
-        this.versionNodes.appendChild(version);
+        this.versionNodes.appendChild(version2);
         transform.onDispose(() => {
           bbox.remove();
           input.remove();
           output.remove();
         });
-        cache = { bbox, input, output, version, color };
+        cache = { bbox, input, output, version: version2, color };
         this.domCache.set(transform, cache);
       }
       domUtils.setStyle(cache.version, {
@@ -68441,7 +68443,7 @@ Please add \`${key}Action\` when creating your handler.`
       var activeTask = null;
       var lastValue = null;
       var lastTime = null;
-      var emit3 = function() {
+      var emit4 = function() {
         if (activeTask) {
           activeTask.unsubscribe();
           activeTask = null;
@@ -68458,7 +68460,7 @@ Please add \`${key}Action\` when creating your handler.`
           subscriber.add(activeTask);
           return;
         }
-        emit3();
+        emit4();
       }
       source.subscribe(createOperatorSubscriber(subscriber, function(value) {
         lastValue = value;
@@ -68468,7 +68470,7 @@ Please add \`${key}Action\` when creating your handler.`
           subscriber.add(activeTask);
         }
       }, function() {
-        emit3();
+        emit4();
         subscriber.complete();
       }, void 0, function() {
         lastValue = activeTask = null;
@@ -76370,10 +76372,10 @@ Please add \`${key}Action\` when creating your handler.`
       this.clear();
       this._toDispose.dispose();
     }
-    _stackPush(stack, element) {
-      stack.push(element);
-      if (stack.length > this._limit) {
-        stack.shift();
+    _stackPush(stack2, element) {
+      stack2.push(element);
+      if (stack2.length > this._limit) {
+        stack2.shift();
       }
     }
     _emitChange(type, element) {
@@ -78831,22 +78833,22 @@ Please add \`${key}Action\` when creating your handler.`
   }
   function dfsFAS(g4) {
     let fas = [];
-    let stack = {};
+    let stack2 = {};
     let visited = {};
     function dfs2(v5) {
       if (Object.hasOwn(visited, v5)) {
         return;
       }
       visited[v5] = true;
-      stack[v5] = true;
+      stack2[v5] = true;
       g4.outEdges(v5).forEach((e2) => {
-        if (Object.hasOwn(stack, e2.w)) {
+        if (Object.hasOwn(stack2, e2.w)) {
           fas.push(e2);
         } else {
           dfs2(e2.w);
         }
       });
-      delete stack[v5];
+      delete stack2[v5];
     }
     g4.nodes().forEach(dfs2);
     return fas;
@@ -79848,18 +79850,18 @@ Please add \`${key}Action\` when creating your handler.`
   function horizontalCompaction(g4, layering, root2, align, reverseSep) {
     let xs = {}, blockG = buildBlockGraph(g4, layering, root2, reverseSep), borderType = reverseSep ? "borderLeft" : "borderRight";
     function iterate(setXsFunc, nextNodesFunc) {
-      let stack = blockG.nodes();
-      let elem = stack.pop();
+      let stack2 = blockG.nodes();
+      let elem = stack2.pop();
       let visited = {};
       while (elem) {
         if (visited[elem]) {
           setXsFunc(elem);
         } else {
           visited[elem] = true;
-          stack.push(elem);
-          stack = stack.concat(nextNodesFunc(elem));
+          stack2.push(elem);
+          stack2 = stack2.concat(nextNodesFunc(elem));
         }
-        elem = stack.pop();
+        elem = stack2.pop();
       }
     }
     function pass1(elem) {
@@ -84507,7 +84509,7 @@ Example:
       const { lineType } = this.workflowDocument.linesManager;
       const selected = this.selectService.isSelected(line2.id);
       const hovered = this.hoverService.isHovered(line2.id);
-      const version = this.lineVersion(line2);
+      const version2 = this.lineVersion(line2);
       const oldProps = {
         key: line2.id,
         color: line2.color,
@@ -84515,7 +84517,7 @@ Example:
         hovered,
         line: line2,
         lineType,
-        version,
+        version: version2,
         strokePrefix: this.layerID,
         rendererRegistry: this.rendererRegistry
       };
@@ -84527,8 +84529,8 @@ Example:
       const selected = this.selectService.isSelected(line2.id);
       const hovered = this.hoverService.isHovered(line2.id);
       const { version: lineVersion, color } = line2;
-      const version = `v:${this._version},lv:${lineVersion},rv:${renderVersion},c:${color},s:${selected ? "T" : "F"},h:${hovered ? "T" : "F"}`;
-      return version;
+      const version2 = `v:${this._version},lv:${lineVersion},rv:${renderVersion},c:${color},s:${selected ? "T" : "F"},h:${hovered ? "T" : "F"}`;
+      return version2;
     }
     lineComponent(props) {
       const RenderInsideLine = this.options.renderInsideLine ?? (() => /* @__PURE__ */ import_react74.default.createElement(import_react74.default.Fragment, null));
@@ -88234,6 +88236,46 @@ Example:
     }
   };
 
+  // src/client/flowgram/switchCaseStore.ts
+  var selByNode = /* @__PURE__ */ new Map();
+  var listeners3 = /* @__PURE__ */ new Set();
+  var version = 0;
+  function emit3() {
+    version += 1;
+    for (const l5 of [...listeners3]) {
+      try {
+        l5();
+      } catch {
+      }
+    }
+  }
+  var switchCaseStore = {
+    subscribe(l5) {
+      listeners3.add(l5);
+      return () => {
+        listeners3.delete(l5);
+      };
+    },
+    /** 订阅用快照（版本号，primitive ⇒ 稳定） */
+    getVersion() {
+      return version;
+    },
+    getSel(nodeId) {
+      return selByNode.get(nodeId) ?? null;
+    },
+    setSel(nodeId, key) {
+      const v5 = key || null;
+      if ((selByNode.get(nodeId) ?? null) === v5) return;
+      if (v5) selByNode.set(nodeId, v5);
+      else selByNode.delete(nodeId);
+      emit3();
+    },
+    /** 点同一个 chip 再点一次 = 取消选中（回到「先画线，再在线上点选」） */
+    toggleSel(nodeId, key) {
+      this.setSel(nodeId, this.getSel(nodeId) === key ? null : key);
+    }
+  };
+
   // src/client/flowgram/nodes.tsx
   function loopSubtitle(data) {
     const cap = typeof data.maxIterations === "number" ? ` \xB7 \u4E0A\u9650 ${data.maxIterations}` : "";
@@ -88262,7 +88304,7 @@ Example:
         return data.condition ?? "condition";
       case "switch": {
         const caseCount = Object.keys(data.cases ?? {}).length;
-        return `value=${data.value ?? ""} \xB7 ${caseCount} \u4E2A\u5206\u652F${caseCount >= 7 ? "\uFF08\u7D27\u51D1\uFF09" : ""}`;
+        return `value=${data.value ?? ""} \xB7 ${caseCount} \u4E2A\u5206\u652F`;
       }
       case "loop":
         return loopSubtitle(data);
@@ -88292,9 +88334,49 @@ Example:
         return "";
     }
   }
-  var SWITCH_TIGHT_FROM = 7;
-  function switchLayout(caseCount) {
-    return caseCount >= SWITCH_TIGHT_FROM ? { gap: 12, showLabels: false } : { gap: 30, showLabels: true };
+  var SWITCH_CHIP_MAX = 4;
+  var SWITCH_CARD_MIN_H = 91;
+  var SWITCH_NO_CASE = "out";
+  function switchPorts(keys3) {
+    const all = [...keys3, ...keys3.length ? ["*"] : [], SWITCH_NO_CASE];
+    return [
+      { type: "input" },
+      // ★ 不给 locationConfig：与普通节点的单出口一样由引擎**垂直居中**——所有 case 端口锚在同一像素上，
+      //   视觉上只有一个圆点（给显式 top 实测反而让「有连线的端口」和「out 端口」差出 14px → 两个圆点）
+      ...all.map((k5) => ({ type: "output", portID: k5 }))
+    ];
+  }
+  function switchSubtitle(values, selected, caseCount) {
+    const head = `value=${values.value ?? ""} \xB7 ${caseCount} \u4E2A\u5206\u652F`;
+    return selected ? `${head} \xB7 \u5DF2\u9009 ${selected === "*" ? "\u5176\u4ED6" : selected}\uFF08\u62C9\u7EBF\u5373\u5E26\uFF09` : `${head} \xB7 \u5148\u753B\u7EBF\uFF0C\u518D\u5728\u7EBF\u4E0A\u70B9\u9009\u5206\u652F`;
+  }
+  function SwitchChip(props) {
+    const ref = (0, import_react87.useRef)(null);
+    const cbRef = (0, import_react87.useRef)(props.onPick);
+    cbRef.current = props.onPick;
+    (0, import_react87.useEffect)(() => {
+      const el = ref.current;
+      if (!el) return void 0;
+      const stop = (e2) => {
+        e2.stopPropagation();
+      };
+      const pick3 = (e2) => {
+        e2.stopPropagation();
+        e2.preventDefault();
+        cbRef.current();
+      };
+      el.addEventListener("click", pick3);
+      el.addEventListener("mousedown", stop);
+      el.addEventListener("pointerdown", stop);
+      el.addEventListener("mouseup", stop);
+      return () => {
+        el.removeEventListener("click", pick3);
+        el.removeEventListener("mousedown", stop);
+        el.removeEventListener("pointerdown", stop);
+        el.removeEventListener("mouseup", stop);
+      };
+    }, []);
+    return (0, import_react86.createElement)("span", { ref, className: props.cls, title: props.title }, props.text);
   }
   function NodeCardBody({ type }) {
     const { node: node2, form } = useNodeRender();
@@ -88309,26 +88391,62 @@ Example:
     const isSelected = (0, import_react87.useSyncExternalStore)(selectionStore.subscribe, selSelector, selSelector);
     const statusCls = rs?.status === "success" ? "is-ok" : rs?.status === "failed" ? "is-err" : rs?.status === "skipped" ? "is-skip" : "";
     const caseKeys = type === "switch" ? Object.keys(values.cases ?? {}) : [];
-    const branchKeys = type === "if" ? (values.portKeys ?? ["true", "false"]).slice(0, 2) : type === "switch" && caseKeys.length ? [...caseKeys, "*"] : [];
-    const { gap, showLabels } = type === "switch" ? switchLayout(caseKeys.length) : { gap: 30, showLabels: true };
-    const branchLabels = showLabels ? branchKeys.map((k5, i3) => (0, import_react86.createElement)(
+    const caseSel = (0, import_react87.useSyncExternalStore)(
+      switchCaseStore.subscribe,
+      () => switchCaseStore.getSel(node2.id),
+      () => switchCaseStore.getSel(node2.id)
+    );
+    const chipKeys = type === "switch" && caseKeys.length ? [...caseKeys, "*"] : [];
+    const [chipsOpen, setChipsOpen] = (0, import_react87.useState)(false);
+    const foldAt = Math.max(1, SWITCH_CHIP_MAX - 1);
+    const foldedCount = Math.max(0, chipKeys.length - foldAt);
+    const shownChips = chipsOpen || chipKeys.length <= SWITCH_CHIP_MAX ? chipKeys : chipKeys.slice(0, foldAt);
+    const hiddenChips = chipKeys.length - shownChips.length;
+    const pickChip = (k5) => {
+      switchCaseStore.toggleSel(node2.id, k5);
+      window.__df_lastChipClick = { node: node2.id, key: k5, sel: switchCaseStore.getSel(node2.id), at: Date.now() };
+    };
+    const switchChips = chipKeys.length ? (0, import_react86.createElement)(
+      "div",
+      { className: `dsh-wf-fg-chips${chipsOpen ? " is-expanded" : ""}` },
+      ...shownChips.map((k5) => (0, import_react86.createElement)(SwitchChip, {
+        key: `chip-${k5}`,
+        cls: `dsh-wf-fg-chip${k5 === "*" ? " is-star" : ""}${caseSel === k5 ? " is-sel" : ""}`,
+        title: `case\uFF1A${k5 === "*" ? "*\uFF08\u65E0\u5339\u914D\u65F6\u7684\u515C\u5E95\uFF09" : k5} \u2014\u2014 ${caseSel === k5 ? "\u5DF2\u9009\u4E2D\uFF1A\u4ECE\u672C\u8282\u70B9\u62C9\u51FA\u7684\u65B0\u7EBF\u81EA\u5E26\u8FD9\u4E2A\u5206\u652F\u952E\uFF08\u518D\u70B9\u4E00\u6B21\u53D6\u6D88\uFF09" : "\u70B9\u51FB\u9009\u4E2D\uFF1A\u4E4B\u540E\u4ECE\u672C\u8282\u70B9\u62C9\u7EBF\u5373\u5E26\u8FD9\u4E2A\u5206\u652F\u952E"}`,
+        text: `${caseSel === k5 ? "\u2713 " : ""}${k5 === "*" ? "\u5176\u4ED6" : k5}`,
+        onPick: () => pickChip(k5)
+      })),
+      foldedCount > 0 ? (0, import_react86.createElement)(SwitchChip, {
+        key: "chip-more",
+        cls: `dsh-wf-fg-chip is-more${chipsOpen ? " is-open" : ""}`,
+        title: chipsOpen ? "\u6536\u8D77\uFF08\u6062\u590D\u6210\u4E00\u884C\uFF09" : `\u5C55\u5F00\u5168\u90E8 ${chipKeys.length} \u4E2A\u5206\u652F\uFF08\u5361\u7247\u4F1A\u53D8\u9AD8\uFF0C\u5C55\u5F00\u540E\u53EF\u70B9\u4EFB\u610F case\uFF09`,
+        text: chipsOpen ? "\u6536\u8D77" : `+${foldedCount}`,
+        onPick: () => setChipsOpen((v5) => !v5)
+      }) : null
+    ) : null;
+    const switchNote = !chipsOpen && hiddenChips > 0 ? (0, import_react86.createElement)("div", {
+      className: "dsh-wf-fg-card-note",
+      title: `\u8FD8\u6709 ${hiddenChips} \u4E2A\u5206\u652F\u672A\u5C55\u793A\u2014\u2014\u70B9 chips \u884C\u672B\u5C3E\u7684\u300C+${hiddenChips}\u300D\u53EF\u5C55\u5F00\u5168\u90E8\uFF0C\u4E5F\u53EF\u4EE5\u5148\u753B\u7EBF\u3001\u518D\u5728\u7EBF\u4E0A\u70B9\u9009\u5206\u652F`
+    }, `\u8FD8\u6709 ${hiddenChips} \u4E2A\u5206\u652F\u672A\u5C55\u793A \xB7 \u70B9\u300C+${hiddenChips}\u300D\u5C55\u5F00\uFF0C\u6216\u5148\u753B\u7EBF\u518D\u5728\u7EBF\u4E0A\u70B9\u9009\u5206\u652F`) : null;
+    const ifLabels = type === "if" ? (values.portKeys ?? ["true", "false"]).slice(0, 2).map((k5, i3) => (0, import_react86.createElement)(
       "div",
       {
         key: `branch-${k5}`,
-        className: `dsh-wf-fg-branch-label${k5 === "true" ? " is-true" : k5 === "false" ? " is-false" : k5 === "*" ? " is-star" : ""}`,
-        style: { top: `${22 + i3 * gap}px` },
-        title: `${type === "switch" ? "case" : "\u5206\u652F"}\uFF1A${k5 === "*" ? "*\uFF08\u65E0\u5339\u914D\u65F6\u7684\u515C\u5E95\uFF09" : k5}`
+        className: `dsh-wf-fg-branch-label${k5 === "true" ? " is-true" : k5 === "false" ? " is-false" : ""}`,
+        style: { top: `${22 + i3 * 30}px` },
+        title: `\u5206\u652F\uFF1A${k5 === "*" ? "*\uFF08\u65E0\u5339\u914D\u65F6\u7684\u515C\u5E95\uFF09" : k5}`
       },
-      k5 === "*" ? "\u5176\u4ED6" : k5 === "true" ? "\u771F" : k5 === "false" ? "\u5047" : k5
+      k5 === "true" ? "\u771F" : k5 === "false" ? "\u5047" : k5
     )) : [];
-    const portMinHeight = branchKeys.length ? 22 + (branchKeys.length - 1) * gap + 24 : void 0;
+    const minHeight = type === "switch" ? SWITCH_CARD_MIN_H : ifLabels.length ? 22 + (ifLabels.length - 1) * 30 + 24 : 0;
+    const subText = type === "switch" ? switchSubtitle(values, caseSel, caseKeys.length) : sub;
     return (0, import_react86.createElement)(
       "div",
       {
-        className: `dsh-wf-fg-card${statusCls ? " " + statusCls : ""}${isSelected ? " fg-selected" : ""}`,
+        className: `dsh-wf-fg-card${type === "switch" ? " is-switch" : ""}${statusCls ? " " + statusCls : ""}${isSelected ? " fg-selected" : ""}`,
         style: {
           ["--kind"]: meta.color,
-          ...portMinHeight ? { minHeight: `${portMinHeight}px` } : {}
+          ...minHeight ? { minHeight: `${minHeight}px` } : {}
         }
       },
       // 运行耗时徽标（右上）
@@ -88348,8 +88466,10 @@ Example:
           (0, import_react86.createElement)("div", { className: "dsh-wf-fg-card-type" }, `${meta.label} \xB7 ${node2.id}`)
         )
       ),
-      (0, import_react86.createElement)("div", { className: "dsh-wf-fg-card-sub", title: sub }, sub),
-      branchLabels.length ? branchLabels : null
+      (0, import_react86.createElement)("div", { className: "dsh-wf-fg-card-sub", title: subText }, subText),
+      switchChips,
+      switchNote,
+      ifLabels.length ? ifLabels : null
     );
   }
   function makeFormMeta(type) {
@@ -88395,25 +88515,7 @@ Example:
             effect: ({ value, context: context2 }) => {
               const { node: node2 } = context2;
               const keys3 = Object.keys(value?.cases ?? {});
-              const { gap } = switchLayout(keys3.length);
-              const ports = [{ type: "input" }];
-              keys3.forEach((k5, i3) => {
-                ports.push({
-                  type: "output",
-                  portID: k5,
-                  location: "right",
-                  locationConfig: { right: 0, top: 22 + i3 * gap }
-                });
-              });
-              if (keys3.length) {
-                ports.push({
-                  type: "output",
-                  portID: "*",
-                  location: "right",
-                  locationConfig: { right: 0, top: 22 + keys3.length * gap }
-                });
-              }
-              node2.ports.updateAllPorts(ports);
+              node2.ports.updateAllPorts(switchPorts(keys3));
             }
           }
         ]
@@ -88539,6 +88641,10 @@ Example:
         }
         onSelectRef.current?.(nodeId);
       };
+      const onNativeDblClick = (e2) => {
+        e2.stopPropagation();
+        onNodeDoubleClickRef.current?.(nodeId);
+      };
       const onNativeDown = (e2) => {
         if (e2.button !== 0) return;
         const t5 = e2.target;
@@ -88572,11 +88678,13 @@ Example:
       };
       el.addEventListener("click", onNativeClick);
       el.addEventListener("mousedown", onNativeDown);
+      el.addEventListener("dblclick", onNativeDblClick);
       window.addEventListener("mousemove", onMove, true);
       window.addEventListener("mouseup", onUp, true);
       return () => {
         el.removeEventListener("click", onNativeClick);
         el.removeEventListener("mousedown", onNativeDown);
+        el.removeEventListener("dblclick", onNativeDblClick);
         window.removeEventListener("mousemove", onMove, true);
         window.removeEventListener("mouseup", onUp, true);
       };
@@ -88839,6 +88947,7 @@ Example:
     );
   }
   var onSelectRef = { current: null };
+  var onNodeDoubleClickRef = { current: null };
   var onChangeRef = { current: null };
   var lastEmittedSig = { current: "" };
   function branchKeyLabel(key) {
@@ -88848,7 +88957,7 @@ Example:
   var editEdgeKeyRef = { current: null };
   function LineBranchLabel(props) {
     const line2 = props?.line;
-    const key = String(line2?.fromPort?.portID ?? "");
+    const rawKey = String(line2?.fromPort?.portID ?? "");
     const src = String(line2?.from?.id ?? line2?.fromPort?.node?.id ?? "");
     const dst = String(line2?.to?.id ?? line2?.toPort?.node?.id ?? "");
     const node2 = graphRef.current.nodes.find((n2) => n2.id === src);
@@ -88861,6 +88970,9 @@ Example:
     }
     const isBranchNode = nodeType === "if" || nodeType === "switch";
     if (!isBranchNode) return null;
+    const key = nodeType === "switch" && rawKey === "out" ? "" : rawKey;
+    const dupIdx = Math.max(0, graphRef.current.edges.filter((e2) => e2.source === src && e2.target === dst).findIndex((e2) => String(e2.sourceHandle ?? "") === rawKey));
+    const dupStyle = dupIdx > 0 ? { marginTop: `${dupIdx * 13}px` } : void 0;
     const openEditor = (e2) => {
       e2.stopPropagation();
       e2.preventDefault();
@@ -88877,13 +88989,15 @@ Example:
     if (!key) {
       return (0, import_react88.createElement)("div", {
         className: "dsh-wf-fg-line-label is-warn",
-        title: "\u8FD9\u6761\u7EBF\u6CA1\u8BBE\u5206\u652F\u952E\u2014\u2014\u8FD0\u884C\u65F6\u4F1A\u628A\u5B83\u5F53\u4F5C\u6052\u6FC0\u6D3B\uFF08if/switch \u7684\u6240\u6709\u5206\u652F\u90FD\u4F1A\u6267\u884C\uFF09\u3002\u70B9\u51FB\u8BBE\u7F6E",
+        style: dupStyle,
+        title: nodeType === "switch" ? "\u8FD9\u6761\u7EBF\u8FD8\u6CA1\u9009\u5206\u652F\u952E\uFF08switch \u91CC\u5148\u753B\u7EBF\u3001\u518D\u70B9\u8FD9\u6761\u7EBF\u7684\u6807\u7B7E\u9009 case\uFF09\u3002\u4E0D\u9009\u7684\u8BDD\u5B83\u4E0D\u4F1A\u88AB\u6267\u884C" : "\u8FD9\u6761\u7EBF\u6CA1\u8BBE\u5206\u652F\u952E\u2014\u2014\u8FD0\u884C\u65F6\u4F1A\u628A\u5B83\u5F53\u4F5C\u6052\u6FC0\u6D3B\uFF08if/switch \u7684\u6240\u6709\u5206\u652F\u90FD\u4F1A\u6267\u884C\uFF09\u3002\u70B9\u51FB\u8BBE\u7F6E",
         onClick: openEditor
       }, "\u672A\u8BBE\u5206\u652F");
     }
     const cls = key === "true" ? "is-true" : key === "false" ? "is-false" : key === "*" ? "is-case" : "is-case";
     return (0, import_react88.createElement)("div", {
       className: `dsh-wf-fg-line-label ${cls}`,
+      style: dupStyle,
       title: `\u5206\u652F\u952E ${key}\uFF08\u70B9\u51FB\u4FEE\u6539\uFF09`,
       onClick: openEditor
     }, branchKeyLabel(key));
@@ -88993,6 +89107,43 @@ Example:
       document.body
     );
   }
+  function adoptChipCaseForNewLines(ctx) {
+    try {
+      const prev2 = graphRef.current.edges;
+      const prevCount = /* @__PURE__ */ new Map();
+      for (const e2 of prev2) {
+        const k5 = `${e2.source}|${e2.target}`;
+        prevCount.set(k5, (prevCount.get(k5) ?? 0) + 1);
+      }
+      const typeOf = (id3) => String(graphRef.current.nodes.find((n2) => n2.id === id3)?.type ?? "");
+      const lm = ctx.container.get(WorkflowLinesManager);
+      const seen = /* @__PURE__ */ new Map();
+      for (const l5 of lm.getAllLines?.() ?? []) {
+        if (l5?.isDrawing) continue;
+        const src = String(l5?.from?.id ?? "");
+        const dst = String(l5?.to?.id ?? "");
+        if (!src || !dst || typeOf(src) !== "switch") continue;
+        const k5 = `${src}|${dst}`;
+        const idx = (seen.get(k5) ?? 0) + 1;
+        seen.set(k5, idx);
+        if (idx <= (prevCount.get(k5) ?? 0)) continue;
+        const sel = switchCaseStore.getSel(src);
+        const hasPort = (p4) => !!l5?.from?.ports?.getPortEntityByKey?.("output", p4);
+        const want = sel && hasPort(sel) ? sel : SWITCH_NO_CASE;
+        const hit = String(l5?.fromPort?.portID ?? "");
+        if (hit === want) {
+          window.__df_lastLineAdopt = { src, dst, hit, want, applied: false, sel: sel ?? null };
+          continue;
+        }
+        if (!hasPort(want)) continue;
+        l5.updateInfo((info) => {
+          info.fromPort = want;
+        });
+        window.__df_lastLineAdopt = { src, dst, hit, want, applied: true, sel: sel ?? null };
+      }
+    } catch {
+    }
+  }
   function buildEditorProps(initialNodes, initialEdges) {
     return {
       background: false,
@@ -89018,6 +89169,7 @@ Example:
       materials: { renderDefaultNode: DefaultNodeWrapper },
       onContentChange: (ctx) => {
         try {
+          adoptChipCaseForNewLines(ctx);
           const { nodes, edges } = fromFG(ctx.document.toJSON());
           lastEmittedSig.current = structSigOf(nodes, edges);
           onChangeRef.current?.(nodes, edges);
@@ -89375,6 +89527,7 @@ Example:
     const { nodes, edges, runResults } = props;
     onChangeRef.current = props.onChange;
     onSelectRef.current = props.onSelectNode;
+    onNodeDoubleClickRef.current = props.onNodeDoubleClick ?? null;
     graphRef.current = { nodes, edges };
     (0, import_react88.useEffect)(() => {
       runStatusStore.set(runResults ?? {});
@@ -90203,7 +90356,16 @@ Example:
   function FlowPanel({ ctx, onClose, onCache }) {
     const [tab, setTab] = (0, import_react101.useState)("canvas");
     const [def, setDef] = (0, import_react101.useState)(() => ctx.workflow ?? DEFAULT_WORKFLOW);
-    const [selectedNodeId, setSelectedNodeId] = (0, import_react101.useState)(null);
+    const [selectedNodeId, setSelectedNodeId] = (0, import_react101.useState)(() => {
+      const f4 = ctx?.focusNodeId;
+      return f4 ?? null;
+    });
+    const nav = ctx?.nav;
+    const [navMsg, setNavMsg] = (0, import_react101.useState)("");
+    const flashNavMsg = (msg) => {
+      setNavMsg(msg);
+      window.setTimeout(() => setNavMsg((cur) => cur === msg ? "" : cur), 4e3);
+    };
     const [dirty, setDirty] = (0, import_react101.useState)(false);
     const [autoSave, setAutoSave] = (0, import_react101.useState)("idle");
     const [rightMin, setRightMin] = (0, import_react101.useState)(false);
@@ -90587,6 +90749,35 @@ Example:
       return () => window.removeEventListener("keydown", onKey, true);
     }, [def, selectedNodeId, handleRun, deleteNodeFull, handleDefChange]);
     const selectedNode = selectedNodeId ? def.nodes.find((n2) => n2.id === selectedNodeId) : null;
+    const handleNodeDoubleClick = (0, import_react101.useCallback)(async (nodeId) => {
+      const n2 = def.nodes.find((x4) => x4.id === nodeId);
+      if (!n2) return;
+      const target = n2.type === "loop" ? String(n2.params?.body?.workflowName ?? "").trim() : n2.type === "subflow" ? String(n2.params?.workflowName ?? "").trim() : "";
+      if (n2.type !== "loop" && n2.type !== "subflow") return;
+      if (!target) {
+        flashNavMsg(n2.type === "loop" ? "\u8BE5\u5FAA\u73AF\u8282\u70B9\u8FD8\u6CA1\u9009\u5FAA\u73AF\u4F53\u2014\u2014\u5728\u53F3\u4FA7\u300C\u{1F501} \u5FAA\u73AF\u8BBE\u7F6E \u2192 \u5FAA\u73AF\u4F53\u300D\u91CC\u9009\u4E00\u4E2A\u5B50\u5DE5\u4F5C\u6D41" : "\u8BE5 subflow \u8282\u70B9\u8FD8\u6CA1\u9009\u5B50\u5DE5\u4F5C\u6D41\u2014\u2014\u5728\u53F3\u4FA7\u53C2\u6570\u91CC\u9009\u4E00\u4E2A");
+        return;
+      }
+      if (!nav?.enter) {
+        flashNavMsg("\u5F53\u524D\u73AF\u5883\u4E0D\u652F\u6301\u5B50\u5DE5\u4F5C\u6D41\u8DF3\u8F6C");
+        return;
+      }
+      try {
+        if (dirty) await saveDefToDisk(def, false);
+      } catch {
+      }
+      const res = await nav.enter(target, nodeId);
+      if (res?.error) flashNavMsg(res.error);
+    }, [def, dirty, nav, saveDefToDisk]);
+    const handleNavBack = (0, import_react101.useCallback)(async () => {
+      if (!nav?.back) return;
+      try {
+        if (dirty) await saveDefToDisk(def, false);
+      } catch {
+      }
+      const res = nav.back();
+      if (res?.error) flashNavMsg(res.error);
+    }, [def, dirty, nav, saveDefToDisk]);
     const handleSaveToDisk = (0, import_react101.useCallback)(async () => {
       const noModel = (def.nodes ?? []).filter((n2) => n2.type === "subagent" && !String(n2.params?.model ?? "").trim());
       if (noModel.length > 0) {
@@ -90735,6 +90926,38 @@ Example:
           placeholder: "\u5DE5\u4F5C\u6D41\u540D\u79F0",
           title: "\u81EA\u5B9A\u4E49\u5DE5\u4F5C\u6D41\u540D\u79F0\uFF08\u4FDD\u5B58\u540E\u7528\u4E8E\u8BC6\u522B\uFF09"
         }),
+        ...nav && (nav.crumbs?.length ?? 0) > 0 ? [
+          (0, import_react102.createElement)(
+            "div",
+            { className: "dsh-wf-nav", key: "nav" },
+            (0, import_react102.createElement)("button", {
+              className: "dsh-wf-nav-back",
+              type: "button",
+              title: `\u8FD4\u56DE\u300C${nav.crumbs[nav.crumbs.length - 1]}\u300D\u5E76\u9009\u4E2D\u6765\u6E90\u8282\u70B9`,
+              onClick: () => {
+                void handleNavBack();
+              }
+            }, `\u21A9 \u8FD4\u56DE\u300C${nav.crumbs[nav.crumbs.length - 1]}\u300D`),
+            (0, import_react102.createElement)(
+              "span",
+              { className: "dsh-wf-crumb" },
+              ...nav.crumbs.flatMap((c4, i3) => [
+                (0, import_react102.createElement)("span", {
+                  key: `c${i3}`,
+                  className: "dsh-wf-crumb-item",
+                  title: `\u8FD4\u56DE\u7B2C ${i3 + 1} \u5C42`,
+                  onClick: () => {
+                    void handleNavBack();
+                  }
+                }, c4),
+                (0, import_react102.createElement)("span", { key: `s${i3}`, className: "dsh-wf-crumb-sep" }, "\u203A")
+              ]),
+              (0, import_react102.createElement)("b", { className: "dsh-wf-crumb-cur", key: "cur" }, nav.current || def.name)
+            )
+          )
+        ] : [],
+        // 双击跳转的提示条（子工作流不存在 / 没选循环体 / 成环等，4s 自动消失）
+        navMsg ? (0, import_react102.createElement)("span", { className: "dsh-wf-navmsg", key: "navmsg" }, `\u26A0 ${navMsg}`) : null,
         // 2026-10-01 深夜：移除「N 节点」计数（用户反馈没啥用）；title-sub 仅剩保存状态
         (0, import_react102.createElement)(
           "span",
@@ -90863,6 +91086,8 @@ Example:
         onDefChange: handleDefChange,
         onRFChange: handleRFChange,
         onSelectNode: handleSelectNode,
+        // ★ 双击 loop（循环体）/ subflow（目标）节点 → 进入子工作流（2026-10-03 用户需求）
+        onNodeDoubleClick: handleNodeDoubleClick,
         onAddNode: handleAddNode,
         onDeleteNode: deleteNodeFull,
         onNodeChange: handleNodeChange,
@@ -91214,6 +91439,8 @@ Example:
       ) : void 0,
       onChange: p4.onRFChange,
       onSelectNode: p4.onSelectNode,
+      // ★ 双击 loop（循环体）/ subflow（目标）节点 → 进入子工作流（2026-10-03 用户需求）
+      onNodeDoubleClick: p4.onNodeDoubleClick,
       selectedNodeId: p4.selectedNode?.id ?? null,
       // 运行状态走外置 store（FlowGram 节点卡订阅，不进 document 数据）
       runResults: p4.runResults,
@@ -92335,6 +92562,55 @@ Example:
     );
   }
 
+  // src/client/navStack.ts
+  var stack = [];
+  var swapFn = null;
+  var currentDef = null;
+  var focusNodeId = null;
+  function bindNavSwap(fn) {
+    swapFn = fn;
+  }
+  function setNavCurrent(def) {
+    currentDef = def;
+  }
+  function navCrumbs() {
+    return stack.map((e2) => e2.name);
+  }
+  function navCurrentName() {
+    return currentDef?.name ?? "";
+  }
+  async function enterSubWorkflow(workflowName, fromNodeId) {
+    const name = String(workflowName ?? "").trim();
+    if (!name) return { error: "\u8BE5\u8282\u70B9\u8FD8\u6CA1\u9009\u8981\u6267\u884C\u7684\u5B50\u5DE5\u4F5C\u6D41\uFF08loop \u5FAA\u73AF\u4F53 / subflow \u76EE\u6807\uFF09\u2014\u2014\u5148\u5728\u53F3\u4FA7\u9762\u677F\u91CC\u9009\u4E00\u4E2A" };
+    if (!swapFn) return { error: "\u5F53\u524D\u73AF\u5883\u4E0D\u652F\u6301\u5B50\u5DE5\u4F5C\u6D41\u8DF3\u8F6C" };
+    const parent2 = currentDef;
+    if (!parent2) return { error: "\u5F53\u524D\u5DE5\u4F5C\u6D41\u8FD8\u6CA1\u5C31\u7EEA\uFF0C\u7A0D\u540E\u518D\u8BD5" };
+    if (name === parent2.name) return { error: `\u300C${name}\u300D\u5C31\u662F\u5F53\u524D\u5DE5\u4F5C\u6D41\uFF0C\u4E0D\u80FD\u8FDB\u5165\u81EA\u5DF1` };
+    if (stack.some((e2) => e2.name === name)) return { error: `\u300C${name}\u300D\u5DF2\u5728\u8FD4\u56DE\u8DEF\u5F84\u4E0A\uFF08\u4F1A\u5F62\u6210\u5FAA\u73AF\u5F15\u7528\uFF09\uFF0C\u4E0D\u80FD\u8FDB\u5165` };
+    let child;
+    try {
+      const r5 = await fetch(`/api/dag-flow/workflows/${encodeURIComponent(name)}`, { credentials: "include" });
+      if (!r5.ok) return { error: `\u5B50\u5DE5\u4F5C\u6D41\u300C${name}\u300D\u4E0D\u5B58\u5728\u6216\u8BFB\u53D6\u5931\u8D25\uFF08HTTP ${r5.status}\uFF09` };
+      child = (await r5.json())?.workflow;
+    } catch (e2) {
+      return { error: `\u8BFB\u53D6\u5B50\u5DE5\u4F5C\u6D41\u300C${name}\u300D\u5931\u8D25\uFF1A${e2.message}` };
+    }
+    if (!child?.nodes?.length) return { error: `\u5B50\u5DE5\u4F5C\u6D41\u300C${name}\u300D\u5185\u5BB9\u4E3A\u7A7A\uFF0C\u65E0\u6CD5\u7F16\u8F91` };
+    stack.push({ def: parent2, nodeId: fromNodeId, name: parent2.name });
+    focusNodeId = null;
+    currentDef = child;
+    swapFn(child, null);
+    return { ok: true };
+  }
+  function backToParentWorkflow() {
+    const entry = stack.pop();
+    if (!entry) return { error: "\u5DF2\u7ECF\u5728\u6700\u5916\u5C42\u5DE5\u4F5C\u6D41\u4E86" };
+    focusNodeId = entry.nodeId;
+    currentDef = entry.def;
+    swapFn?.(entry.def, entry.nodeId);
+    return { ok: true };
+  }
+
   // tmp-test/grab-test.tsx
   window.__df_openPicker = () => openWorkflowPicker((def) => {
     window.__df_picked = def;
@@ -92426,6 +92702,44 @@ Example:
     ],
     layout: { start: { x: 40, y: 240 }, sw_many: { x: 320, y: 40 }, log_t: { x: 700, y: 320 }, end: { x: 940, y: 320 } }
   };
+  var chipsDef = {
+    name: wfName,
+    version: 1,
+    nodes: [
+      { id: "start", type: "start", params: {} },
+      {
+        id: "sw_chips",
+        type: "switch",
+        label: "\u591A\u8DEF\u5206\u652F\uFF1A\u8FD0\u884C\u6A21\u5F0F",
+        params: { value: "prep_vars.mode", cases: { quick: "log_1", full: "log_2", video: "log_3", image: "log_4" } }
+      },
+      { id: "log_1", type: "log", label: "\u51FA\u53E31", params: { level: "info", message: "quick" } },
+      { id: "log_2", type: "log", label: "\u51FA\u53E32", params: { level: "info", message: "full" } },
+      { id: "log_3", type: "log", label: "\u51FA\u53E33", params: { level: "info", message: "video" } },
+      { id: "log_4", type: "log", label: "\u51FA\u53E34", params: { level: "info", message: "image" } },
+      { id: "end", type: "end", params: {} }
+    ],
+    edges: [
+      { from: "start", to: "sw_chips" },
+      { from: "sw_chips", to: "log_1", when: "quick" },
+      { from: "sw_chips", to: "log_2", when: "full" },
+      { from: "sw_chips", to: "log_3", when: "video" },
+      { from: "sw_chips", to: "log_4", when: "image" },
+      { from: "log_1", to: "end" },
+      { from: "log_2", to: "end" },
+      { from: "log_3", to: "end" },
+      { from: "log_4", to: "end" }
+    ],
+    layout: {
+      start: { x: 40, y: 320 },
+      sw_chips: { x: 300, y: 40 },
+      log_1: { x: 660, y: 20 },
+      log_2: { x: 660, y: 130 },
+      log_3: { x: 660, y: 240 },
+      log_4: { x: 660, y: 350 },
+      end: { x: 960, y: 320 }
+    }
+  };
   var staleDef = {
     name: wfName,
     version: 1,
@@ -92437,7 +92751,35 @@ Example:
     edges: [{ from: "start", to: "ai_stale" }, { from: "ai_stale", to: "end" }],
     layout: { start: { x: 60, y: 180 }, ai_stale: { x: 340, y: 140 }, end: { x: 700, y: 180 } }
   };
-  var initialDef = params.has("stale") ? staleDef : params.has("many") ? manyDef : params.has("loop") ? loopDef : params.has("branch") ? branchDef : {
+  var jumpChildName = `${wfName}-child`;
+  var jumpDef = {
+    name: wfName,
+    version: 1,
+    nodes: [
+      { id: "start", type: "start", params: {} },
+      { id: "loop_body", type: "loop", label: "\u5FAA\u73AF\uFF1A\u6709\u5FAA\u73AF\u4F53", params: { count: 2, body: { workflowName: jumpChildName } } },
+      { id: "sf_call", type: "subflow", label: "\u5B50\u6D41\u7A0B\uFF1A\u6709\u76EE\u6807", params: { workflowName: jumpChildName } },
+      { id: "loop_nobody", type: "loop", label: "\u5FAA\u73AF\uFF1A\u6CA1\u9009\u5FAA\u73AF\u4F53", params: { count: 1 } },
+      { id: "loop_missing", type: "loop", label: "\u5FAA\u73AF\uFF1A\u5FAA\u73AF\u4F53\u4E0D\u5B58\u5728", params: { count: 1, body: { workflowName: `${wfName}-no-such` } } },
+      { id: "end", type: "end", params: {} }
+    ],
+    edges: [
+      { from: "start", to: "loop_body" },
+      { from: "loop_body", to: "sf_call" },
+      { from: "sf_call", to: "loop_nobody" },
+      { from: "loop_nobody", to: "loop_missing" },
+      { from: "loop_missing", to: "end" }
+    ],
+    layout: {
+      start: { x: 40, y: 300 },
+      loop_body: { x: 280, y: 60 },
+      sf_call: { x: 560, y: 60 },
+      loop_nobody: { x: 280, y: 300 },
+      loop_missing: { x: 560, y: 300 },
+      end: { x: 840, y: 300 }
+    }
+  };
+  var initialDef = params.has("jump") ? jumpDef : params.has("chips") ? chipsDef : params.has("stale") ? staleDef : params.has("many") ? manyDef : params.has("loop") ? loopDef : params.has("branch") ? branchDef : {
     name: wfName,
     version: 1,
     nodes: [
@@ -92446,20 +92788,35 @@ Example:
     ],
     layout: { start: { x: 80, y: 80 }, end: { x: 480, y: 80 } }
   };
-  (0, import_client.createRoot)(document.getElementById("root")).render(
-    (0, import_react103.createElement)(FlowPanel, {
+  function Fixture() {
+    const [def, setDef] = (0, import_react103.useState)(initialDef);
+    const [focus, setFocus] = (0, import_react103.useState)(null);
+    const [epoch, setEpoch] = (0, import_react103.useState)(0);
+    bindNavSwap((next2, focusNodeId2) => {
+      setDef(next2);
+      setFocus(focusNodeId2);
+      setEpoch((n2) => n2 + 1);
+    });
+    setNavCurrent(def);
+    return (0, import_react103.createElement)(FlowPanel, {
+      key: epoch,
       ctx: {
-        workflow: initialDef,
+        workflow: def,
+        focusNodeId: focus,
+        nav: { crumbs: navCrumbs(), current: navCurrentName() || def.name, enter: enterSubWorkflow, back: backToParentWorkflow },
         onChange: (d4) => {
           window.__df_def = d4;
         }
       },
       onClose: () => {
       },
-      onCache: () => {
+      onCache: (d4) => {
+        setNavCurrent(d4);
+        window.__df_def = d4;
       }
-    })
-  );
+    });
+  }
+  (0, import_client.createRoot)(document.getElementById("root")).render((0, import_react103.createElement)(Fixture));
 })();
 /*! Bundled license information:
 

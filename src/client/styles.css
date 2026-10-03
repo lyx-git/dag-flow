@@ -159,6 +159,59 @@
   margin-right: 4px;
   white-space: nowrap;
 }
+/* ===== 子工作流导航（2026-10-03 用户需求）：header 返回胶囊 + 面包屑 + 跳转提示 ===== */
+.dsh-wf-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 6px;
+  min-width: 0;
+}
+.dsh-wf-nav-back {
+  flex: none;
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: #cfe0ff;
+  background: color-mix(in srgb, var(--wf-accent, #4c8dff) 14%, transparent);
+  border: 1px solid var(--wf-accent, #4c8dff);
+  border-radius: 999px;
+  padding: 1px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.dsh-wf-nav-back:hover { background: color-mix(in srgb, var(--wf-accent, #4c8dff) 26%, transparent); }
+.dsh-wf-nav-back:active { transform: scale(0.97); }
+.dsh-wf-crumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--wf-muted, #91a4bf);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.dsh-wf-crumb-item {
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+}
+.dsh-wf-crumb-item:hover { color: #cfe0ff; border-bottom-color: currentColor; }
+.dsh-wf-crumb-sep { opacity: 0.55; }
+.dsh-wf-crumb-cur { color: var(--wf-text, #dce7f8); font-weight: 650; }
+.dsh-wf-navmsg {
+  font-size: 10.5px;
+  color: var(--wf-warn, #fbbf24);
+  border: 1px solid color-mix(in srgb, var(--wf-warn, #fbbf24) 45%, transparent);
+  border-radius: 999px;
+  padding: 1px 9px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 42vw;
+}
 .dsh-wf-name-input {
   font-size: 13px;
   font-weight: 680;

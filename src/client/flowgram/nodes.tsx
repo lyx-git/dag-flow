@@ -5,10 +5,11 @@
 // 端口：start 只有 output，end 只有 input，if 双输出（true/false），其余 左入右出。
 
 import { createElement } from 'react';
-import { useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { DataEvent, Field, FlowNodeRegistry, useNodeRender } from '@flowgram.ai/free-layout-editor';
 import { findMeta } from '../types';
 import { runStatusStore, selectionStore } from './runStatus';
+import { switchCaseStore } from './switchCaseStore';
 
 /** loop 卡片副标题（P1，2026-10-03 用户拍板）：按**实际生效的边界**显示。
  *  引擎优先级 over > count > while——旧实现只认 count，配了 over/while 的循环卡片显示 `count=?`（错信息）。 */
@@ -34,7 +35,9 @@ function pickSubtitle(type: string, data: Record<string, unknown>): string {
     case 'if': return (data.condition as string) ?? 'condition';
     case 'switch': {
       const caseCount = Object.keys((data.cases as object) ?? {}).length;
-      return `value=${(data.value as string) ?? ''} · ${caseCount} 个分支${caseCount >= 7 ? '（紧凑）' : ''}`;
+      // 2026-10-03 起 switch 卡片只留一行 chips（选中的分支键与操作提示见 switchSubtitle），
+      // 端口行/紧凑档已删除——这里只报「值 + 分支数」。
+      return `value=${(data.value as string) ?? ''} · ${caseCount} 个分支`;
     }
     case 'loop': return loopSubtitle(data);
     case 'set_var': return Object.keys((data.vars as object) ?? {}).join(', ') || '(empty)';
@@ -52,15 +55,73 @@ function pickSubtitle(type: string, data: Record<string, unknown>): string {
   }
 }
 
-/** switch 端口行距 / 卡内标签策略（2026-10-03 用户拍板 A+A+：case 过多会把节点撑得很大、不利于看流程）。
- *  case ≥ 7 进入紧凑：端口行距 30→12px + **卡内标签隐藏**（每条连线中点本来就有分支键标签，信息不丢）。
- *  端口是连线的锚点、不能隐藏，所以压缩只能落在行距与卡内标签上。 */
-const SWITCH_TIGHT_FROM = 7;
-function switchLayout(caseCount: number): { gap: number; showLabels: boolean } {
-  return caseCount >= SWITCH_TIGHT_FROM ? { gap: 12, showLabels: false } : { gap: 30, showLabels: true };
+/** switch 卡片策略（2026-10-03 用户拍板 B）——用户原话：
+ *  「switch 节点里面的端口行去掉，保留 chips，选择哪个 chips，画线带出来的就是哪个分支，
+ *    如果有很多分支或者 chips 没展示出来，就在节点里面写明情况说明，先画线，再在线上选择需要的 case 分支，
+ *    节点保持和其他的节点大小一致」。
+ *  实现（**原逻辑零改动**：分支键仍是 FlowGram 端口 portID ↔ flowDef 的 sourceHandle/when，
+ *  执行器读 node.next、多个 case 指向同一目标等一切照旧）：
+ *   · 端口行删除：每个 case 仍各有端口（连线锚点/分支键/共享目标都靠它），但全部放在**同一个点**上
+ *     （卡片右侧中部，与普通节点的输出口同高）→ 视觉上只剩一个圆点；
+ *   · 拖线带哪个分支：把「当前选中的 chip」端口排到端口列表**最后**（DOM 最后 ⇒ 绘在最上层、命中它）；
+ *     没选中任何 chip 时排最后的是 'out'（= 这条线先不带分支键，画完再在线上点选）；
+ *   · 卡片高度恒定：一行 chips（放不下时末尾「+N」）+ 只在放不下时多一行说明，
+ *     与 case 数无关（普通节点是 head+sub ≈ 59px，switch 多一行 chips）。 */
+const SWITCH_CHIP_MAX = 4;    // 一行最多几个 chip（超出 → 前 3 个 + 「+N」）
+const SWITCH_CARD_MIN_H = 91; // 恒定高度（实测：普通节点 78px，switch + 一行 chips = 91px；溢出再加一行说明 107px）
+const SWITCH_NO_CASE = 'out'; // 「还没选分支键」的端口：flowDef.fromRF 把它按未设分支处理
+
+/** switch 端口列表（真源：formMeta 用；顺序恒定，端口集合恒定 ⇒ 改 case 只增删对应端口，绝不动别的）
+ *  ★ 拖线命中哪个端口**不作为分支键的依据**——同坐标叠了多个端口元素，命中顺序由 FlowGram 绘制顺序决定，
+ *    实测会命中任意 case。真正的分支键来源是「节点上选中的 chip」，由 FlowGramCanvas 在**新线落地时**
+ *    就地改端口（见 adoptChipCaseForNewLines）。 */
+function switchPorts(keys: string[]): unknown[] {
+  const all = [...keys, ...(keys.length ? ['*'] : []), SWITCH_NO_CASE];
+  return [
+    { type: 'input' },
+    // ★ 不给 locationConfig：与普通节点的单出口一样由引擎**垂直居中**——所有 case 端口锚在同一像素上，
+    //   视觉上只有一个圆点（给显式 top 实测反而让「有连线的端口」和「out 端口」差出 14px → 两个圆点）
+    ...all.map((k) => ({ type: 'output', portID: k })),
+  ];
 }
 
-/** 节点卡内容（渲染在 FlowGram 节点体内） */
+/** switch 副标题：值 + 分支数 + 「这次拉线会带哪个分支」（不额外占行，卡片高度不因此增长） */
+function switchSubtitle(values: Record<string, unknown>, selected: string | null, caseCount: number): string {
+  const head = `value=${(values.value as string) ?? ''} · ${caseCount} 个分支`;
+  return selected
+    ? `${head} · 已选 ${selected === '*' ? '其他' : selected}（拉线即带）`
+    : `${head} · 先画线，再在线上点选分支`;
+}
+
+/** switch 卡片上的一个 chip。
+ *  ★ 为什么用**原生监听器**而不是 React 的 onClick：节点卡渲染在 FlowGram 的节点层里，卡内的
+ *    click/mousedown 冒泡会被画布的节点拖拽/选中处理 stopPropagation 掉——实测 React 的委托 onClick
+ *    在卡内根本收不到事件（native `chip.click()` 都不触发），而直接在元素上加监听器能收到。
+ *    同时把 mousedown/pointerdown 停住，避免点 chip 被画布当成节点拖拽/框选。 */
+function SwitchChip(props: { text: string; title: string; cls: string; onPick: () => void }) {
+  const ref = useRef<HTMLSpanElement | null>(null);
+  const cbRef = useRef(props.onPick);
+  cbRef.current = props.onPick;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const stop = (e: Event): void => { e.stopPropagation(); };
+    const pick = (e: Event): void => { e.stopPropagation(); e.preventDefault(); cbRef.current(); };
+    el.addEventListener('click', pick);
+    el.addEventListener('mousedown', stop);
+    el.addEventListener('pointerdown', stop);
+    el.addEventListener('mouseup', stop);
+    return () => {
+      el.removeEventListener('click', pick);
+      el.removeEventListener('mousedown', stop);
+      el.removeEventListener('pointerdown', stop);
+      el.removeEventListener('mouseup', stop);
+    };
+  }, []);
+  return createElement('span', { ref, className: props.cls, title: props.title }, props.text);
+}
+
+/** switch 卡片（渲染在 FlowGram 节点体内） */
 function NodeCardBody({ type }: { type: string }) {
   const { node, form } = useNodeRender();
   const meta = findMeta(type);
@@ -73,36 +134,81 @@ function NodeCardBody({ type }: { type: string }) {
   const selSelector = () => selectionStore.getSnapshot() === node.id;
   const isSelected = useSyncExternalStore(selectionStore.subscribe, selSelector, selSelector);
   const statusCls = rs?.status === 'success' ? 'is-ok' : rs?.status === 'failed' ? 'is-err' : rs?.status === 'skipped' ? 'is-skip' : '';
-  // ★ 分支端口标签（2026-10-03 用户需求 B）：端口是多输出动态生成的，位置固定在
-  //   top = 22 + i*30（if 的 ['true','false']、switch 的 cases 键 + '*' 兜底，与 formMeta
-  //   里的 locationConfig.top 一致）。标签贴在卡片右内侧，与端口同高，一眼看出该从哪个口拖线。
+  // ★ switch 卡片（2026-10-03 用户拍板 B）：端口行删除，只留一行 chips ——
+  //   点 chip 选分支 → 之后从本节点拉出的线**自带**该分支键；没选 → 拉出的线不带分支键（先画线、再在线上点选）。
   const caseKeys = type === 'switch' ? Object.keys((values.cases as Record<string, unknown>) ?? {}) : [];
-  const branchKeys: string[] = type === 'if'
-    ? (((values.portKeys as string[]) ?? ['true', 'false']).slice(0, 2))
-    : type === 'switch' && caseKeys.length
-      ? [...caseKeys, '*']
-      : [];
-  // ★ 紧凑策略（A+A+）：switch 分支多时行距压到 12px 并隐藏卡内标签，避免把整条流程拉散
-  const { gap, showLabels } = type === 'switch' ? switchLayout(caseKeys.length) : { gap: 30, showLabels: true };
-  const branchLabels = showLabels ? branchKeys.map((k, i) => createElement(
+  const caseSel = useSyncExternalStore(
+    switchCaseStore.subscribe,
+    () => switchCaseStore.getSel(node.id),
+    () => switchCaseStore.getSel(node.id),
+  );
+  const chipKeys = type === 'switch' && caseKeys.length ? [...caseKeys, '*'] : [];
+  // ★ 折叠的 chips 要能展开（2026-10-03 真机反馈「手动再选择没看到 case」）：默认一行（放不下显示 +N），
+  //   点 +N → 展开成多行把所有 case 都露出来（卡片随之变高，用户主动触发），再点「收起」还原。
+  const [chipsOpen, setChipsOpen] = useState(false);
+  const foldAt = Math.max(1, SWITCH_CHIP_MAX - 1);
+  const foldedCount = Math.max(0, chipKeys.length - foldAt);
+  const shownChips = (chipsOpen || chipKeys.length <= SWITCH_CHIP_MAX) ? chipKeys : chipKeys.slice(0, foldAt);
+  const hiddenChips = chipKeys.length - shownChips.length;
+  const pickChip = (k: string): void => {
+    switchCaseStore.toggleSel(node.id, k);
+    // 诊断钩子（真机/CDP 排查「点了没反应 / 拉线没带分支」）
+    (window as any).__df_lastChipClick = { node: node.id, key: k, sel: switchCaseStore.getSel(node.id), at: Date.now() };
+  };
+  const switchChips = chipKeys.length ? createElement(
     'div',
-    {
-      key: `branch-${k}`,
-      className: `dsh-wf-fg-branch-label${k === 'true' ? ' is-true' : k === 'false' ? ' is-false' : k === '*' ? ' is-star' : ''}`,
-      style: { top: `${22 + i * gap}px` },
-      title: `${type === 'switch' ? 'case' : '分支'}：${k === '*' ? '*（无匹配时的兜底）' : k}`,
-    },
-    k === '*' ? '其他' : k === 'true' ? '真' : k === 'false' ? '假' : k,
-  )) : [];
-  // ★ 卡片随分支数增高：端口位置 = top 22 + i*gap，卡片不跟着长高时最后一个端口（'*' 兜底）会落到卡片外。
-  const portMinHeight = branchKeys.length ? 22 + (branchKeys.length - 1) * gap + 24 : undefined;
+    { className: `dsh-wf-fg-chips${chipsOpen ? ' is-expanded' : ''}` },
+    ...shownChips.map((k) => createElement(SwitchChip, {
+      key: `chip-${k}`,
+      cls: `dsh-wf-fg-chip${k === '*' ? ' is-star' : ''}${caseSel === k ? ' is-sel' : ''}`,
+      title: `case：${k === '*' ? '*（无匹配时的兜底）' : k} —— ${caseSel === k
+        ? '已选中：从本节点拉出的新线自带这个分支键（再点一次取消）'
+        : '点击选中：之后从本节点拉线即带这个分支键'}`,
+      text: `${caseSel === k ? '✓ ' : ''}${k === '*' ? '其他' : k}`,
+      onPick: () => pickChip(k),
+    })),
+    foldedCount > 0
+      ? createElement(SwitchChip, {
+          key: 'chip-more',
+          cls: `dsh-wf-fg-chip is-more${chipsOpen ? ' is-open' : ''}`,
+          title: chipsOpen ? '收起（恢复成一行）' : `展开全部 ${chipKeys.length} 个分支（卡片会变高，展开后可点任意 case）`,
+          text: chipsOpen ? '收起' : `+${foldedCount}`,
+          onPick: () => setChipsOpen((v) => !v),
+        })
+      : null,
+  ) : null;
+  /** 情况说明（用户要求）：chips 一行放不下时在卡片里写明还有多少分支、怎么操作 */
+  const switchNote = !chipsOpen && hiddenChips > 0
+    ? createElement('div', {
+        className: 'dsh-wf-fg-card-note',
+        title: `还有 ${hiddenChips} 个分支未展示——点 chips 行末尾的「+${hiddenChips}」可展开全部，也可以先画线、再在线上点选分支`,
+      }, `还有 ${hiddenChips} 个分支未展示 · 点「+${hiddenChips}」展开，或先画线再在线上点选分支`)
+    : null;
+  // if 节点保持原样（2026-10-03 需求 B）：双端口 + 与端口同高的逐行标签
+  const ifLabels = type === 'if'
+    ? (((values.portKeys as string[]) ?? ['true', 'false']).slice(0, 2)).map((k, i) => createElement(
+      'div',
+      {
+        key: `branch-${k}`,
+        className: `dsh-wf-fg-branch-label${k === 'true' ? ' is-true' : k === 'false' ? ' is-false' : ''}`,
+        style: { top: `${22 + i * 30}px` },
+        title: `分支：${k === '*' ? '*（无匹配时的兜底）' : k}`,
+      },
+      k === 'true' ? '真' : k === 'false' ? '假' : k,
+    ))
+    : [];
+  // ★ 高度：switch 恒定（与 case 数无关，用户要「和其他节点大小一致」）；if 随两个端口行定高
+  const minHeight = type === 'switch'
+    ? SWITCH_CARD_MIN_H
+    : (ifLabels.length ? 22 + (ifLabels.length - 1) * 30 + 24 : 0);
+  const subText = type === 'switch' ? switchSubtitle(values, caseSel, caseKeys.length) : sub;
   return createElement(
     'div',
     {
-      className: `dsh-wf-fg-card${statusCls ? ' ' + statusCls : ''}${isSelected ? ' fg-selected' : ''}`,
+      className: `dsh-wf-fg-card${type === 'switch' ? ' is-switch' : ''}${statusCls ? ' ' + statusCls : ''}${isSelected ? ' fg-selected' : ''}`,
       style: {
         ['--kind' as string]: meta.color,
-        ...(portMinHeight ? { minHeight: `${portMinHeight}px` } : {}),
+        ...(minHeight ? { minHeight: `${minHeight}px` } : {}),
       },
     },
     // 运行耗时徽标（右上）
@@ -119,8 +225,10 @@ function NodeCardBody({ type }: { type: string }) {
         createElement('div', { className: 'dsh-wf-fg-card-type' }, `${meta.label} · ${node.id}`),
       ),
     ),
-    createElement('div', { className: 'dsh-wf-fg-card-sub', title: sub }, sub),
-    branchLabels.length ? branchLabels : null,
+    createElement('div', { className: 'dsh-wf-fg-card-sub', title: subText }, subText),
+    switchChips,
+    switchNote,
+    ifLabels.length ? ifLabels : null,
   );
 }
 
@@ -161,7 +269,11 @@ function makeIfFormMeta() {
   };
 }
 
-/** switch 动态多输出端口：按 data.cases 的键生成（每 case 一个，'*' 兜底置底） */
+/** switch 端口（2026-10-03 用户拍板 B）：**不再按 case 分行**——所有出口端口放在同一个点，
+ *  视觉上只剩一个圆点（端口行「消失」），但每个 case 仍有自己的端口 ⇒ 分支键/lines 锚点/
+ *  多个 case 指向同一目标的原逻辑一字未改。
+ *  端口顺序 = 拖线命中优先级（DOM 最后 ⇒ 绘在最上层）：选中的 chip 排最后；没选中则 'out' 排最后
+ *  （'out' = 这条线先不带分支键，画完在线上点选）。 */
 function makeSwitchFormMeta() {
   return {
     formatOnInit: (value) => ({ ...(value ?? {}) }),
@@ -172,25 +284,8 @@ function makeSwitchFormMeta() {
           effect: ({ value, context }) => {
             const { node } = context;
             const keys = Object.keys((value as Record<string, unknown>)?.cases ?? {});
-            const { gap } = switchLayout(keys.length); // 紧凑策略与卡片渲染同源（A+A+）
-            const ports: unknown[] = [{ type: 'input' }];
-            keys.forEach((k, i) => {
-              ports.push({
-                type: 'output',
-                portID: k,
-                location: 'right',
-                locationConfig: { right: 0, top: 22 + i * gap },
-              });
-            });
-            if (keys.length) {
-              ports.push({
-                type: 'output',
-                portID: '*',
-                location: 'right',
-                locationConfig: { right: 0, top: 22 + keys.length * gap },
-              });
-            }
-            node.ports.updateAllPorts(ports);
+            // 端口集合恒定（cases + '*' + 'out'）→ 改 case 只重排不增删，已画出的线不会掉
+            node.ports.updateAllPorts(switchPorts(keys) as never);
           },
         },
       ],
@@ -232,4 +327,5 @@ export const DSH_NODE_REGISTRIES: FlowNodeRegistry[] = [
 ];
 
 export { pickSubtitle };
+export { SWITCH_NO_CASE }; // switch「还没选分支键」的端口 id：FlowGramCanvas 的新线归属要用它
 export { Field }; // re-export 供 FlowGramCanvas 使用（Field 目前未直接用，保留类型一致性）

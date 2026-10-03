@@ -631,6 +631,71 @@
 .dsh-wf-fg-branch-label.is-false { color: #f43f5e; }
 .dsh-wf-fg-branch-label.is-star { color: var(--wf-accent, #4f8cff); }
 
+/* ===== switch 卡片上的分支 chips（2026-10-03 用户拍板 B）=====
+   用户原话：「switch 节点里面的端口行去掉，保留 chips，选择哪个 chips，画线带出来的就是哪个分支……
+   节点保持和其他的节点大小一致」。端口行（逐行标签/序号）全部删除，卡片里只剩一行 chips：
+   · 点击 chip = 选中该分支 → 之后从本节点拉出的线**自带**这个分支键（再点一次取消）
+   · 分支数超过一行能放下的上限 → 末尾显示「+N」并在卡片里写一行说明（不换行、卡片不会变高）
+   为了让 switch 卡尽量贴近普通节点高度（普通 78px），卡片内边距与副标题间距略收紧。 */
+.dsh-wf-fg-card.is-switch { padding: 7px 12px 7px 16px; }
+.dsh-wf-fg-card.is-switch .dsh-wf-fg-card-sub { margin-top: 3px; }
+.dsh-wf-fg-chips {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 3px 4px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+/* 展开态（点「+N」）：换行显示全部 case 并允许点击任意一个（卡片随之变高，用户主动触发） */
+.dsh-wf-fg-chips.is-expanded { flex-wrap: wrap; overflow: visible; }
+.dsh-wf-fg-chip {
+  font-size: 9px;
+  line-height: 1.5;
+  padding: 0 5px;
+  border-radius: 5px;
+  border: 1px solid var(--wf-border, #22304a);
+  background: color-mix(in srgb, var(--wf-panel, #101a2b) 80%, transparent);
+  color: #c9d6ea;
+  white-space: nowrap;
+  max-width: 74px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.dsh-wf-fg-chip:hover { border-color: var(--wf-accent, #4f8cff); color: #dce7f8; }
+.dsh-wf-fg-chip.is-star { color: var(--wf-warn, #fbbf24); border-color: color-mix(in srgb, var(--wf-warn, #fbbf24) 42%, transparent); }
+/* 选中态：拉线即带这个分支键（✓ 前缀 + 强调色，截图里一眼可辨） */
+.dsh-wf-fg-chip.is-sel {
+  color: #dce7f8;
+  font-weight: 700;
+  border-color: var(--wf-accent, #4f8cff);
+  background: color-mix(in srgb, var(--wf-accent, #4f8cff) 26%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--wf-accent, #4f8cff) 45%, transparent);
+}
+.dsh-wf-fg-chip.is-sel.is-star { color: #ffe9b0; border-color: var(--wf-warn, #fbbf24); background: color-mix(in srgb, var(--wf-warn, #fbbf24) 24%, transparent); }
+/* 折叠计数（+N）：还有多少分支没展示；点它可展开/收起 */
+.dsh-wf-fg-chip.is-more {
+  color: var(--wf-muted, #8b9bb3);
+  border-style: dashed;
+}
+.dsh-wf-fg-chip.is-more.is-open {
+  color: var(--wf-accent, #4f8cff);
+  border-color: color-mix(in srgb, var(--wf-accent, #4f8cff) 45%, transparent);
+}
+/* 卡片内的情况说明（只在 chips 放不下时出现，一行不换行） */
+.dsh-wf-fg-card-note {
+  margin-top: 3px;
+  font-size: 9.5px;
+  line-height: 1.4;
+  color: var(--wf-warn, #fbbf24);
+  opacity: 0.9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ===== 面板八向拖拽调大小（2026-10-01 夜）——把手全在盒内（palette overflow:hidden 会裁剪外伸部分） =====
    2026-10-02 用户反馈「不要这种线」：与右面板同款删除 hover/active 高亮条，边缘光标语义保留。 */
 .dsh-wf-fg-palette-resize { position: absolute; z-index: 30; }

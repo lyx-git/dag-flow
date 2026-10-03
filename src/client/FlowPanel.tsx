@@ -138,7 +138,23 @@ const TABS: { id: ViewTab; label: string; emoji: string }[] = [
 export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   const [tab, setTab] = useState<ViewTab>('canvas');
   const [def, setDef] = useState<WorkflowDef>(() => ctx.workflow ?? DEFAULT_WORKFLOW);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(() => {
+    // ★ 从子工作流返回父工作流时，重挂载要选中「来源循环节点」（index.tsx 的 nav.focusNodeId）
+    const f = (ctx as unknown as { focusNodeId?: string | null })?.focusNodeId;
+    return f ?? null;
+  });
+  // ★ 子工作流导航（2026-10-03 用户需求：双击 loop/subflow 进入子工作流，header 一键返回）
+  const nav = (ctx as unknown as { nav?: {
+    crumbs?: string[];
+    current?: string;
+    enter?: (workflowName: string, fromNodeId: string) => Promise<{ ok?: true; error?: string }>;
+    back?: () => { ok?: true; error?: string };
+  } })?.nav;
+  const [navMsg, setNavMsg] = useState('');
+  const flashNavMsg = (msg: string): void => {
+    setNavMsg(msg);
+    window.setTimeout(() => setNavMsg((cur) => (cur === msg ? '' : cur)), 4000);
+  };
   const [dirty, setDirty] = useState(false);
   // ★ 自动保存状态机（2026-10-01 夜，用户需求实时/定时保存）：idle | pending（将自动保存）| saving | error
   const [autoSave, setAutoSave] = useState<'idle' | 'pending' | 'saving' | 'error'>('idle');
@@ -568,6 +584,39 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
 
   const selectedNode = selectedNodeId ? def.nodes.find((n) => n.id === selectedNodeId) : null;
 
+  // ★ 双击 loop（有循环体）/ subflow（有目标）节点 → 进入子工作流（2026-10-03 用户需求）。
+  //   跳转前先把当前工作流的未保存改动 flush 一次（重挂载会清掉 2s 防抖计时器，不 flush 会丢盘上最新状态）。
+  const handleNodeDoubleClick = useCallback(async (nodeId: string): Promise<void> => {
+    const n = def.nodes.find((x) => x.id === nodeId);
+    if (!n) return;
+    const target = n.type === 'loop'
+      ? String((n.params?.body as { workflowName?: string } | undefined)?.workflowName ?? '').trim()
+      : n.type === 'subflow'
+        ? String(n.params?.workflowName ?? '').trim()
+        : '';
+    if (n.type !== 'loop' && n.type !== 'subflow') return; // 其他节点双击无行为
+    if (!target) {
+      flashNavMsg(n.type === 'loop'
+        ? '该循环节点还没选循环体——在右侧「🔁 循环设置 → 循环体」里选一个子工作流'
+        : '该 subflow 节点还没选子工作流——在右侧参数里选一个');
+      return;
+    }
+    if (!nav?.enter) { flashNavMsg('当前环境不支持子工作流跳转'); return; }
+    try { if (dirty) await saveDefToDisk(def, false); } catch { /* 存盘失败不阻断跳转 */ }
+    const res = await nav.enter(target, nodeId);
+    if (res?.error) flashNavMsg(res.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [def, dirty, nav, saveDefToDisk]);
+
+  /** 一键返回父工作流的来源节点（返回前同样 flush 当前子工作流的改动） */
+  const handleNavBack = useCallback(async (): Promise<void> => {
+    if (!nav?.back) return;
+    try { if (dirty) await saveDefToDisk(def, false); } catch { /* 忽略 */ }
+    const res = nav.back();
+    if (res?.error) flashNavMsg(res.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [def, dirty, nav, saveDefToDisk]);
+
   // 手动保存到 <工作区>/.dag-flow/workflow/<name>.json（调 host API）；AI 节点必须已选模型；
   // ★ 手动保存生成版本快照（服务端把本次保存的内容存档到 versions/，可回载回退）
   // （自动保存跳过此校验——自动保存永不阻塞，模型缺失由运行时校验兜底）
@@ -723,6 +772,34 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         placeholder: '工作流名称',
         title: '自定义工作流名称（保存后用于识别）',
       }),
+      // ★ 子工作流返回入口（变体 A，用户 2026-10-03 拍板）：返回胶囊紧邻工作流名，右侧面包屑显示层级
+      //   （父 › 当前，嵌套多层时从外到内全显示，可逐级点回去）。
+      ...(nav && (nav.crumbs?.length ?? 0) > 0
+        ? [
+            createElement('div', { className: 'dsh-wf-nav', key: 'nav' },
+              createElement('button', {
+                className: 'dsh-wf-nav-back',
+                type: 'button',
+                title: `返回「${nav.crumbs![nav.crumbs!.length - 1]}」并选中来源节点`,
+                onClick: () => { void handleNavBack(); },
+              }, `↩ 返回「${nav.crumbs![nav.crumbs!.length - 1]}」`),
+              createElement('span', { className: 'dsh-wf-crumb' },
+                ...nav.crumbs!.flatMap((c, i) => [
+                  createElement('span', {
+                    key: `c${i}`,
+                    className: 'dsh-wf-crumb-item',
+                    title: `返回第 ${i + 1} 层`,
+                    onClick: () => { void handleNavBack(); },
+                  }, c),
+                  createElement('span', { key: `s${i}`, className: 'dsh-wf-crumb-sep' }, '›'),
+                ]),
+                createElement('b', { className: 'dsh-wf-crumb-cur', key: 'cur' }, nav.current || def.name),
+              ),
+            ),
+          ]
+        : []),
+      // 双击跳转的提示条（子工作流不存在 / 没选循环体 / 成环等，4s 自动消失）
+      navMsg ? createElement('span', { className: 'dsh-wf-navmsg', key: 'navmsg' }, `⚠ ${navMsg}`) : null,
       // 2026-10-01 深夜：移除「N 节点」计数（用户反馈没啥用）；title-sub 仅剩保存状态
       createElement('span', { className: 'dsh-wf-title-sub' },
         !dirty ? '✓ 已保存'
@@ -847,6 +924,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       onDefChange: handleDefChange,
       onRFChange: handleRFChange,
       onSelectNode: handleSelectNode,
+      // ★ 双击 loop（循环体）/ subflow（目标）节点 → 进入子工作流（2026-10-03 用户需求）
+      onNodeDoubleClick: handleNodeDoubleClick,
       onAddNode: handleAddNode,
       onDeleteNode: deleteNodeFull,
       onNodeChange: handleNodeChange,
@@ -1109,6 +1188,8 @@ function renderBody(p: {
   onDefChange: (d: WorkflowDef) => void;
   onRFChange: (nodes: RFNode[], edges: RFEdge[]) => void;
   onSelectNode: (id: string | null) => void;
+  /** 双击节点：loop/subflow 有目标则进入子工作流（2026-10-03 用户需求） */
+  onNodeDoubleClick?: (id: string) => void;
   onAddNode: (type: string) => string;
   onDeleteNode: (id: string) => void;
   onNodeChange: (id: string, params: Record<string, unknown>) => void;
@@ -1139,6 +1220,8 @@ function renderBody(p: {
             : undefined,
           onChange: p.onRFChange,
           onSelectNode: p.onSelectNode,
+          // ★ 双击 loop（循环体）/ subflow（目标）节点 → 进入子工作流（2026-10-03 用户需求）
+          onNodeDoubleClick: p.onNodeDoubleClick,
           selectedNodeId: p.selectedNode?.id ?? null,
           // 运行状态走外置 store（FlowGram 节点卡订阅，不进 document 数据）
           runResults: p.runResults,

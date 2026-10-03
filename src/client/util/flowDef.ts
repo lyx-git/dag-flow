@@ -105,15 +105,19 @@ export function toRF(def: WorkflowDef): { nodes: RFNode[]; edges: RFEdge[] } {
 
 /** RF nodes/edges → WorkflowDef（保留原始 def 的其它字段） */
 export function fromRF(def: WorkflowDef, rfNodes: RFNode[], rfEdges: RFEdge[]): WorkflowDef {
+  const typeOf = (id: string): string => rfNodes.find((n) => n.id === id)?.type ?? '';
   // 按源节点聚合出边：handle → target
   const perSource = new Map<string, { handle: string | null; target: string }[]>();
   for (const e of rfEdges) {
+    let handle = normHandle(e.sourceHandle);
+    // ★ switch 单点端口（2026-10-03 用户拍板 B）：switch 的出口端口在视觉上合成一个点，
+    //   其中 'out' 代表「这条线还没选分支键」（先画线、再在线上点选）→ 与「未设分支」同义（'' 键，
+    //   不会被任何 case 命中，也不会像 null 那样退化成"顺序执行"）。
+    if (handle === 'out' && typeOf(e.source) === 'switch') handle = '';
     const list = perSource.get(e.source) ?? [];
-    list.push({ handle: normHandle(e.sourceHandle), target: e.target });
+    list.push({ handle, target: e.target });
     perSource.set(e.source, list);
   }
-
-  const typeOf = (id: string): string => rfNodes.find((n) => n.id === id)?.type ?? '';
 
   const next: Record<string, NextRef> = {};
   for (const [source, list] of perSource) {

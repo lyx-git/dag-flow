@@ -25,6 +25,8 @@ const TESTS = [
   ['loop-visible', () => import('./test-loop-visible.mjs')],
   ['switch-many', () => import('./test-switch-many.mjs')],
   ['model-select', () => import('./test-model-select.mjs')],
+  ['loop-jump', () => import('./test-loop-jump.mjs')],
+  ['switch-chips', () => import('./test-switch-chips.mjs')],
 ];
 
 // —— fixture 服务器 ——
@@ -36,11 +38,14 @@ for (let i = 0; i < 80 && !serverUp; i++) {
 if (!serverUp) { server.kill(); console.error('✗ fixture 服务器未就绪'); process.exit(1); }
 
 // —— 逐测试（每个测试独立 goto，页面状态隔离；服务器状态用唯一工作流名隔离）——
+//   可选 `CDP_ONLY=loop-jump,switch-chips` 只跑指定几项（开发期省时；默认跑全部）
+const only = (process.env.CDP_ONLY ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+const SELECTED = only.length ? TESTS.filter(([n]) => only.includes(n)) : TESTS;
 const results = [];
 let page = null;
 try {
   page = await launchPage({ port: 9333 });
-  for (const [name, load] of TESTS) {
+  for (const [name, load] of SELECTED) {
     const t0 = Date.now();
     const wfName = `${name}-${Date.now().toString(36)}`;
     try {

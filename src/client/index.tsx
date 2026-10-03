@@ -6,6 +6,26 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261003-switch-chips：switch 分支键改「横排 chips」（用户 2026-10-03 反馈：截图里 quick/full/video/image/
+//   其他 五个键在卡内**逐行竖着堆**，「很别扭，也会遮挡」→ 原型三选一后拍板 A）。三档策略（端口位置与连线
+//   行为一律不变，全部出自同一个 `switchLayout()`）：
+//     ≤3 个 case：`labels` 逐行标签（保持原行为，行数少不别扭）
+//     4~6 个    ：`chips` 端口行只留极淡序号 ①②③…（右侧与端口同高），分支键**横排成一行 chips** 贴在
+//                卡片底部做图例（`1·quick` `2·full` … `★其他`），悬停 chip → 对应行序号高亮放大，拖线不认错；
+//                 行距 30→16px、端口起点仍是 22px，5 个 case 卡高 166→**136px**
+//     ≥7 个     ：`tight` 行距 12px + 卡内不留字（20 个 case 时 chips 会换很多行，故不启用）
+//   ★ 为什么 chips 在底部而不是标题下：实测卡片头部（图标+标题+类型+副标题）本身 ~80px，chips 若放标题下、
+//     端口就得整体下移到 112px 起，卡片反而从 166px 涨到 192px（「优化」把节点撑更高，被否）。放底部做图例后
+//     端口仍从 22px 起，卡片反而更矮。
+// v20261003-loop-jump：子工作流跳转（用户 2026-10-03 原话：「如果选择了要执行的子工作流，那么双击 loop 循环节点
+//   可以直接跳到子工作流里面，子工作流也可以一键切回到父工作流的循环节点」）——用户拍板：返回入口用
+//   **header 返回胶囊 + 面包屑**（变体 A），适用范围 **loop（循环体）+ subflow（引用的子工作流）**。
+//   ① 双击节点 → FlowGramCanvas 的原生 dblclick（此前双击无绑定）→ FlowPanel 判定：
+//      loop 取 `params.body.workflowName`、subflow 取 `params.workflowName`，为空则提示「还没选」；
+//   ② 跳转前先把当前工作流 flush 一次（重挂载会清掉 2s 防抖计时器，不 flush 会丢盘上最新状态）；
+//   ③ 导航栈/守卫/错误提示在 src/client/navStack.ts（**与 CDP 夹具共用同一份逻辑**，夹具只模拟「换 def」）；
+//      栈里存**父 def 快照**（含未保存编辑）+ 来源节点 id，返回时原样恢复并**重新选中那个循环节点**；
+//   ④ 守卫：未选子工作流 / 子工作流不存在（404）/ 自引用 / 会成环 → 只出提示不跳转。
 // v20261003-model-label-top：模型下拉「重进就定位到已选模型」+「已选项带选中标记」（用户 2026-10-03 反馈：
 //   重进下拉选没有自动定位到已选择的模型；补充口径：点开下拉时已选中的那条要有一个选中状态标记它，
 //   没有已选模型时则任何项都不带标记）——①已选中的那条**挪到列表最前**（紧跟占位项），原生 select 展开即在
@@ -79,6 +99,8 @@ import { DEFAULT_WORKFLOW, type WorkflowDef } from './types';
 import { applyTheme, getThemeMode } from './theme';
 import { mountSidebarEntry } from './sidebar';
 import { openWorkflowPicker } from './workflow-picker';
+// 子工作流导航（2026-10-03 用户需求）：栈/守卫在 navStack.ts，与 CDP 夹具共用同一份逻辑
+import { bindNavSwap, backToParentWorkflow, enterSubWorkflow, navCrumbs, navCurrentName, navFocusNodeId, setNavCurrent } from './navStack';
 import {
   CLIENT_INJECT,
   registerSettingsSection,
@@ -270,6 +292,8 @@ let dockOpenRequest: (() => void) | null = null;
 // 停靠画布的 def 外置存储：FlowPanel onCache 静默同步（不触发重挂，保住内部编辑态）；
 // 选择/新建/入口点击时 bump 版本号，让 DockedMainPanel 以新 def 重挂载。
 let dockDef: WorkflowDef | null = null;
+/** 从子工作流返回父工作流时要重新选中的节点（navStack 通过 bindNavSwap 回传） */
+let dockFocusNodeId: string | null = null;
 let dockVersion = 0;
 const dockListeners = new Set<() => void>();
 
@@ -290,6 +314,17 @@ function subscribeDock(listener: () => void): () => void {
   dockListeners.add(listener);
   return () => { dockListeners.delete(listener); };
 }
+
+// ================= 子工作流导航（2026-10-03 用户需求）=================
+// 需求原话：「如果选择了要执行的子工作流，那么双击 loop 循环节点可以直接跳到子工作流里面，
+//          子工作流也可以一键切回到父工作流的循环节点」→ 用户拍板返回入口用「header 返回胶囊 + 面包屑」，
+//          适用范围 loop（循环体）+ subflow（引用的子工作流）。
+// 栈与守卫在 src/client/navStack.ts（与 CDP 夹具共用同一份真实逻辑）；这里只提供「换 def」能力：
+// 停靠面板 bump 版本号重挂载 FlowPanel（与「打开已有工作流」同一条通路）。
+bindNavSwap((def, focus) => {
+  dockFocusNodeId = focus;
+  setDockDef(def, true);
+});
 
 /** 回到会话面板（防腐层 selectPanel；layout 不可用时静默）。 */
 function backToConversation(): void {
@@ -328,8 +363,20 @@ function DockedMainPanel(): any {
     console.log('[dag-flow] dock mount v' + dockVersion, 'def=' + (def?.name ?? '(null)'));
     mountWorkflowPanel(bodyRef.current, {
       workflow: def,
-      onCache: (d: WorkflowDef) => setDockDef(d, false),
+      onCache: (d: WorkflowDef) => {
+        setNavCurrent(d);              // 让导航栈知道当前 def（进入子工作流时要压「父 def 快照」）
+        setDockDef(d, false);
+      },
       onClose: () => backToConversation(),
+      // 子工作流导航（loop 循环体 / subflow 目标）：进入 + 一键返回父工作流的来源节点
+      nav: {
+        crumbs: navCrumbs(),           // 从外到内的父链（不含当前）
+        current: navCurrentName() || def.name || '',
+        enter: enterSubWorkflow,
+        back: backToParentWorkflow,
+      },
+      // 返回父工作流时要重新选中的节点（来源循环节点）；进入子工作流时为 null
+      focusNodeId: navFocusNodeId(),
     });
     return () => { unmount(); };
   }, [dockVersion]);
@@ -402,7 +449,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261003-model-label-top · apply OK');
+    console.log('[dag-flow] client v20261003-switch-case-adopt · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

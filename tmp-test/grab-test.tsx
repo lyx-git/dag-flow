@@ -1,10 +1,12 @@
 // tmp-test/grab-test.tsx — 画布交互 fixture：挂载真实 FlowPanel（含 Del 快捷键链路），
-// 验证节点单击选中 / 拖拽 / 双击拿起 / Del 删除 / 面板最小化，供 headless Chrome 断言。
-import { createElement } from 'react';
+// 验证节点单击选中 / 拖拽 / 双击进入子工作流 / Del 删除 / 面板最小化，供 headless Chrome 断言。
+import { createElement, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../src/client/styles.css';
 import { FlowPanel } from '../src/client/FlowPanel';
 import { openWorkflowPicker } from '../src/client/workflow-picker';
+// 子工作流导航：用生产同一份 navStack（只有「换 def」由本夹具用 setState+key 实现）
+import { bindNavSwap, backToParentWorkflow, enterSubWorkflow, navCrumbs, navCurrentName, setNavCurrent } from '../src/client/navStack';
 
 // CDP 测试钩子：打开「打开/新建」选择器（复制功能测试用）
 (window as any).__df_openPicker = () => openWorkflowPicker((def: any) => { (window as any).__df_picked = def; });
@@ -101,6 +103,37 @@ const manyDef: any = {
   layout: { start: { x: 40, y: 240 }, sw_many: { x: 320, y: 40 }, log_t: { x: 700, y: 320 }, end: { x: 940, y: 320 } },
 };
 
+/** ?chips=1：switch 4 个 case + 兜底（5 个出口）——2026-10-03 用户截图里那种「逐行竖排标签很别扭」的形状。
+ *  期望新版：分支键**横排 chips** + 端口行极淡序号 + 悬停高亮；卡内不再有逐行文字标签。 */
+const chipsDef: any = {
+  name: wfName,
+  version: 1,
+  nodes: [
+    { id: 'start', type: 'start', params: {} },
+    {
+      id: 'sw_chips', type: 'switch', label: '多路分支：运行模式',
+      params: { value: 'prep_vars.mode', cases: { quick: 'log_1', full: 'log_2', video: 'log_3', image: 'log_4' } },
+    },
+    { id: 'log_1', type: 'log', label: '出口1', params: { level: 'info', message: 'quick' } },
+    { id: 'log_2', type: 'log', label: '出口2', params: { level: 'info', message: 'full' } },
+    { id: 'log_3', type: 'log', label: '出口3', params: { level: 'info', message: 'video' } },
+    { id: 'log_4', type: 'log', label: '出口4', params: { level: 'info', message: 'image' } },
+    { id: 'end', type: 'end', params: {} },
+  ],
+  edges: [
+    { from: 'start', to: 'sw_chips' },
+    { from: 'sw_chips', to: 'log_1', when: 'quick' },
+    { from: 'sw_chips', to: 'log_2', when: 'full' },
+    { from: 'sw_chips', to: 'log_3', when: 'video' },
+    { from: 'sw_chips', to: 'log_4', when: 'image' },
+    { from: 'log_1', to: 'end' }, { from: 'log_2', to: 'end' }, { from: 'log_3', to: 'end' }, { from: 'log_4', to: 'end' },
+  ],
+  layout: {
+    start: { x: 40, y: 320 }, sw_chips: { x: 300, y: 40 },
+    log_1: { x: 660, y: 20 }, log_2: { x: 660, y: 130 }, log_3: { x: 660, y: 240 }, log_4: { x: 660, y: 350 }, end: { x: 960, y: 320 },
+  },
+};
+
 /** ?stale=1：AI 节点的模型存值是旧快照（不在 dsh 当前列表里）——验证面板把它显式暴露，不再"看起来没选" */
 const staleDef: any = {
   name: wfName,
@@ -114,7 +147,36 @@ const staleDef: any = {
   layout: { start: { x: 60, y: 180 }, ai_stale: { x: 340, y: 140 }, end: { x: 700, y: 180 } },
 };
 
-const initialDef: any = params.has('stale') ? staleDef : params.has('many') ? manyDef : params.has('loop') ? loopDef : params.has('branch') ? branchDef : {
+/** ?jump=1：子工作流跳转夹具（2026-10-03 用户需求：双击 loop/subflow 进入子工作流 + header 一键返回）
+ *  子工作流名 = `<本页工作流名>-child`（测试先 POST /workflows/save 建好它）；
+ *  `loop_missing` 的循环体指向一个**不存在**的工作流（验证失败提示）；
+ *  `loop_nobody` 没配循环体（验证「还没选」提示）。 */
+const jumpChildName = `${wfName}-child`;
+const jumpDef: any = {
+  name: wfName,
+  version: 1,
+  nodes: [
+    { id: 'start', type: 'start', params: {} },
+    { id: 'loop_body', type: 'loop', label: '循环：有循环体', params: { count: 2, body: { workflowName: jumpChildName } } },
+    { id: 'sf_call', type: 'subflow', label: '子流程：有目标', params: { workflowName: jumpChildName } },
+    { id: 'loop_nobody', type: 'loop', label: '循环：没选循环体', params: { count: 1 } },
+    { id: 'loop_missing', type: 'loop', label: '循环：循环体不存在', params: { count: 1, body: { workflowName: `${wfName}-no-such` } } },
+    { id: 'end', type: 'end', params: {} },
+  ],
+  edges: [
+    { from: 'start', to: 'loop_body' },
+    { from: 'loop_body', to: 'sf_call' },
+    { from: 'sf_call', to: 'loop_nobody' },
+    { from: 'loop_nobody', to: 'loop_missing' },
+    { from: 'loop_missing', to: 'end' },
+  ],
+  layout: {
+    start: { x: 40, y: 300 }, loop_body: { x: 280, y: 60 }, sf_call: { x: 560, y: 60 },
+    loop_nobody: { x: 280, y: 300 }, loop_missing: { x: 560, y: 300 }, end: { x: 840, y: 300 },
+  },
+};
+
+const initialDef: any = params.has('jump') ? jumpDef : params.has('chips') ? chipsDef : params.has('stale') ? staleDef : params.has('many') ? manyDef : params.has('loop') ? loopDef : params.has('branch') ? branchDef : {
   name: wfName,
   version: 1,
   nodes: [
@@ -124,13 +186,31 @@ const initialDef: any = params.has('stale') ? staleDef : params.has('many') ? ma
   layout: { start: { x: 80, y: 80 }, end: { x: 480, y: 80 } },
 };
 
-createRoot(document.getElementById('root')!).render(
-  createElement(FlowPanel, {
+// ★ 子工作流跳转（?jump=1）：ctx.nav 接的是**生产同一份** navStack 逻辑，宿主侧只提供「换 def」能力。
+//   生产 = setDockDef(def, bump) 重挂载停靠面板；这里 = setState + key 变化重挂载（效果一致，
+//   从而让 CDP 也能验证「返回后重新选中来源节点」这条路径）。
+function Fixture(): any {
+  const [def, setDef] = useState<any>(initialDef);
+  const [focus, setFocus] = useState<string | null>(null);
+  const [epoch, setEpoch] = useState(0);
+  bindNavSwap((next, focusNodeId) => {
+    setDef(next);
+    setFocus(focusNodeId);
+    setEpoch((n) => n + 1);
+  });
+  setNavCurrent(def);
+  return createElement(FlowPanel, {
+    key: epoch,
     ctx: {
-      workflow: initialDef,
+      workflow: def,
+      focusNodeId: focus,
+      nav: { crumbs: navCrumbs(), current: navCurrentName() || def.name, enter: enterSubWorkflow, back: backToParentWorkflow },
       onChange: (d: any) => { (window as any).__df_def = d; },
     } as any,
     onClose: () => {},
-    onCache: () => {},
-  } as any),
-);
+    onCache: (d: any) => { setNavCurrent(d); (window as any).__df_def = d; },
+  } as any);
+}
+
+createRoot(document.getElementById('root')!).render(createElement(Fixture));
+
