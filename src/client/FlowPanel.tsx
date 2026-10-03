@@ -9,7 +9,8 @@ import { createElement } from 'react';
 //   会让面板内 position:fixed 的弹窗以面板为包含块（弹窗被困在面板里，2026-10-02 用户反馈）
 import { createPortal } from 'react-dom';
 import type { MountContext, ViewTab, WorkflowDef } from './types';
-import { DEFAULT_WORKFLOW, findMeta } from './types';
+import { DEFAULT_WORKFLOW, findMeta, outSpecOf } from './types';
+import { fieldsFromValue } from './outFields';
 import { toRF, fromRF, type RFNode, type RFEdge } from './util/flowDef';
 import { applyAutoLayout } from './util/layout';
 import { Canvas } from './Canvas';
@@ -919,6 +920,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       selectedNode,
       ctx,
       runResults, // 运行状态可视化（画布节点徽标）
+      // 上次运行的真实输出（results.<id>.out）——面板用它反推「实际有哪些变量」，含用户自定义键
+      runOuts: ((runResult?.summary as { results?: Record<string, unknown> } | undefined)?.results ?? {}),
       // A4 失败策略（onError：节点失败时的行为）
       onNodeError: handleNodeError,
       onDefChange: handleDefChange,
@@ -1185,6 +1188,8 @@ function renderBody(p: {
   selectedNode: import('./types').ClientNode | null | undefined;
   ctx: MountContext;
   runResults?: Record<string, { status: string; durationMs?: number; count?: number }>;
+  /** 上次运行的真实输出（results.<id>），用于把「用户自定义键/动态节点」的实际字段列出来 */
+  runOuts?: Record<string, { status?: string; durationMs?: number; out?: unknown }>;
   onDefChange: (d: WorkflowDef) => void;
   onRFChange: (nodes: RFNode[], edges: RFEdge[]) => void;
   onSelectNode: (id: string | null) => void;
@@ -1295,6 +1300,8 @@ function renderBody(p: {
               node: p.selectedNode,
               defNodes: p.def.nodes,
               edges: p.rfEdges,
+              inputs: p.def.inputs,
+              runOuts: p.runOuts ?? {},
               workflowName: p.def.name,
               onDelete: () => p.onDeleteNode(p.selectedNode!.id),
               onParamsChange: (params) => p.onNodeChange(p.selectedNode!.id, params),
@@ -1331,10 +1338,14 @@ function renderBody(p: {
 
 // 节点参数检查器（简化版：动态渲染 key-value）
 // subagent 节点额外提供模型下拉选择（DSH 配置 + 用户自定义模型）
-function NodeInspector({ node, defNodes = [], edges = [], workflowName = '', onDelete, onParamsChange, onError = 'stop', onNodeError }: {
+function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts = {}, workflowName = '', onDelete, onParamsChange, onError = 'stop', onNodeError }: {
   node: import('./types').ClientNode;
   defNodes?: import('./types').ClientNode[];
   edges?: RFEdge[];
+  /** 工作流参数（def.inputs）——面板「全局变量」里要能复制 {{inputs.名称}} */
+  inputs?: Record<string, unknown>;
+  /** 上次运行的真实输出（results.<id>.out）——优先用它反推字段，含用户自定义键与深层路径 */
+  runOuts?: Record<string, { status?: string; out?: unknown }>;
   workflowName?: string;
   onDelete: () => void;
   onParamsChange: (params: Record<string, unknown>) => void;
@@ -1370,6 +1381,56 @@ function NodeInspector({ node, defNodes = [], edges = [], workflowName = '', onD
   const copyRef = async (text: string) => {
     try { await navigator.clipboard.writeText(text); setCopied(text); setTimeout(() => setCopied(''), 1200); } catch { /* 忽略 */ }
   };
+  // —— 变量引用用的派生数据（2026-10-03 用户需求：上游/下游变量都要展示 + 说明作用 + 含全局变量）——
+  const selfSpec = outSpecOf(node.type);
+  const inputKeys = Object.keys(inputs ?? {});
+  /** 全局变量：所有「设置变量」节点写过的键（同名以第一个写入者为准）+ 各自谁写的 */
+  const { globalVars, varOwner } = useMemo(() => {
+    const owner: Record<string, string> = {};
+    for (const n of defNodes) {
+      if (n.type !== 'set_var') continue;
+      for (const k of Object.keys((n.params?.vars as Record<string, unknown>) ?? {})) if (!owner[k]) owner[k] = n.id;
+    }
+    return { globalVars: Object.keys(owner), varOwner: owner };
+  }, [defNodes]);
+  /** 某节点的可引用字段：**优先用上次运行的真实输出反推**（用户自定义键/动态节点/深层路径都能出来），
+   *  没跑过（或输出是标量）才退回静态字段表。返回的 desc 用静态表里的说明补含义，sample 是实测样例值。 */
+  const fieldsFor = (nid: string, type: string, staticExtra: { path: string; desc: string }[] = []): { list: { path: string; desc: string; sample?: string }[]; live: boolean; skipped: number } => {
+    const spec = outSpecOf(type);
+    const out = runOuts?.[nid]?.out;
+    const live = fieldsFromValue(out);
+    if (out !== undefined && out !== null && live.fields.length) {
+      const merged = [...live.fields.map((f) => ({
+        path: f.path,
+        desc: (spec.fields ?? []).find((x) => x.path === f.path)?.desc
+          ?? staticExtra.find((x) => x.path === f.path)?.desc ?? '',
+        sample: `${f.sample}（${f.kind}）`,
+      }))];
+      // 静态表里有、但这次输出里没出现的字段（例如某分支才有的键）也保留，标注来源
+      for (const s of [...staticExtra, ...(spec.fields ?? [])]) {
+        if (merged.some((m) => m.path === s.path)) continue;
+        merged.push({ path: s.path, desc: `${s.desc}（本次输出里没有，按定义补）` });
+      }
+      return { list: merged, live: true, skipped: live.skipped.length };
+    }
+    return { list: [...staticExtra, ...(spec.fields ?? []).map((f) => ({ path: f.path, desc: f.desc }))], live: false, skipped: 0 };
+  };
+  /** 本节点的字段（同样优先用真实输出反推） */
+  const selfFields = fieldsFor(node.id, node.type);
+  /** 可复制的变量 chip：显示引用写法，title 说明「这个变量是干什么的」 */
+  const refChip = (text: string, desc: string, key: string, isOut = false) => createElement('span', {
+    key,
+    className: `dsh-wf-var-chip${isOut ? ' is-out' : ''}`,
+    title: `点击复制：${text}\n作用：${desc}`,
+    onClick: () => void copyRef(text),
+  }, text);
+  /** 全局变量 chips ——「上游变量」「本节点输出」「全局变量」三处共用（用户要求后两处也要包含全局变量） */
+  const globalChips = (kp: string) => [
+    ...globalVars.map((k) => refChip(`{{vars.${k}}}`, `「${k}」——由设置变量节点 ${varOwner[k]} 写入，流程内随处可见`, `${kp}-v-${k}`, kp.startsWith('self'))),
+    ...inputKeys.map((k) => refChip(`{{inputs.${k}}}`, `工作流参数「${k}」——运行本工作流时由外部/参数面板填入`, `${kp}-i-${k}`, kp.startsWith('self'))),
+    refChip('{{vars.loopItem}}', '仅当本工作流被 loop 当循环体调用时可用：当轮的项或轮次序号', `${kp}-loopItem`, kp.startsWith('self')),
+    refChip('{{vars.loopIndex}}', '仅当本工作流被 loop 当循环体调用时可用：当前轮序号（从 0 开始）', `${kp}-loopIndex`, kp.startsWith('self')),
+  ];
 
   // #1 单节点试跑
   const [testRunning, setTestRunning] = useState(false);
@@ -1639,21 +1700,86 @@ function NodeInspector({ node, defNodes = [], edges = [], workflowName = '', onD
       createElement('label', { className: 'dsh-wf-panel-label' }, '节点类型'),
       createElement('input', { className: 'dsh-wf-input', value: node.type, readOnly: true }),
     ),
-    // #11 上游变量（点击复制引用）
+    // ===== 变量引用（2026-10-03 用户需求：上游能传过来的所有变量 + 本节点能给下游的所有变量，
+    //       都点击复制，且要说明每个变量是干什么的；两处都要包含全局变量）=====
     createElement('div', { className: 'dsh-wf-panel-row' },
-      createElement('label', { className: 'dsh-wf-panel-label' }, `🔗 上游变量（${upstream.length}）`),
+      createElement('label', { className: 'dsh-wf-panel-label' }, `🔗 上游变量（${upstream.length} 个上游节点 · 点击复制）`),
       upstream.length === 0
-        ? createElement('div', { className: 'dsh-wf-panel-hint' }, '无上游节点——本节点是流程起点。')
-        : createElement('div', { className: 'dsh-wf-var-list' },
-            upstream.flatMap((u) => [
-              createElement('span', {
-                key: u + '.out', className: 'dsh-wf-var-chip', title: '点击复制', onClick: () => void copyRef(`{{${u}.out}}`),
-              }, `{{${u}.out}}`),
-              createElement('span', {
-                key: 'res.' + u, className: 'dsh-wf-var-chip', title: '点击复制（含执行状态）', onClick: () => void copyRef(`{{results.${u}}}`),
-              }, `{{results.${u}}}`),
-            ]),
+        ? createElement('div', { className: 'dsh-wf-panel-hint' }, '无上游节点——本节点是流程起点；下面的全局变量仍然可用。')
+        : createElement('div', { className: 'dsh-wf-var-groups' },
+            ...upstream.map((u) => {
+              const un = defNodes.find((n) => n.id === u);
+              const spec = outSpecOf(un?.type ?? '');
+              const um = findMeta(un?.type ?? '');
+              const f = fieldsFor(u, un?.type ?? '',
+                un?.type === 'set_var' ? Object.keys((un.params?.vars as Record<string, unknown>) ?? {}).map((k) => ({ path: k, desc: '本节点写入的全局变量（键来自节点参数）' })) : []);
+              const rs = runOuts?.[u]?.status;
+              const srcNote = f.live ? '（字段取自上次运行的真实输出）'
+                : (rs && rs !== 'success' ? `（上次运行是 ${rs}，字段按类型推断）` : '');
+              return createElement('div', { key: 'up-' + u, className: 'dsh-wf-var-group' },
+                createElement('div', { className: 'dsh-wf-var-node' },
+                  `${um?.label ?? un?.type ?? '?'} · ${u}${spec.note ? ` —— ${spec.note}` : ''}${srcNote}`),
+                createElement('div', { className: 'dsh-wf-var-list' },
+                  refChip(`{{${u}.out}}`, `「${u}」的整份输出`, `up-${u}-all`, false),
+                  ...f.list.map((x) => refChip(`{{${u}.out.${x.path}}}`, `${x.desc || '自定义字段'}${x.sample ? `；样例：${x.sample}` : ''}`, `up-${u}-${x.path}`, false)),
+                  refChip(`{{results.${u}}}`, '该节点的执行状态/耗时（不是它的业务输出）', `up-${u}-res`, false),
+                ),
+                f.live
+                  ? createElement('div', { className: 'dsh-wf-var-legend' },
+                      '实测字段：' + f.list.map((x) => `${x.path}=${x.sample}${x.desc ? `（${x.desc}）` : ''}`).join(' · ')
+                      + (f.skipped ? ` · 另有 ${f.skipped} 个键名含点/空格，无法用 {{}} 引用` : ''))
+                  : (f.list.length
+                      ? createElement('div', { className: 'dsh-wf-var-legend' },
+                          '字段说明：' + f.list.map((x) => `${x.path}=${x.desc}`).join(' · '))
+                      : null),
+              );
+            }),
+            // 全局变量在上游变量里也要有（它们不来自上游节点，但在本节点参数里一样能引用）
+            createElement('div', { className: 'dsh-wf-var-group' },
+              createElement('div', { className: 'dsh-wf-var-node' }, '全局变量（不来自上游，任意位置都能引用）'),
+              createElement('div', { className: 'dsh-wf-var-list' }, ...globalChips('up-gv')),
+            ),
           ),
+    ),
+    // 全局变量（工作流任意位置都能用：vars 来自「设置变量」节点，inputs 来自工作流参数）
+    createElement('div', { className: 'dsh-wf-panel-row' },
+      createElement('label', { className: 'dsh-wf-panel-label' },
+        `🌐 全局变量（vars ${globalVars.length} · inputs ${inputKeys.length} · 点击复制）`),
+      createElement('div', { className: 'dsh-wf-var-list' },
+        ...globalVars.map((k) => refChip(`{{vars.${k}}}`, `「${k}」——由设置变量节点 ${varOwner[k]} 写入，流程内随处可见`, `gv-${k}`, false)),
+        ...inputKeys.map((k) => refChip(`{{inputs.${k}}}`, `工作流参数「${k}」——运行本工作流时由外部/面板填入`, `gi-${k}`, false)),
+        refChip('{{vars.loopItem}}', '仅在被 loop 当循环体调用的子工作流里可用：当轮的项或轮次序号', 'gv-loopItem', false),
+        refChip('{{vars.loopIndex}}', '仅在被 loop 当循环体调用的子工作流里可用：当前轮序号（从 0 开始）', 'gv-loopIndex', false),
+      ),
+      (!globalVars.length && !inputKeys.length)
+        ? createElement('div', { className: 'dsh-wf-panel-hint' }, '还没有全局变量：加一个「设置变量」节点会写 vars，或在头部 ✍️ 工作流参数里加 inputs。')
+        : null,
+    ),
+    // 本节点输出（下游引用）
+    createElement('div', { className: 'dsh-wf-panel-row' },
+      createElement('label', { className: 'dsh-wf-panel-label' }, '📤 本节点输出（下游可直接引用 · 点击复制）'),
+      createElement('div', { className: 'dsh-wf-var-list' },
+        refChip(`{{${node.id}.out}}`, `本节点的整份输出${selfSpec.note ? `（${selfSpec.note}）` : ''}`, 'self-all', true),
+        ...selfFields.list.map((x) => refChip(`{{${node.id}.out.${x.path}}}`, `${x.desc || '自定义字段'}${x.sample ? `；样例：${x.sample}` : ''}`, `self-${x.path}`, true)),
+        refChip(`{{results.${node.id}}}`, '本节点的执行状态/耗时（不是业务输出）', 'self-res', true),
+        ...(node.type === 'set_var' ? Object.keys((node.params?.vars as Record<string, unknown>) ?? {}).map((k) => refChip(`{{vars.${k}}}`, `本节点写入的全局变量「${k}」`, `self-var-${k}`, true)) : []),
+      ),
+      // 标量/动态型输出：把「这份输出到底是什么」写成可见说明（用户要「说明每个变量作用」）
+      selfSpec.note ? createElement('div', { className: 'dsh-wf-var-legend' }, `本节点输出是什么：${selfSpec.note}`) : null,
+      // 本次运行过 → 字段按真实输出给（含用户自定义键），并写明「实测字段=样例值」
+      selfFields.live
+        ? createElement('div', { className: 'dsh-wf-var-legend' },
+            '实测字段（取自上次运行，字段名与样例都是真的）：' + selfFields.list.map((x) => `${x.path}=${x.sample}${x.desc ? `（${x.desc}）` : ''}`).join(' · ')
+            + (selfFields.skipped ? ` · 另有 ${selfFields.skipped} 个键名含点/空格，无法用 {{}} 引用` : ''))
+        : (selfFields.list.length
+            ? createElement('div', { className: 'dsh-wf-var-legend' },
+                '字段说明：' + selfFields.list.map((x) => `${x.path}=${x.desc}`).join(' · '))
+            : null),
+      createElement('div', { className: 'dsh-wf-var-legend' },
+        '下游节点这样用：写在参数里用 {{}} 模板（如 {{' + node.id + '.out.field}}）；写在 if/switch/loop 的表达式里则不带 {{}}（如 ' + node.id + '.out.field）。'),
+      // 全局变量在本节点输出里也要有（它们不只属于本节点，下游一样能引用）——用户明确要求两处都包含
+      createElement('div', { className: 'dsh-wf-var-legend' }, '全局变量（下游同样能直接引用）：'),
+      createElement('div', { className: 'dsh-wf-var-list' }, ...globalChips('self-gv')),
     ),
     copied && createElement('div', { className: 'dsh-wf-panel-hint' }, `已复制：${copied}`),
     // #A4 失败策略（onError：节点失败时的行为）

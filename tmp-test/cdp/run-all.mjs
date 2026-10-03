@@ -27,6 +27,7 @@ const TESTS = [
   ['model-select', () => import('./test-model-select.mjs')],
   ['loop-jump', () => import('./test-loop-jump.mjs')],
   ['switch-chips', () => import('./test-switch-chips.mjs')],
+  ['var-refs', () => import('./test-var-refs.mjs')],
 ];
 
 // —— fixture 服务器 ——

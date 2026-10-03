@@ -12,6 +12,32 @@ const root = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$
 const SEED = ['日报生成', '每周汇总', '数据清洗', '图片批处理', '内容翻译', '会议纪要', '代码审查', '竞品周报', '用户访谈', '发布清单', '复盘记录', '灵感收集'];
 let names = [...SEED];                       // 列表页种子（picker 复刻测试用）
 const defs = new Map();                      // name -> def（保存后的内容）
+
+// /run stub 的假输出：形状对齐各节点的真实 out —— 变量面板「按真实运行输出反推字段」的 CDP 断言要用它
+//（loop 的 count=7 是刻意哨兵值，与夹具里配的 3/50 无关，供「· 循环 N 次」徽标断言）
+function stubOut(n) {
+  switch (n.type) {
+    case 'web_search':
+      return {
+        query: n.params?.query ?? 'q', engine: 'bing', viaHost: false, count: 2,
+        results: [
+          { title: '标题一', url: 'https://example.com/a', snippet: '摘要一' },
+          { title: '标题二', url: 'https://example.com/b', snippet: '摘要二' },
+        ],
+      };
+    case 'set_var': return { ...(n.params?.vars ?? {}) };
+    case 'python': case 'bash': case 'subagent': case 'log': return `STUB_${n.type}_OUT`;
+    case 'http': return { status: 200, body: { ok: true, count: 2 } };
+    case 'loop': return { count: 7, items: [{ a: 1 }] };
+    case 'switch': return { matched: 'quick', target: 'log_mode' };
+    case 'if': return true;
+    case 'file_save': return { path: 'out.txt', relativePath: 'out.txt', absolutePath: 'D:/tmp/out.txt', bytes: 12, source: 'text', preview: 'hi' };
+    case 'manual': return { prompt: '（stub）继续？', confirmed: true, value: 'v', autoPassed: false };
+    case 'end': return { ok: true, summary: 'done' };
+    case 'start': return { mode: 'quick' };
+    default: return { stub: n.type };
+  }
+}
 const versions = new Map();                  // name -> [{ ts, workflow }] 新→旧
 // 人工确认（2026-10-03）：def 含 manual 节点 → 202 awaiting；/run/status 与 /run/resume 查这张表。
 // ★ 必须模块级——放进 createServer 回调里会每请求重建，resume 永远 404。
@@ -118,10 +144,7 @@ createServer((req, res) => {
         if (!def) { json({ error: '缺少 def（工作流定义）' }, 400); return; }
         const results = {};
         for (const n of (def.nodes ?? [])) {
-          // loop 节点带 out.count（P3 徽标「· 循环 N 次」断言用；7 = 刻意哨兵值，与夹具里配的 3/50 无关）
-          results[n.id] = n.type === 'loop'
-            ? { status: 'success', durationMs: 1, out: { count: 7, items: [] } }
-            : { status: 'success', durationMs: 1 };
+          results[n.id] = { status: 'success', durationMs: 1, out: stubOut(n) };
         }
         const manual = (def.nodes ?? []).find((n) => n.type === 'manual');
         if (manual) {

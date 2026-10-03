@@ -85,6 +85,137 @@ export function findMeta(type: string): NodeMeta | undefined {
   return NODE_PALETTE.find((n) => n.type === type);
 }
 
+/**
+ * 节点输出字段表（2026-10-03 用户需求：右侧节点面板要展示「上游能传过来的所有变量」「本节点能给下游
+ * 输出的所有变量」，点击可复制，**并说明每个变量是干什么的**，方便写工作流时直接用）。
+ * 只登记**已核实**的输出形状（逐个读 src/registry/builtin.ts 各 run() 的 out）：
+ *   · object  = 输出是对象，fields 是可直接引用的字段/嵌套路径（复制成 {{id.out.<path>}}）
+ *   · scalar  = 输出是字符串/布尔（只能整取 {{id.out}}，note 说明它是什么）
+ *   · dynamic = 字段随参数或上游而变（note 说明来源），只给整取引用 + 提示，绝不瞎猜字段名
+ */
+export interface NodeOutField { path: string; desc: string }
+export interface NodeOutSpec {
+  kind: 'object' | 'scalar' | 'dynamic';
+  /** object 型：可直接引用的字段 + 每个字段是干什么的 */
+  fields?: NodeOutField[];
+  /** scalar/dynamic 型：整份输出是什么 / 字段从哪来 */
+  note?: string;
+}
+
+export const NODE_OUT_SPECS: Record<string, NodeOutSpec> = {
+  start: { kind: 'dynamic', note: '整份输出 = 开始节点收到的输入' },
+  end: { kind: 'dynamic', note: '整份输出 = 全局变量 vars + end 配置的 outputs' },
+  python: { kind: 'scalar', note: '整份输出 = 脚本 stdout 文本' },
+  bash: { kind: 'scalar', note: '整份输出 = 脚本 stdout 文本' },
+  subagent: { kind: 'scalar', note: '整份输出 = 模型返回的文本' },
+  log: { kind: 'scalar', note: '整份输出 = 日志文本' },
+  if: { kind: 'scalar', note: '整份输出 = 布尔值 true / false' },
+  http: {
+    kind: 'object',
+    fields: [
+      { path: 'status', desc: 'HTTP 状态码' },
+      { path: 'body', desc: '响应体（JSON 自动解析成对象，否则是文本）' },
+    ],
+  },
+  web_search: {
+    kind: 'object',
+    fields: [
+      { path: 'query', desc: '实际用的搜索词' },
+      { path: 'engine', desc: '命中的引擎（bing/ddg/…）' },
+      { path: 'viaHost', desc: '是否走宿主搜索' },
+      { path: 'count', desc: '结果条数' },
+      { path: 'results', desc: '结果数组' },
+      { path: 'results.0.title', desc: '第 1 条标题' },
+      { path: 'results.0.url', desc: '第 1 条链接' },
+      { path: 'results.0.snippet', desc: '第 1 条摘要' },
+    ],
+  },
+  web_fetch: {
+    kind: 'object',
+    fields: [
+      { path: 'url', desc: '抓取地址' },
+      { path: 'status', desc: 'HTTP 状态码' },
+      { path: 'contentType', desc: '响应内容类型' },
+      { path: 'mode', desc: '解析模式（text / json / raw）' },
+      { path: 'chars', desc: '正文字符数' },
+      { path: 'text', desc: '正文文本' },
+      { path: 'json', desc: '解析后的 JSON（mode=json 时）' },
+    ],
+  },
+  session_input: { kind: 'dynamic', note: '整份输出 = 读到的会话消息列表' },
+  set_var: { kind: 'dynamic', note: '整份输出 = 本节点写入的变量（取值用 {{vars.键名}}，见下方全局变量）' },
+  switch: {
+    kind: 'object',
+    fields: [
+      { path: 'matched', desc: '命中的 case 值' },
+      { path: 'target', desc: '该 case 指向的节点 id' },
+    ],
+  },
+  loop: {
+    kind: 'object',
+    fields: [
+      { path: 'count', desc: '实际迭代次数' },
+      { path: 'items', desc: '每轮结果数组（循环体是子工作流时 = 各轮 end 输出）' },
+    ],
+  },
+  manual: {
+    kind: 'object',
+    fields: [
+      { path: 'prompt', desc: '确认提示语' },
+      { path: 'confirmed', desc: '是否已确认' },
+      { path: 'value', desc: '用户填写 / 确认的值' },
+      { path: 'confirmedAt', desc: '确认时间' },
+      { path: 'autoPassed', desc: '是否非交互自动通过' },
+    ],
+  },
+  merge: { kind: 'dynamic', note: '整份输出 = 每个上游一份（键名 = 上游节点 id，或用 keys 参数指定的名字）' },
+  subflow: {
+    kind: 'object',
+    fields: [
+      { path: 'workflow', desc: '子工作流名' },
+      { path: 'status', desc: '子流程最终状态' },
+      { path: 'totalDurationMs', desc: '子流程总耗时' },
+      { path: 'output', desc: '子流程 end 节点的输出' },
+      { path: 'failedCount', desc: '子流程失败节点数' },
+    ],
+  },
+  image_generate: {
+    kind: 'object',
+    fields: [
+      { path: 'images', desc: '生成的图片数组' },
+      { path: 'count', desc: '生成张数' },
+      { path: 'images.0.path', desc: '第 1 张的落盘路径' },
+      { path: 'images.0.url', desc: '第 1 张的 URL' },
+    ],
+  },
+  video_generate: {
+    kind: 'object',
+    fields: [
+      { path: 'taskId', desc: '任务 id' },
+      { path: 'videoUrl', desc: '视频地址' },
+      { path: 'path', desc: '本地落盘路径' },
+      { path: 'bytes', desc: '文件字节数' },
+      { path: 'waitedMs', desc: '轮询等待毫秒' },
+    ],
+  },
+  file_save: {
+    kind: 'object',
+    fields: [
+      { path: 'path', desc: '相对路径（同 relativePath）' },
+      { path: 'relativePath', desc: '相对工作区的路径' },
+      { path: 'absolutePath', desc: '磁盘绝对路径' },
+      { path: 'bytes', desc: '文件字节数' },
+      { path: 'source', desc: '内容来源（text / url）' },
+      { path: 'preview', desc: '文本内容前 200 字' },
+    ],
+  },
+};
+
+/** 取某节点类型的输出形状（未登记的类型按 dynamic：只给整取引用 + 提示，不猜字段名） */
+export function outSpecOf(type: string): NodeOutSpec {
+  return NODE_OUT_SPECS[type] ?? { kind: 'dynamic', note: '整份输出（字段随节点实现而变，可先整取看结果）' };
+}
+
 /** 2 个主视图（thumb/form/manage/ai 已于 2026-10-01 深夜陆续移除） */
 export type ViewTab = 'canvas' | 'json';
 

@@ -176,7 +176,35 @@ const jumpDef: any = {
   },
 };
 
-const initialDef: any = params.has('jump') ? jumpDef : params.has('chips') ? chipsDef : params.has('stale') ? staleDef : params.has('many') ? manyDef : params.has('loop') ? loopDef : params.has('branch') ? branchDef : {
+/** ?vars=1：变量引用面板夹具（2026-10-03 用户需求：右侧面板展示上游/下游所有变量 + 全局变量 + 每个变量的作用）
+ *  形状：start → seed(设置变量 vars.topic/words) → fetch(网页搜索，对象型输出) → py(Python，标量输出) → ai(AI，标量) → end
+ *  工作流参数 def.inputs 给了两个（验证 {{inputs.*}}）；搜索/Python 都不真跑，纯面板断言。 */
+const varsDef: any = {
+  name: wfName,
+  version: 1,
+  inputs: { 主题: '技术简报', 语言: 'zh' },
+  nodes: [
+    { id: 'start', type: 'start', params: {} },
+    { id: 'seed', type: 'set_var', label: '写全局变量', params: { vars: { topic: 'AI 日报', words: 3 } } },
+    { id: 'fetch', type: 'web_search', label: '找资料', params: { provider: 'auto', query: 'deepseek', count: 5 } },
+    { id: 'py', type: 'python', label: '整理', params: { code: 'print("x")' } },
+    { id: 'ai', type: 'subagent', label: '写稿', params: { model: 'dsh:deepseek-flash', prompt: '写一段' } },
+    { id: 'end', type: 'end', params: {} },
+  ],
+  edges: [
+    { from: 'start', to: 'seed' },
+    { from: 'seed', to: 'fetch' },
+    { from: 'fetch', to: 'py' },
+    { from: 'py', to: 'ai' },
+    { from: 'ai', to: 'end' },
+  ],
+  layout: {
+    start: { x: 40, y: 240 }, seed: { x: 260, y: 60 }, fetch: { x: 500, y: 60 },
+    py: { x: 740, y: 60 }, ai: { x: 500, y: 300 }, end: { x: 800, y: 300 },
+  },
+};
+
+const initialDef: any = params.has('vars') ? varsDef : params.has('jump') ? jumpDef : params.has('chips') ? chipsDef : params.has('stale') ? staleDef : params.has('many') ? manyDef : params.has('loop') ? loopDef : params.has('branch') ? branchDef : {
   name: wfName,
   version: 1,
   nodes: [
