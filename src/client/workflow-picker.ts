@@ -11,6 +11,21 @@ import type { WorkflowDef } from './types';
 import { normalizeWorkflowName as normalizeName } from '../name-rule';
 
 const API = '/api/dag-flow/workflows';
+
+/** 下拉候选项：name + 节点数 + 落盘路径（2026-10-03 用户需求：名称后置灰显示所在路径） */
+interface PickerWorkflow { name: string; nodes: number; path?: string }
+
+/** 路径拼接：跟随目录自身的分隔符（Windows 反斜杠），避免出现 `…\workflow/名.json` 混搭 */
+function joinPath(dir: string, name: string): string {
+  if (!dir) return '';
+  const sep = dir.includes('\\') ? '\\' : '/';
+  return `${dir.replace(/[\\/]+$/, '')}${sep}${name}.json`;
+}
+
+/** 工作流名/路径进 innerHTML 前转义（名称规则已限字符集，但目录路径来自文件系统） */
+function escapeHtml(s: string): string {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
 const PICKER_CSS_ID = 'dag-flow-picker-styles';
 const PICKER_CSS = `
 .dag-flow-picker-overlay { position: fixed; inset: 0; z-index: 10000; display: flex;
@@ -44,6 +59,10 @@ const PICKER_CSS = `
 .dag-flow-combo-row.del-out { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; }
 .dag-flow-combo-row:hover, .dag-flow-combo-row.hl { background: color-mix(in srgb, var(--wf-accent, #4f8cff) 16%, transparent); }
 .dag-flow-combo-row .meta { color: var(--wf-muted, #8b9bb3); font-size: 11px; margin-left: auto; }
+/* 落盘路径：紧跟名称、置灰（2026-10-03 用户需求）——单行省略，完整路径在 title 里 */
+.dag-flow-combo-row .path { color: var(--wf-muted, #8b9bb3); opacity: 0.82; font-size: 11px;
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, Consolas, monospace; }
 .dag-flow-combo-row .cp { margin-left: 6px; flex: none; width: 22px; height: 22px; border-radius: 6px;
   border: none; background: transparent; color: var(--wf-muted, #8b9bb3); cursor: pointer;
   font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
@@ -151,7 +170,9 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
   const listBox = body.querySelector('.dag-flow-combo-list') as HTMLElement;
   const err = body.querySelector('.dag-flow-picker-err') as HTMLElement;
 
-  let workflows: { name: string; nodes: number }[] = [];
+  let workflows: PickerWorkflow[] = [];
+  /** 工作流落盘目录（列表接口回带；复制出新工作流时据此推算它的路径） */
+  let storageDir = '';
   let hlIndex = -1; // 键盘高亮行
   let busy = false;
   let listLoadFailed = false; // 列表拉取失败时无法本地判断「已存在」，创建前需探测
@@ -205,11 +226,15 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
     }
   };
 
-  /** 构建下拉行内层：名称 + 节点数 + 行尾 ⧉复制 + 🗑 删除（取消确认态时也用它恢复原行） */
-  const buildRowInner = (row: HTMLDivElement, w: { name: string; nodes: number }): void => {
+  /** 构建下拉行内层：名称 + 落盘路径（置灰）+ 节点数 + 行尾 ⧉复制 + 🗑 删除（取消确认态时也用它恢复原行） */
+  const buildRowInner = (row: HTMLDivElement, w: PickerWorkflow): void => {
     row.classList.remove('confirming');
     row.dataset.name = w.name;
-    row.innerHTML = `📄 ${w.name} <span class="meta">${w.nodes} 节点</span>`;
+    // 路径紧跟名称、以 .path 置灰显示（单行省略号；完整路径放 title 便于悬停查看）
+    const pathHtml = w.path
+      ? ` <span class="path" title="${escapeHtml(w.path)}">${escapeHtml(w.path)}</span>`
+      : '';
+    row.innerHTML = `📄 ${escapeHtml(w.name)}${pathHtml} <span class="meta">${w.nodes} 节点</span>`;
     // ★ 复制（2026-10-01 深夜从管理视图移植）：生成一模一样的工作流 <名>-copy（冲突递增）
     const cp = document.createElement('button');
     cp.type = 'button';
@@ -252,7 +277,7 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
 
   /** 复制工作流（2026-10-01 深夜从管理视图移植）：GET 原内容 → <名>-copy（冲突递增 -copy-2/-copy-3…）
    *  → POST 保存（snapshot:false 不产版本）→ 原行后插入新行（不整表重建，避免其余行闪现） */
-  const copyWorkflow = async (w: { name: string; nodes: number }): Promise<void> => {
+  const copyWorkflow = async (w: PickerWorkflow): Promise<void> => {
     if (busy) return;
     busy = true;
     setOpenErr('');
@@ -268,7 +293,7 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: copyName, def: { ...src, name: copyName }, snapshot: false }),
       });
-      const item = { name: copyName, nodes: Array.isArray(src.nodes) ? src.nodes.length : 0 };
+      const item = { name: copyName, nodes: Array.isArray(src.nodes) ? src.nodes.length : 0, path: joinPath(storageDir, copyName) };
       workflows = [...workflows, item];
       const rowEl = Array.from(listBox.querySelectorAll('.dag-flow-combo-row'))
         .find((r) => r.dataset.name === w.name);
@@ -286,7 +311,7 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
   };
 
   /** 执行删除：DELETE 成功 → 本地过滤 + 该行退场动画后单独移除（不整表重建，避免其余行闪现） */
-  const deleteWorkflow = async (w: { name: string; nodes: number }): Promise<boolean> => {
+  const deleteWorkflow = async (w: PickerWorkflow): Promise<boolean> => {
     try {
       const res = await fetch(`${API}/${encodeURIComponent(w.name)}`, { method: 'DELETE', credentials: 'include' });
       if (!res.ok) {
@@ -368,6 +393,7 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
   fetchJson(API)
     .then((data) => {
       workflows = data.workflows ?? [];
+      storageDir = data.storage?.dir ?? '';
       input.focus();
       renderList();
       listBox.style.display = 'block';

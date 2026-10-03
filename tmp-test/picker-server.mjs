@@ -42,7 +42,16 @@ createServer((req, res) => {
   }
   if (u.pathname === '/api/dag-flow/workflows') {
     const all = [...new Set([...names, ...defs.keys()])];
-    json({ workflows: all.map((n) => ({ name: n, nodes: defs.has(n) ? (defs.get(n).nodes?.length ?? 0) : seedNodes(n) })) });
+    // path 字段对齐真实接口（2026-10-03 用户需求：下拉里名称后置灰显示所在路径）
+    const dir = 'D:\\workspace\\pluginspace\\.dag-flow\\workflow';
+    json({
+      workflows: all.map((n) => ({
+        name: n,
+        nodes: defs.has(n) ? (defs.get(n).nodes?.length ?? 0) : seedNodes(n),
+        path: `${dir}\\${n}.json`,
+      })),
+      storage: { dir, source: 'workspace' },
+    });
     return;
   }
   // save 路由必须在按名匹配之前（否则会被下面的正则当名字 'save' 吃掉）

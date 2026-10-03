@@ -26,6 +26,7 @@ import { createLogger } from './logger.js';
 import { dagFlowDir } from './workspace.js';
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import * as path from 'node:path';
 import { normalizeWorkflowName } from '../name-rule.js';
 import { WorkflowNodeRegistry } from '../registry/external.js';
 import { checkWorkflowParams, formatParamProblems } from '../registry/params-check.js';
@@ -448,14 +449,15 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
       path: '/api/dag-flow/workflows',
       handler: async (_req: any, res: any) => {
         const names = await storage.listWorkflows();
-        // 附上每个工作流的节点数（供管理视图显示概览）+ 存储位置（工作区 JSON 目录）
+        // 附上每个工作流的节点数 + **落盘路径**（2026-10-03 用户需求：下拉里名称后置灰显示所在路径）
+        const info = await storage.describe();
         const withMeta = await Promise.all(names.map(async (n) => {
+          const file = path.join(info.dir, `${n}.json`);
           try {
             const def = await storage.readWorkflow(n);
-            return { name: n, nodes: def?.nodes?.length ?? 0 };
-          } catch { return { name: n, nodes: 0 }; }
+            return { name: n, nodes: def?.nodes?.length ?? 0, path: file };
+          } catch { return { name: n, nodes: 0, path: file }; }
         }));
-        const info = await storage.describe();
         sendJson(res, 200, { workflows: withMeta, storage: info });
       },
     });

@@ -26,9 +26,34 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, sleep }) {
     return [...row.querySelectorAll('button')].indexOf(cp) < [...row.querySelectorAll('button')].indexOf(del);
   })()`), '复制按钮存在且在删除按钮之前');
 
+  // 2026-10-03 用户需求：名称后置灰显示该工作流的落盘路径
+  ok(await evaluate(cdp, `(() => {
+    const row = document.querySelector('.dag-flow-combo-row[data-name="${base}"]');
+    const p = row.querySelector('.path');
+    return !!p && p.textContent.includes('${base}.json') && /workflow/.test(p.textContent);
+  })()`), '行内显示该工作流的落盘路径（含 <名>.json 与 workflow 目录）');
+  ok(await evaluate(cdp, `(() => {
+    const row = document.querySelector('.dag-flow-combo-row[data-name="${base}"]');
+    const p = row.querySelector('.path');
+    const st = getComputedStyle(p);
+    const rowColor = getComputedStyle(row).color;
+    const pathIdx = [...row.childNodes].findIndex((n) => n.nodeType === 1 && n.classList && n.classList.contains('path'));
+    const metaIdx = [...row.childNodes].findIndex((n) => n.nodeType === 1 && n.classList && n.classList.contains('meta'));
+    // 置灰 = 颜色与正文不同；位置 = 在名称之后、节点数之前
+    return st.color !== rowColor && pathIdx >= 0 && metaIdx >= 0 && pathIdx < metaIdx && parseFloat(st.fontSize) < 13;
+  })()`), '路径呈置灰（颜色不同于正文）且位于名称与节点数之间');
+  ok(await evaluate(cdp, `(() => {
+    const p = document.querySelector('.dag-flow-combo-row[data-name="${base}"] .path');
+    return !!p.getAttribute('title') && p.getAttribute('title').endsWith('${base}.json');
+  })()`), '完整路径放在 title（悬停可看全）');
+
   // 点击复制 → 出现 <base>-copy 行
   await evaluate(cdp, `document.querySelector('.dag-flow-combo-row[data-name="${base}"] button.cp').click()`);
   await waitFor(cdp, `!!document.querySelector('.dag-flow-combo-row[data-name="${base}-copy"]')`, { timeout: 5000 });
+  ok(await evaluate(cdp, `(() => {
+    const p = document.querySelector('.dag-flow-combo-row[data-name="${base}-copy"] .path');
+    return !!p && p.textContent.includes('${base}-copy.json');
+  })()`), '复制出的行同样显示路径（客户端按 storage.dir 推算）');
 
   // 复制内容与原工作流一致（节点数）
   const srcNodes = await evaluate(cdp, `fetch('/api/dag-flow/workflows/${base}').then(r => r.json()).then(d => d.workflow.nodes.length)`);

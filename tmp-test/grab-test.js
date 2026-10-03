@@ -89444,6 +89444,14 @@ Example:
 
   // src/client/workflow-picker.ts
   var API = "/api/dag-flow/workflows";
+  function joinPath(dir, name) {
+    if (!dir) return "";
+    const sep2 = dir.includes("\\") ? "\\" : "/";
+    return `${dir.replace(/[\\/]+$/, "")}${sep2}${name}.json`;
+  }
+  function escapeHtml(s3) {
+    return String(s3).replace(/[&<>"']/g, (c4) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c4]);
+  }
   var PICKER_CSS_ID = "dag-flow-picker-styles";
   var PICKER_CSS = `
 .dag-flow-picker-overlay { position: fixed; inset: 0; z-index: 10000; display: flex;
@@ -89477,6 +89485,10 @@ Example:
 .dag-flow-combo-row.del-out { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; }
 .dag-flow-combo-row:hover, .dag-flow-combo-row.hl { background: color-mix(in srgb, var(--wf-accent, #4f8cff) 16%, transparent); }
 .dag-flow-combo-row .meta { color: var(--wf-muted, #8b9bb3); font-size: 11px; margin-left: auto; }
+/* \u843D\u76D8\u8DEF\u5F84\uFF1A\u7D27\u8DDF\u540D\u79F0\u3001\u7F6E\u7070\uFF082026-10-03 \u7528\u6237\u9700\u6C42\uFF09\u2014\u2014\u5355\u884C\u7701\u7565\uFF0C\u5B8C\u6574\u8DEF\u5F84\u5728 title \u91CC */
+.dag-flow-combo-row .path { color: var(--wf-muted, #8b9bb3); opacity: 0.82; font-size: 11px;
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, Consolas, monospace; }
 .dag-flow-combo-row .cp { margin-left: 6px; flex: none; width: 22px; height: 22px; border-radius: 6px;
   border: none; background: transparent; color: var(--wf-muted, #8b9bb3); cursor: pointer;
   font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
@@ -89575,6 +89587,7 @@ Example:
     const listBox = body.querySelector(".dag-flow-combo-list");
     const err = body.querySelector(".dag-flow-picker-err");
     let workflows = [];
+    let storageDir = "";
     let hlIndex = -1;
     let busy = false;
     let listLoadFailed = false;
@@ -89625,7 +89638,8 @@ Example:
     const buildRowInner = (row, w4) => {
       row.classList.remove("confirming");
       row.dataset.name = w4.name;
-      row.innerHTML = `\u{1F4C4} ${w4.name} <span class="meta">${w4.nodes} \u8282\u70B9</span>`;
+      const pathHtml = w4.path ? ` <span class="path" title="${escapeHtml(w4.path)}">${escapeHtml(w4.path)}</span>` : "";
+      row.innerHTML = `\u{1F4C4} ${escapeHtml(w4.name)}${pathHtml} <span class="meta">${w4.nodes} \u8282\u70B9</span>`;
       const cp = document.createElement("button");
       cp.type = "button";
       cp.className = "cp";
@@ -89705,7 +89719,7 @@ Example:
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ name: copyName, def: { ...src, name: copyName }, snapshot: false })
         });
-        const item = { name: copyName, nodes: Array.isArray(src.nodes) ? src.nodes.length : 0 };
+        const item = { name: copyName, nodes: Array.isArray(src.nodes) ? src.nodes.length : 0, path: joinPath(storageDir, copyName) };
         workflows = [...workflows, item];
         const rowEl = Array.from(listBox.querySelectorAll(".dag-flow-combo-row")).find((r5) => r5.dataset.name === w4.name);
         const newRow = document.createElement("div");
@@ -89810,6 +89824,7 @@ Example:
     });
     fetchJson(API).then((data) => {
       workflows = data.workflows ?? [];
+      storageDir = data.storage?.dir ?? "";
       input.focus();
       renderList();
       listBox.style.display = "block";

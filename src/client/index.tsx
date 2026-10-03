@@ -6,6 +6,9 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261003-picker-path：「打开/新建工作流」下拉里，每个工作流名称后置灰显示它的落盘路径
+//   （GET /workflows 每项新增 path 字段；路径跟随目录分隔符、单行省略、完整值放 title；
+//    复制出的新行也按 storage.dir 推算路径）。
 // v20261003-manual-confirm：manual（手动确认）节点从 v0.1 空壳改为真暂停 + 恢复——
 //   POST /run 撞上 manual → 202 { status:'awaiting', runId, awaiting }（不 hold 连接），
 //   客户端头部 ⏸ 徽标 + 确认弹窗（底部左「✕ 取消本次运行」右「✓ 确认并继续」，右上 ✕ 只关弹窗），
@@ -351,7 +354,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261003-manual-confirm · apply OK');
+    console.log('[dag-flow] client v20261003-picker-path · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

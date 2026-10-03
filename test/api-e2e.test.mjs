@@ -78,6 +78,10 @@ const del = async (p, body) => { const r = await fetch(url(p), { method: 'DELETE
   const list = await get('/workflows');
   t('GET /workflows → 200 且含 e2e-demo', list.status === 200 && (list.body?.workflows ?? []).some((w) => w.name === 'e2e-demo'));
   t('列表携带存储位置说明（.dag-flow/workflow）', typeof list.body?.storage?.dir === 'string' && list.body.storage.dir.includes(join('.dag-flow', 'workflow')), JSON.stringify(list.body?.storage));
+  // 2026-10-03 用户需求：下拉里名称后要置灰显示每个工作流所在路径 → 列表每项都带自己的 path
+  t('列表每项带落盘路径 path（指向该工作流自己的 .json）', (list.body?.workflows ?? []).length > 0
+    && (list.body.workflows).every((w) => typeof w.path === 'string' && w.path.endsWith(`${w.name}.json`) && w.path.includes(join('.dag-flow', 'workflow'))),
+    JSON.stringify((list.body?.workflows ?? []).slice(0, 2)));
 
   const one = await get(`/workflows/e2e-demo`);
   t('GET /workflows/<name> 读回定义', one.status === 200 && one.body?.workflow?.name === 'e2e-demo');
