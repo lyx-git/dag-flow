@@ -79,5 +79,25 @@ console.log('== E. 过程态判定 ==');
   ok(!isTransientStatus(undefined), 'E3. undefined 不是过程态');
 }
 
+console.log('== F. 运行中就能带出节点输出（2026-10-03 用户反馈：不该等全部跑完才显示）==');
+{
+  // 宿主 /run/status 现在逐节点带 out/error/tolerated/count → 映射必须原样透传给悬浮卡
+  const m = progressToStatusMap(['a', 'b', 'c'], {
+    results: {
+      a: { status: 'success', durationMs: 12, out: { topic: 'AI 日报', words: 3 } },
+      b: { status: 'failed', durationMs: 7, error: { code: 'FETCH_FAILED', message: 'HTTP 403' } },
+      c: { status: 'success', durationMs: 30, out: '{"count":9,"items":[', count: 9 },
+    },
+  });
+  eq(m.a.out, { topic: 'AI 日报', words: 3 }, 'F1. 运行中的 out 透传（对象型）');
+  eq(m.b.error.code, 'FETCH_FAILED', 'F2. 运行中的 error 透传（失败节点跑完即可见错因）');
+  eq(m.c.out, '{"count":9,"items":[', 'F3. 被宿主截断的 out（字符串）原样透传');
+  eq(m.c.count, 9, 'F4. out 被截断成字符串时，迭代次数取自宿主显式 count 字段');
+  eq(m.a.count, undefined, 'F5. 没有 count 的节点不凭空造字段');
+  // 旧形状（最终 summary：out 是对象且带 count）仍走 out.count 回退
+  const m2 = progressToStatusMap(['x'], { results: { x: { status: 'success', out: { count: 4, items: [] } } } });
+  eq(m2.x.count, 4, 'F6. out.count 回退路径保持兼容（最终 summary 形状）');
+}
+
 console.log(`\n=== runProgress 运行进度映射：${pass} passed, ${fail} failed ===`);
 process.exit(fail ? 1 : 0);

@@ -240,12 +240,34 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
       promise: Promise<{ summary: RunSummary }>;
       awaiting?: { nodeId: string; prompt: string; createdAt: string };
       summary?: RunSummary;
-      /** 已完成节点结果（/run/status 供画布徽标实时更新） */
-      results: Record<string, { status: string; durationMs?: number }>;
+      /** 已完成节点结果（/run/status 供画布徽标 + 悬浮卡实时更新）
+       *  ★ 2026-10-03 用户反馈：「节点悬浮窗的执行结果为何要等工作流全部执行完才能显示，不应该执行完一个节点
+       *  悬浮窗就显示结果吗」——根因就是这个累积表只装了 status/durationMs，out 只存在于**最终 summary** 里。
+       *  现在逐节点带上裁剪过的 out/error（见 clipNodeOut），节点一跑完悬浮卡即可看到输出。 */
+      results: Record<string, {
+        status: string;
+        durationMs?: number;
+        /** 节点输出（超过 RESULT_OUT_MAX 字会被裁剪为字符串 + 结尾省略号） */
+        out?: unknown;
+        error?: { code?: string; message?: string };
+        tolerated?: boolean;
+        /** loop 迭代次数（out 被裁剪成字符串后，客户端仍要能显示「循环 N 次」徽标） */
+        count?: number;
+      }>;
       /** ★ 正在执行的节点 id（2026-10-03：画布依次显示「运行中」；节点开始时入列、结束时移除） */
       running: string[];
       finishedAt?: number;
     }
+    /** 单节点输出上限：/run/status 每 600ms 轮询一次，逐节点全量输出会让响应随节点数膨胀；
+     *  悬浮卡自身预览也只到 800 字，所以每节点保留 1200 字足够（完整内容仍以最终 summary 为准）。 */
+    const RESULT_OUT_MAX = 1200;
+    const clipNodeOut = (v: unknown): { out?: unknown } => {
+      if (v === undefined) return {};
+      let s: string;
+      try { s = typeof v === 'string' ? v : JSON.stringify(v) ?? ''; } catch { return { out: '（无法序列化）' }; }
+      if (s.length <= RESULT_OUT_MAX) return { out: v };   // 小输出原样保留（保持类型：对象/数组/标量）
+      return { out: `${s.slice(0, RESULT_OUT_MAX)}…（输出较长，已截断预览；完整内容见最终运行结果）` };
+    };
     const activeRuns = new Map<string, ActiveRun>();   // 按工作流名互斥（保持既有语义）
     const runsById = new Map<string, ActiveRun>();     // 按 runId 供 status/resume 定位
     /** 已完成的运行只留最近 20 条（等待中的永不淘汰） */
@@ -297,7 +319,15 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
             onAwaiting: notifyAwaiting,
             onNodeStart: (id) => { if (!rec.running.includes(id)) rec.running.push(id); },
             onNodeDone: (id, r) => {
-              resultsAcc[id] = { status: r.status, durationMs: r.durationMs };
+              const outCount = (r.out as { count?: number } | undefined)?.count;
+              resultsAcc[id] = {
+                status: r.status,
+                durationMs: r.durationMs,
+                ...clipNodeOut(r.out),                                   // ★ 节点一跑完就能在悬浮卡看到输出
+                ...(r.error ? { error: { code: r.error.code, message: String(r.error.message ?? '').slice(0, 800) } } : {}),
+                ...(r.tolerated ? { tolerated: true } : {}),
+                ...(typeof outCount === 'number' ? { count: outCount } : {}),
+              };
               rec.running = rec.running.filter((x) => x !== id);
             },
           });

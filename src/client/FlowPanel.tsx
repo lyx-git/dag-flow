@@ -898,24 +898,28 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         { className: 'dsh-wf-btn', onClick: openInputs, title: '工作流参数（仅当前工作流可用；节点参数里用 {{inputs.名称}} 引用）' },
         '✍️',
       ),
-      // ★ 取消按钮：运行中才出现，且**红色**（2026-10-03 用户要求「取消按钮要变成红色」）
-      running && createElement(
-        'button',
-        { className: 'dsh-wf-btn is-danger', onClick: cancelRun, title: '取消本次运行（通知执行器中止）' },
-        '⏹ 取消',
-      ),
-      // ★ 运行按钮：运行中变成**动态**状态（转圈 + 「运行中」），不是静态 ⏳；跑完恢复 ▶
+      // ★ 运行按钮：运行中变**动态**状态（方案 D = 弧线旋转环 + 按钮呼吸外发光 + 扫光 + 「运行中」；
+      //   2026-10-03 用户在候选原型里拍板 D，弃漏斗/弃字符 ◌）；跑完恢复 ▶
+      //   且**排在取消按钮前面**（用户要求「运行中的按钮要放到取消按钮前面」）
       createElement(
         'button',
         {
           className: `dsh-wf-btn dsh-wf-btn-success${running ? ' is-running' : ''}`,
           onClick: () => void handleRun(),
           disabled: running,
-          title: running ? '工作流正在运行（点左侧「⏹ 取消」可中止）' : '运行工作流',
+          title: running ? '工作流正在运行（点右侧「⏹ 取消」可中止）' : '运行工作流',
         },
-        running ? createElement('span', { className: 'dsh-wf-run-label' },
-          createElement('span', { className: 'dsh-wf-run-spin' }, '◌'),
-          '运行中') : '▶',
+        running
+          ? createElement('span', { className: 'dsh-wf-run-label' },
+              createElement('span', { className: 'dsh-wf-run-ring' }),
+              '运行中')
+          : '▶',
+      ),
+      // ★ 取消按钮：运行中才出现，排在运行按钮**之后**，且红色
+      running && createElement(
+        'button',
+        { className: 'dsh-wf-btn is-danger', onClick: cancelRun, title: '取消本次运行（通知执行器中止）' },
+        '⏹ 取消',
       ),
       createElement(
         'button',

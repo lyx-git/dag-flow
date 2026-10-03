@@ -24347,7 +24347,7 @@
     for (const id3 of nodeIds) {
       const r5 = results[id3];
       if (r5 && r5.status) {
-        const count = r5.out?.count;
+        const count = typeof r5.count === "number" ? r5.count : r5.out?.count;
         out[id3] = {
           status: r5.status,
           ...r5.durationMs != null ? { durationMs: r5.durationMs } : {},
@@ -75057,27 +75057,29 @@ Please add \`${key}Action\` when creating your handler.`
           { className: "dsh-wf-btn", onClick: openInputs, title: "\u5DE5\u4F5C\u6D41\u53C2\u6570\uFF08\u4EC5\u5F53\u524D\u5DE5\u4F5C\u6D41\u53EF\u7528\uFF1B\u8282\u70B9\u53C2\u6570\u91CC\u7528 {{inputs.\u540D\u79F0}} \u5F15\u7528\uFF09" },
           "\u270D\uFE0F"
         ),
-        // ★ 取消按钮：运行中才出现，且**红色**（2026-10-03 用户要求「取消按钮要变成红色」）
-        running && (0, import_react102.createElement)(
-          "button",
-          { className: "dsh-wf-btn is-danger", onClick: cancelRun, title: "\u53D6\u6D88\u672C\u6B21\u8FD0\u884C\uFF08\u901A\u77E5\u6267\u884C\u5668\u4E2D\u6B62\uFF09" },
-          "\u23F9 \u53D6\u6D88"
-        ),
-        // ★ 运行按钮：运行中变成**动态**状态（转圈 + 「运行中」），不是静态 ⏳；跑完恢复 ▶
+        // ★ 运行按钮：运行中变**动态**状态（方案 D = 弧线旋转环 + 按钮呼吸外发光 + 扫光 + 「运行中」；
+        //   2026-10-03 用户在候选原型里拍板 D，弃漏斗/弃字符 ◌）；跑完恢复 ▶
+        //   且**排在取消按钮前面**（用户要求「运行中的按钮要放到取消按钮前面」）
         (0, import_react102.createElement)(
           "button",
           {
             className: `dsh-wf-btn dsh-wf-btn-success${running ? " is-running" : ""}`,
             onClick: () => void handleRun(),
             disabled: running,
-            title: running ? "\u5DE5\u4F5C\u6D41\u6B63\u5728\u8FD0\u884C\uFF08\u70B9\u5DE6\u4FA7\u300C\u23F9 \u53D6\u6D88\u300D\u53EF\u4E2D\u6B62\uFF09" : "\u8FD0\u884C\u5DE5\u4F5C\u6D41"
+            title: running ? "\u5DE5\u4F5C\u6D41\u6B63\u5728\u8FD0\u884C\uFF08\u70B9\u53F3\u4FA7\u300C\u23F9 \u53D6\u6D88\u300D\u53EF\u4E2D\u6B62\uFF09" : "\u8FD0\u884C\u5DE5\u4F5C\u6D41"
           },
           running ? (0, import_react102.createElement)(
             "span",
             { className: "dsh-wf-run-label" },
-            (0, import_react102.createElement)("span", { className: "dsh-wf-run-spin" }, "\u25CC"),
+            (0, import_react102.createElement)("span", { className: "dsh-wf-run-ring" }),
             "\u8FD0\u884C\u4E2D"
           ) : "\u25B6"
+        ),
+        // ★ 取消按钮：运行中才出现，排在运行按钮**之后**，且红色
+        running && (0, import_react102.createElement)(
+          "button",
+          { className: "dsh-wf-btn is-danger", onClick: cancelRun, title: "\u53D6\u6D88\u672C\u6B21\u8FD0\u884C\uFF08\u901A\u77E5\u6267\u884C\u5668\u4E2D\u6B62\uFF09" },
+          "\u23F9 \u53D6\u6D88"
         ),
         (0, import_react102.createElement)(
           "button",

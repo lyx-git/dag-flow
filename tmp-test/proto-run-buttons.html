@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>dag-flow 运行按钮动态方案候选（2026-10-03）</title>
+<style>
+  :root{
+    --wf-bg:#08101e; --wf-panel:#101a2b; --wf-panel3:#172640; --wf-border2:#29405f; --wf-border3:#365173;
+    --wf-text:#dce7f8; --wf-muted:#8b9bb3; --wf-accent:#6f8fff; --wf-accent-dark:#5574e8;
+  }
+  body{margin:0;background:var(--wf-bg);color:var(--wf-text);font:13px/1.6 "Segoe UI","Microsoft YaHei",sans-serif;padding:26px 30px 40px}
+  h1{font-size:17px;margin:0 0 4px}
+  .sub{color:var(--wf-muted);font-size:12px;margin-bottom:20px}
+  .row{display:flex;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--wf-border2);border-radius:12px;background:var(--wf-panel);margin-bottom:12px}
+  .tag{width:150px;flex:0 0 auto}
+  .tag b{display:block;font-size:13px}
+  .tag span{font-size:11px;color:var(--wf-muted)}
+  .stage{display:flex;align-items:center;gap:12px;flex:0 0 auto}
+  /* ↓↓↓ 与 dag-flow 头部按钮同款样式（照抄 styles.css 的 .dsh-wf-btn / 成功 / is-danger） */
+  .dsh-wf-btn{
+    min-height:34px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;padding:7px 13px;
+    border-radius:10px;border:1px solid var(--wf-border2);
+    background:linear-gradient(180deg,color-mix(in srgb,var(--wf-panel3) 96%,white 4%),var(--wf-panel3));
+    color:var(--wf-text);font-family:inherit;font-size:12px;font-weight:620;line-height:1;cursor:default;position:relative;overflow:hidden;
+  }
+  .dsh-wf-btn-success{background:linear-gradient(180deg,#34d399,#10b981);border-color:#4ade80;color:#052e1c}
+  .dsh-wf-btn.is-danger{color:#fca5a5;border-color:color-mix(in srgb, #f87171 55%,transparent);background:color-mix(in srgb,#f87171 14%,transparent)}
+  .dsh-wf-run-label{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+  /* 共用：运行中按钮的扫光 */
+  @keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+  .btn-run{position:relative;overflow:hidden;color:#7dd3fc;border-color:color-mix(in srgb,#38bdf8 55%,transparent);
+    background:linear-gradient(180deg,color-mix(in srgb,#172640 92%,#38bdf8 8%),var(--wf-panel3))}
+  .btn-run::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(100deg,transparent 20%,rgba(56,189,248,.30) 50%,transparent 80%);animation:sweep 1.25s linear infinite}
+
+  /* ===== 现状（已实现）：字符 ◌ 旋转 ===== */
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .v-now{display:inline-block;animation:spin .9s linear infinite}
+
+  /* ===== A. 弧线旋转环（推荐）===== */
+  .v-a{width:13px;height:13px;display:inline-block;border-radius:50%;
+    border:2px solid rgba(125,211,252,.28);border-top-color:#7dd3fc;border-right-color:#7dd3fc;
+    animation:spin .75s linear infinite}
+
+  /* ===== B. 三点脉冲 ===== */
+  .v-b{display:inline-flex;gap:3px;align-items:flex-end;height:13px}
+  .v-b i{width:4px;height:4px;border-radius:50%;background:#7dd3fc;display:block;animation:pulse 1s ease-in-out infinite}
+  .v-b i:nth-child(2){animation-delay:.16s}
+  .v-b i:nth-child(3){animation-delay:.32s}
+  @keyframes pulse{0%,100%{transform:translateY(0) scale(.75);opacity:.45}40%{transform:translateY(-3px) scale(1.15);opacity:1}}
+
+  /* ===== C. 仅扫光 + 呼吸（无图标）===== */
+  .v-c{display:inline-block;width:13px;height:13px;border-radius:4px;
+    background:radial-gradient(circle at 50% 50%,#7dd3fc 0 30%,rgba(125,211,252,.25) 32% 100%);
+    animation:breathe 1.5s ease-in-out infinite}
+  @keyframes breathe{0%,100%{transform:scale(.7);opacity:.5}50%{transform:scale(1.15);opacity:1}}
+
+  /* ===== D. 弧线环 + 外发光（最醒目）===== */
+  .v-d{width:13px;height:13px;display:inline-block;border-radius:50%;
+    border:2px solid rgba(125,211,252,.3);border-top-color:#38bdf8;border-left-color:#38bdf8;
+    animation:spin .7s linear infinite}
+  .btn-run.glow{box-shadow:0 0 0 1px rgba(56,189,248,.35),0 0 14px rgba(56,189,248,.35);animation:glow 1.6s ease-in-out infinite}
+  @keyframes glow{0%,100%{box-shadow:0 0 0 1px rgba(56,189,248,.30),0 0 10px rgba(56,189,248,.25)}
+    50%{box-shadow:0 0 0 1px rgba(56,189,248,.55),0 0 20px rgba(56,189,248,.45)}}
+
+  /* 静态终态（跑完） */
+  .btn-idle{background:linear-gradient(180deg,#34d399,#10b981);border-color:#4ade80;color:#052e1c}
+  .note{font-size:11.5px;color:var(--wf-muted);margin-top:2px}
+  code{background:#0d1a2e;border:1px solid var(--wf-border2);border-radius:5px;padding:0 4px;font-size:11px}
+</style>
+</head>
+<body>
+  <h1>运行按钮「动态运行中」候选 · dag-flow</h1>
+  <div class="sub">全部纯 CSS/SVG（零依赖、走合成层不掉帧）。每一行左侧是运行中态、右侧是跑完的恢复态。左边一直动才是对的。</div>
+
+  <div class="row">
+    <div class="tag"><b>现状（已实现）</b><span>字符 ◌ 旋转 + 扫光</span></div>
+    <div class="stage">
+      <button class="dsh-wf-btn btn-run is-running"><span class="dsh-wf-run-label"><span class="v-now">◌</span>运行中</span></button>
+      <button class="dsh-wf-btn btn-idle">▶</button>
+    </div>
+    <div class="note">优点：改动最小；缺点：<code>◌</code> 是字体字符，不同机器/字重下粗细与形状不一致。</div>
+  </div>
+
+  <div class="row">
+    <div class="tag"><b>A. 弧线旋转环 ★推荐</b><span>2px 弧线环匀速旋转</span></div>
+    <div class="stage">
+      <button class="dsh-wf-btn btn-run"><span class="dsh-wf-run-label"><span class="v-a"></span>运行中</span></button>
+      <button class="dsh-wf-btn btn-idle">▶</button>
+    </div>
+    <div class="note">语义全球共识（环形=进行中）；比 ◌ 清晰稳定；视觉重量适中。适合默认档。</div>
+  </div>
+
+  <div class="row">
+    <div class="tag"><b>B. 三点脉冲</b><span>依次跳动的小圆点</span></div>
+    <div class="stage">
+      <button class="dsh-wf-btn btn-run"><span class="dsh-wf-run-label"><span class="v-b"><i></i><i></i><i></i></span>运行中</span></button>
+      <button class="dsh-wf-btn btn-idle">▶</button>
+    </div>
+    <div class="note">最活泼、"正在思考/干活"感强；视觉重量最轻。缺点：不如环形一眼看出是"加载中"。</div>
+  </div>
+
+  <div class="row">
+    <div class="tag"><b>C. 呼吸点 + 扫光</b><span>无旋转，仅脉冲与扫光</span></div>
+    <div class="stage">
+      <button class="dsh-wf-btn btn-run"><span class="dsh-wf-run-label"><span class="v-c"></span>运行中</span></button>
+      <button class="dsh-wf-btn btn-idle">▶</button>
+    </div>
+    <div class="note">最克制高级；注意力负担最小。缺点：动态感最弱，远看不太"忙"。</div>
+  </div>
+
+  <div class="row">
+    <div class="tag"><b>D. 弧线环 + 外发光</b><span>A 的强化版（按钮本身呼吸发光）</span></div>
+    <div class="stage">
+      <button class="dsh-wf-btn btn-run glow"><span class="dsh-wf-run-label"><span class="v-d"></span>运行中</span></button>
+      <button class="dsh-wf-btn btn-idle">▶</button>
+    </div>
+    <div class="note">最醒目、适合强调"正在跑长流程"；缺点：比其它方案抢眼，跟 600ms 的节点状态闪烁同时出现时信息有点多。</div>
+  </div>
+
+  <div class="sub" style="margin-top:18px">
+    实现成本：五个方案都一样（纯 CSS + 一个 <code>&lt;span&gt;</code>，无新依赖，<code>transform/opacity</code> 动画走合成层）。<br>
+    我的推荐顺序：<b>A</b> &gt; C（要更克制） &gt; B（要更活泼） &gt; D（要更醒目）。你点一个，我就照这个改，并补一条 CDP 断言锁住"图标类型 + 动画名"。
+  </div>
+</body>
+</html>

@@ -169,11 +169,18 @@
 }
 
 /* ===== 头部按钮的运行态（2026-10-03 用户要求：运行按钮要动态、取消按钮要红色）===== */
+/* 方案 D（用户在原型里拍板）：扫光 + **按钮呼吸外发光**（glow 叠在 sweep 之上，互不冲突） */
 .dsh-wf-btn.is-running {
   position: relative;
   overflow: hidden;
   color: #7dd3fc;
   border-color: color-mix(in srgb, #38bdf8 55%, transparent);
+  animation: dsh-wf-run-glow 1.6s ease-in-out infinite;
+}
+
+@keyframes dsh-wf-run-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(56, 189, 248, .30), 0 0 10px rgba(56, 189, 248, .25); }
+  50% { box-shadow: 0 0 0 1px rgba(56, 189, 248, .55), 0 0 20px rgba(56, 189, 248, .45); }
 }
 
 .dsh-wf-btn.is-running::after {
@@ -197,10 +204,17 @@
   font-size: 12px;
 }
 
-/* 运行中的转圈图标（动态状态：◌ + 「运行中」） */
-.dsh-wf-run-spin {
+/* 运行中的弧线旋转环（方案 D：13px 圆环，2px 弧线匀速旋转；2026-10-03 用户在原型里拍板 D） */
+.dsh-wf-run-ring {
   display: inline-block;
-  animation: dsh-wf-run-rotate .9s linear infinite;
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid rgba(125, 211, 252, 0.3);
+  border-top-color: #38bdf8;
+  border-left-color: #38bdf8;
+  animation: dsh-wf-run-rotate .7s linear infinite;
 }
 
 @keyframes dsh-wf-run-rotate {

@@ -41,6 +41,10 @@ try {
     run: document.querySelectorAll('.dsh-wf-fg-badge.is-run').length,
     wait: document.querySelectorAll('.dsh-wf-fg-badge.is-wait').length,
     runningCard: !!document.querySelector('.dsh-wf-fg-card.is-running'),
+    runRing: (() => { const el = document.querySelector('.dsh-wf-run-ring'); if (!el) return null;
+      const s = getComputedStyle(el); return { w: Math.round(el.getBoundingClientRect().width), anim: s.animationName + ' ' + s.animationDuration, radius: s.borderRadius }; })(),
+    runGlow: (() => { const el = document.querySelector('.dsh-wf-btn.is-running'); if (!el) return null;
+      const s = getComputedStyle(el); return { anim: s.animationName + ' ' + s.animationDuration, shadow: s.boxShadow }; })(),
     labels: [...document.querySelectorAll('.dsh-wf-fg-badge')].map((b) => b.textContent),
   }))()`), null, 1));
 } finally {

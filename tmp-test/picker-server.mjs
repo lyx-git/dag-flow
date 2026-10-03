@@ -166,7 +166,7 @@ createServer((req, res) => {
         // ★ 慢速模式（CDP 用）：逐节点推进，先返回「运行中」进度，最后才给完整 summary
         if (runMode === 'slow' && !manual) {
           const ids = (def.nodes ?? []).map((n) => n.id);
-          slowRun = { name: def.name, ids, stage: 0 };
+          slowRun = { name: def.name, ids, stage: 0, def };
           const acc = {};
           ids.forEach((id, i) => {
             setTimeout(() => {
@@ -207,7 +207,11 @@ createServer((req, res) => {
     if (slowRun && byName && slowRun.name === byName) {
       const results = {};
       for (let i = 0; i < slowRun.stage && i < slowRun.ids.length; i++) {
-        results[slowRun.ids[i]] = { status: 'success', durationMs: 20, out: null };
+        // ★ 逐节点带上 out（对齐宿主 2026-10-03 的新行为：节点一跑完就能在悬浮卡看到输出）
+        results[slowRun.ids[i]] = {
+          status: 'success', durationMs: 20,
+          out: stubOut((slowRun.def?.nodes ?? []).find((n) => n.id === slowRun.ids[i])),
+        };
       }
       const running = slowRun.stage < slowRun.ids.length ? [slowRun.ids[slowRun.stage]] : [];
       json({ runId: 'run-stub-slow', workflowName: slowRun.name, status: 'running', results, running });

@@ -16,6 +16,8 @@ export interface ProgressNodeResult {
   out?: unknown;
   error?: { code?: string; message?: string };
   tolerated?: boolean;
+  /** ★ 宿主显式给的 loop 迭代次数（out 被裁剪成字符串时，客户端仍能显示「循环 N 次」徽标） */
+  count?: number;
 }
 
 export interface ProgressSnapshot {
@@ -31,7 +33,8 @@ export function progressToStatusMap(nodeIds: string[], snap: ProgressSnapshot): 
   for (const id of nodeIds) {
     const r = results[id];
     if (r && r.status) {
-      const count = (r.out as { count?: number } | undefined)?.count;
+      // 迭代次数：优先用宿主显式字段（out 可能被截断成字符串），退回 out.count（最终 summary 的形状）
+      const count = typeof r.count === 'number' ? r.count : (r.out as { count?: number } | undefined)?.count;
       out[id] = {
         status: r.status,
         ...(r.durationMs != null ? { durationMs: r.durationMs } : {}),

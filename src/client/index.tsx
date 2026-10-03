@@ -449,7 +449,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261003-live-status · apply OK');
+    console.log('[dag-flow] client v20261003-midrun-out · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }
