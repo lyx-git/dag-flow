@@ -28,6 +28,13 @@ export interface Node {
   params?: Record<string, JsonValue>;
   next?: NextRef;
   onError?: 'stop' | 'continue' | { goto: string };
+  /** ★ 容错开关（2026-10-03 用户拍板 A 方案）：勾选后**本节点失败不中断后续层**——
+   *  错误仍记在 result.error 且 result.tolerated=true，运行汇总计入 toleratedCount，
+   *  下游节点照常执行（注意：失败节点没有 out，下游 {{本节点.out}} 解析为 null，
+   *  错因请看节点悬浮卡 / 运行汇总）。
+   *  动机：DAG 模式（def 带 edges）下节点级 onError 完全不生效，一次抓取/发信失败会把整条流水线拖垮。
+   *  默认不勾 = 原语义（失败即中断后续层）。取消（RUN_CANCELLED）永远不算容错。 */
+  tolerate?: boolean;
   label?: string;
 }
 
@@ -48,6 +55,8 @@ export interface NodeResult {
   status: 'success' | 'failed' | 'skipped';
   out?: JsonValue;
   error?: { code: string; message: string; stack?: string };
+  /** ★ 该失败已被 tolerate 容错放行（status 仍是 'failed'，仅供界面标注「已容错」与计数） */
+  tolerated?: boolean;
   durationMs: number;
   startedAt: string; // ISO
   endedAt: string;   // ISO
@@ -141,6 +150,8 @@ export const WORKFLOW_SCHEMA = {
             ],
           },
           label: { type: 'string' },
+          // ★ 容错开关（2026-10-03）：失败不中断后续层（节点级 onError 在 DAG 模式不生效）
+          tolerate: { type: 'boolean' },
         },
       },
     },

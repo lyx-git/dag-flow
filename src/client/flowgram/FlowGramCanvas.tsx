@@ -1111,7 +1111,7 @@ export function Canvas(props: {
   /** 双击节点（进入 loop 循环体 / subflow 子工作流，2026-10-03 用户需求） */
   onNodeDoubleClick?: (id: string) => void;
   selectedNodeId?: string | null;
-  runResults?: Record<string, { status: string; durationMs?: number }>;
+  runResults?: Record<string, { status: string; durationMs?: number; count?: number; out?: unknown; error?: { code?: string; message?: string }; tolerated?: boolean }>;
   rightInset?: number; // 缩略图右避让量（右面板宽 + 边距，2026-10-01 夜）
 }) {
   const { nodes, edges, runResults } = props;

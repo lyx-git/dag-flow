@@ -242,6 +242,8 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
       summary?: RunSummary;
       /** 已完成节点结果（/run/status 供画布徽标实时更新） */
       results: Record<string, { status: string; durationMs?: number }>;
+      /** ★ 正在执行的节点 id（2026-10-03：画布依次显示「运行中」；节点开始时入列、结束时移除） */
+      running: string[];
       finishedAt?: number;
     }
     const activeRuns = new Map<string, ActiveRun>();   // 按工作流名互斥（保持既有语义）
@@ -281,7 +283,7 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
           const runId = newRunId();
           const resultsAcc: ActiveRun['results'] = {};
           const rec: ActiveRun = {
-            name: runName, runId, ac, status: 'running', results: resultsAcc,
+            name: runName, runId, ac, status: 'running', results: resultsAcc, running: [],
             promise: Promise.resolve({ summary: undefined as unknown as RunSummary }),
           };
           let notifyAwaiting: (info: { runId: string; nodeId: string; prompt: string }) => void = () => { /* 未挂起前 */ };
@@ -293,7 +295,11 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
             logger, cwd: process.cwd(), signal: ac.signal,
             runId, interactive: true,
             onAwaiting: notifyAwaiting,
-            onNodeDone: (id, r) => { resultsAcc[id] = { status: r.status, durationMs: r.durationMs }; },
+            onNodeStart: (id) => { if (!rec.running.includes(id)) rec.running.push(id); },
+            onNodeDone: (id, r) => {
+              resultsAcc[id] = { status: r.status, durationMs: r.durationMs };
+              rec.running = rec.running.filter((x) => x !== id);
+            },
           });
           activeRuns.set(runName, rec);
           runsById.set(runId, rec);
@@ -333,25 +339,30 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
         try {
           const url = new URL(req.url ?? '', 'http://localhost');
           const runId = url.searchParams.get('runId') ?? '';
-          const rec = runsById.get(runId);
+          // ★ 2026-10-03 新增：支持按**工作流名**查在跑的实例（画布在 POST /run 还没返回时
+          //   就能轮询到逐节点的进度——客户端拿不到 runId，因为那条请求要等运行结束才回）。
+          const byName = url.searchParams.get('name') ?? '';
+          const rec = runId ? runsById.get(runId) : (byName ? activeRuns.get(byName) : undefined);
           if (!rec) {
             sendJson(res, 404, { error: '查无此运行——可能已结束，或 dsh 重启导致暂停中的运行丢失' });
             return;
           }
-          const live = getAwaiting(runId); // 以挂起注册表为准（rec.status 可能滞后一瞬）
+          const live = getAwaiting(rec.runId); // 以挂起注册表为准（rec.status 可能滞后一瞬）
           sendJson(res, 200, {
-            runId,
+            runId: rec.runId,
             workflowName: rec.name,
             status: live ? 'awaiting' : rec.status,
             ...(live ? { awaiting: { nodeId: live.nodeId, prompt: live.prompt } } : {}),
             ...(rec.status === 'completed' && rec.summary ? { summary: rec.summary } : {}),
             results: rec.results,
+            running: rec.running,
           });
         } catch (e) {
           sendJson(res, 500, { error: (e as Error).message });
         }
       },
     });
+
 
     // 3.15 人工确认：唤醒挂起的 manual 节点（该请求 hold 到跑完，返回完整 summary）
     route({

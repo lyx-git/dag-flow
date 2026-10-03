@@ -11,6 +11,8 @@ import { createPortal } from 'react-dom';
 import type { MountContext, ViewTab, WorkflowDef } from './types';
 import { DEFAULT_WORKFLOW, findMeta, outSpecOf } from './types';
 import { fieldsFromValue } from './outFields';
+// ★ 运行进度 → 节点状态（2026-10-03 用户需求：待运行/运行中/完成/失败，按运行路径依次显示）
+import { progressToStatusMap } from './runProgress';
 import { toRF, fromRF, type RFNode, type RFEdge } from './util/flowDef';
 import { applyAutoLayout } from './util/layout';
 import { Canvas } from './Canvas';
@@ -32,10 +34,12 @@ interface FlowPanelProps {
 
 /** 从 RunSummary 提取简短展示文本 */
 function summarizeRun(summary: unknown): string {
-  const s = summary as { status?: string; totalDurationMs?: number; error?: { code?: string; message?: string; nodeId?: string } } | null;
+  const s = summary as { status?: string; totalDurationMs?: number; toleratedCount?: number; error?: { code?: string; message?: string; nodeId?: string } } | null;
   if (!s) return '完成';
   const parts: string[] = [];
   if (typeof s.totalDurationMs === 'number') parts.push(`${Math.round(s.totalDurationMs)}ms`);
+  // ★ 容错（2026-10-03）：有节点失败但被「失败不影响流程」放行时，头部明确标注（不静默吞掉失败）
+  if (s.toleratedCount) parts.push(`${s.toleratedCount} 个节点失败已容错`);
   if (s.error?.message) parts.push(s.error.message);
   return parts.length ? parts.join(' · ') : (s.status ?? '完成');
 }
@@ -296,7 +300,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   //   样式由 ensurePickerStyles 注入，过去只有点开 📂 时才注入——停靠模式刷新后直接点 ▶，
   //   失败弹窗因缺样式渲染成面板底部的裸块。挂载即注入（幂等），全部弹窗不再依赖打开顺序）
   useEffect(() => { try { ensurePickerStyles(); } catch { /* 忽略 */ } }, []);
-  const [runResults, setRunResults] = useState<Record<string, { status: string; durationMs?: number; count?: number }>>({});
+  const [runResults, setRunResults] = useState<Record<string, { status: string; durationMs?: number; count?: number; out?: unknown; error?: { code?: string; message?: string }; tolerated?: boolean }>>({});
   const [running, setRunning] = useState(false);
   const runAbortRef = useRef<AbortController | null>(null);
   // ★ 人工确认（2026-10-03 用户拍板方案 A）：manual 节点挂起 → 头部 ⏸ 徽标 + 确认弹窗
@@ -371,12 +375,20 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   const applyRunSummary = useCallback((data: any): void => {
     setRunResult({ status: data?.ok ? 'success' : 'failed', summary: data?.summary });
     if (!data?.ok) setRunDlgOpen(true); // 失败 → 弹窗展示详情（成功仍用头部 ✓ 小徽标）
-    const results = data?.summary?.results as Record<string, { status?: string; durationMs?: number; out?: { count?: number } }> | undefined;
+    const results = data?.summary?.results as Record<string, { status?: string; durationMs?: number; out?: { count?: number }; error?: { code?: string; message?: string }; tolerated?: boolean }> | undefined;
     if (results) {
-      const map: Record<string, { status: string; durationMs?: number; count?: number }> = {};
+      const map: Record<string, { status: string; durationMs?: number; count?: number; out?: unknown; error?: { code?: string; message?: string }; tolerated?: boolean }> = {};
       for (const [id, r] of Object.entries(results)) {
         // ★ P3（2026-10-03）：loop 节点的实际迭代次数取自 out.count，带进画布徽标
-        map[id] = { status: r.status ?? 'unknown', durationMs: r.durationMs, ...(typeof r.out?.count === 'number' ? { count: r.out.count } : {}) };
+        map[id] = {
+          status: r.status ?? 'unknown',
+          durationMs: r.durationMs,
+          ...(typeof r.out?.count === 'number' ? { count: r.out.count } : {}),
+          // ★ 悬浮查看节点最终结果（2026-10-03 用户需求）：原样带出 out / error / 容错标记
+          ...(r.out !== undefined ? { out: r.out } : {}),
+          ...(r.error ? { error: r.error } : {}),
+          ...(r.tolerated ? { tolerated: true } : {}),
+        };
       }
       setRunResults(map);
     }
@@ -402,7 +414,29 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     }
     setRunning(true);
     setRunResult(null);
-    setRunResults({});
+    // ★ 2026-10-03 用户需求「画布每个节点都要有状态：待运行/运行中/完成/失败，按运行路径依次显示，
+    //   不要最后一次性显示」：起跑先把所有节点置为「待运行」，随后每 600ms 轮询 host 的
+    //   /run/status?name=（ActiveRun 累积的逐节点结果 + 正在执行的节点 id），依次点亮；
+    //   最终态仍由 POST /run 返回的 summary 落定（applyRunSummary 覆盖过程态）。
+    //   为什么按名字查：客户端拿不到 runId —— POST /run 要等运行结束才返回，runId 在响应体里。
+    const nodeIds = (def.nodes ?? []).map((n) => n.id);
+    setRunResults(progressToStatusMap(nodeIds, {}));
+    let stopPoll = false;
+    let pollTimer: number | null = null;
+    const pollProgress = async (): Promise<void> => {
+      if (stopPoll) return;
+      try {
+        const r = await fetch(`/api/dag-flow/run/status?name=${encodeURIComponent(def.name)}`);
+        if (r.ok) {
+          const j = (await r.json()) as { status?: string; results?: Record<string, { status?: string }>; running?: string[] };
+          if (!stopPoll && (j?.status === 'running' || j?.status === 'awaiting')) {
+            setRunResults(progressToStatusMap(nodeIds, { results: j.results, running: j.running }));
+          }
+        }
+      } catch { /* 轮询失败不打扰用户，下一轮再试 */ }
+      if (!stopPoll) pollTimer = window.setTimeout(() => { void pollProgress(); }, 600);
+    };
+    void pollProgress();
     let keepRunning = false; // 撞上人工确认：运行还在继续，不能把 running 收掉
     const ac = new AbortController();
     runAbortRef.current = ac;
@@ -439,6 +473,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       if ((e as Error).name === 'AbortError') setRunResult({ status: 'error', error: '已取消本次运行' });
       else { setRunResult({ status: 'error', error: (e as Error).message }); setRunDlgOpen(true); }
     } finally {
+      stopPoll = true;
+      if (pollTimer != null) window.clearTimeout(pollTimer);
       if (!keepRunning) {
         setRunning(false);
         runAbortRef.current = null;
@@ -746,6 +782,21 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     setDirty(true);
   }, []);
 
+  // ★ 容错开关（2026-10-03 用户拍板 A 方案：节点级「失败不影响流程」）
+  //   勾选 → 写 node.tolerate=true；取消 → **删掉键**（不落 `tolerate:false`，与 handleNodeChange 的 null 语义一致）
+  const handleNodeTolerate = useCallback((id: string, tolerate: boolean) => {
+    setDef((prev) => ({
+      ...prev,
+      nodes: prev.nodes.map((n) => {
+        if (n.id !== id) return n;
+        const next = { ...n };
+        if (tolerate) next.tolerate = true; else delete next.tolerate;
+        return next;
+      }),
+    }));
+    setDirty(true);
+  }, []);
+
   // 2026-10-01 深夜：A1 已保存工作流的删除/复制/重命名随管理视图移除——复制功能移植进打开/新建选择器
 
   return createElement(
@@ -847,15 +898,24 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         { className: 'dsh-wf-btn', onClick: openInputs, title: '工作流参数（仅当前工作流可用；节点参数里用 {{inputs.名称}} 引用）' },
         '✍️',
       ),
+      // ★ 取消按钮：运行中才出现，且**红色**（2026-10-03 用户要求「取消按钮要变成红色」）
       running && createElement(
         'button',
-        { className: 'dsh-wf-btn', onClick: cancelRun, title: '取消本次运行（通知执行器中止）' },
-        '⏹',
+        { className: 'dsh-wf-btn is-danger', onClick: cancelRun, title: '取消本次运行（通知执行器中止）' },
+        '⏹ 取消',
       ),
+      // ★ 运行按钮：运行中变成**动态**状态（转圈 + 「运行中」），不是静态 ⏳；跑完恢复 ▶
       createElement(
         'button',
-        { className: 'dsh-wf-btn dsh-wf-btn-success', onClick: () => void handleRun(), disabled: running, title: '运行工作流' },
-        running ? '⏳' : '▶',
+        {
+          className: `dsh-wf-btn dsh-wf-btn-success${running ? ' is-running' : ''}`,
+          onClick: () => void handleRun(),
+          disabled: running,
+          title: running ? '工作流正在运行（点左侧「⏹ 取消」可中止）' : '运行工作流',
+        },
+        running ? createElement('span', { className: 'dsh-wf-run-label' },
+          createElement('span', { className: 'dsh-wf-run-spin' }, '◌'),
+          '运行中') : '▶',
       ),
       createElement(
         'button',
@@ -922,8 +982,10 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       runResults, // 运行状态可视化（画布节点徽标）
       // 上次运行的真实输出（results.<id>.out）——面板用它反推「实际有哪些变量」，含用户自定义键
       runOuts: ((runResult?.summary as { results?: Record<string, unknown> } | undefined)?.results ?? {}),
-      // A4 失败策略（onError：节点失败时的行为）
+      // A4 失败策略（onError：节点失败时的行为；仅 legacy next 模式生效）
       onNodeError: handleNodeError,
+      // ★ A 方案容错开关（DAG 模式下的「失败不影响流程」，2026-10-03 用户拍板）
+      onNodeTolerate: handleNodeTolerate,
       onDefChange: handleDefChange,
       onRFChange: handleRFChange,
       onSelectNode: handleSelectNode,
@@ -1187,7 +1249,7 @@ function renderBody(p: {
   rfEdges: RFEdge[];
   selectedNode: import('./types').ClientNode | null | undefined;
   ctx: MountContext;
-  runResults?: Record<string, { status: string; durationMs?: number; count?: number }>;
+  runResults?: Record<string, { status: string; durationMs?: number; count?: number; out?: unknown; error?: { code?: string; message?: string }; tolerated?: boolean }>;
   /** 上次运行的真实输出（results.<id>），用于把「用户自定义键/动态节点」的实际字段列出来 */
   runOuts?: Record<string, { status?: string; durationMs?: number; out?: unknown }>;
   onDefChange: (d: WorkflowDef) => void;
@@ -1199,6 +1261,8 @@ function renderBody(p: {
   onDeleteNode: (id: string) => void;
   onNodeChange: (id: string, params: Record<string, unknown>) => void;
   onNodeError: (id: string, onError: 'stop' | 'continue' | { goto: string }) => void;
+  /** ★ 容错开关（DAG 模式「失败不影响流程」，2026-10-03 A 方案） */
+  onNodeTolerate: (id: string, tolerate: boolean) => void;
   rightMin?: boolean;
   onRightMin?: (v: boolean) => void;
   rightGeom?: RightGeom;
@@ -1307,6 +1371,8 @@ function renderBody(p: {
               onParamsChange: (params) => p.onNodeChange(p.selectedNode!.id, params),
               onError: p.selectedNode.onError ?? 'stop',
               onNodeError: (onError) => p.onNodeError(p.selectedNode!.id, onError),
+              tolerate: p.selectedNode.tolerate === true,
+              onTolerateChange: (v) => p.onNodeTolerate(p.selectedNode!.id, v),
             })
           : createElement(
               'div',
@@ -1338,7 +1404,7 @@ function renderBody(p: {
 
 // 节点参数检查器（简化版：动态渲染 key-value）
 // subagent 节点额外提供模型下拉选择（DSH 配置 + 用户自定义模型）
-function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts = {}, workflowName = '', onDelete, onParamsChange, onError = 'stop', onNodeError }: {
+function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts = {}, workflowName = '', onDelete, onParamsChange, onError = 'stop', onNodeError, tolerate = false, onTolerateChange }: {
   node: import('./types').ClientNode;
   defNodes?: import('./types').ClientNode[];
   edges?: RFEdge[];
@@ -1351,6 +1417,9 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
   onParamsChange: (params: Record<string, unknown>) => void;
   onError?: 'stop' | 'continue' | { goto: string };
   onNodeError?: (onError: 'stop' | 'continue' | { goto: string }) => void;
+  /** ★ 容错开关（2026-10-03 A 方案）：true = 本节点失败不中断后续层 */
+  tolerate?: boolean;
+  onTolerateChange?: (v: boolean) => void;
 }) {
   const meta = findMeta(node.type);
   const [models, setModels] = useState<{ id: string; name: string; kind: string; label?: string; providerLabel?: string; model?: string; input?: string[]; hasImage?: boolean }[]>([]);
@@ -1798,6 +1867,24 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
         createElement('option', { value: 'continue' }, '⏭ 失败后继续执行下游'),
         createElement('option', { value: 'goto' }, '↪ 失败后跳转到指定节点'),
       ),
+    ),
+    // ★ A 方案容错开关（2026-10-03 用户拍板「确认使用 A：节点级失败不影响流程开关」）
+    //   为什么必须有这个开关：DAG 模式（def 带 edges）下**节点级 onError 完全不生效**，
+    //   一次抓取/发信失败就把整条流水线拖垮（用户今天已连撞两次：邮件节点、抓取节点）。
+    createElement('div', { className: 'dsh-wf-panel-row' },
+      createElement('label', { className: 'dsh-wf-panel-label' }, '🛟 失败不影响流程'),
+      createElement('label', { className: 'dsh-wf-tolerate' },
+        createElement('input', {
+          type: 'checkbox',
+          className: 'dsh-wf-tolerate-check',
+          checked: tolerate === true,
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) => onTolerateChange?.(e.target.checked),
+        }),
+        createElement('span', { className: 'dsh-wf-tolerate-text' },
+          tolerate ? '已开启 —— 本节点失败也继续跑后续节点' : '未开启 —— 失败即中断后续节点'),
+      ),
+      createElement('div', { className: 'dsh-wf-panel-hint' },
+        '勾选后：失败只记在本节点（徽标变 ⚠ 已容错，鼠标悬浮节点可看错误详情），后续节点照常执行，运行汇总标注「N 个节点失败已容错」。DAG 工作流请用这个开关——上面的「失败策略」只在早期的 next 顺序模式生效。'),
     ),
     typeof onError === 'object' && onError.goto !== undefined && createElement('div', { className: 'dsh-wf-panel-row' },
       createElement('label', { className: 'dsh-wf-panel-label' }, reqMark(), '↪ 跳转目标'),

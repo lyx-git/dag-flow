@@ -38,6 +38,9 @@ export interface RunOptions {
   cwd: string;
   inputs?: Record<string, JsonValue>;
   onNodeDone?: (id: string, result: NodeResult) => void;
+  /** ★ 节点**开始**执行的通知（2026-10-03 用户需求「画布按运行路径依次显示状态，不要最后一次性显示」）：
+   *  API 层据此把该节点标成「运行中」，画布轮询 /run/status 就能依次点亮节点。 */
+  onNodeStart?: (id: string) => void;
   /** 取消信号（run API 取消） */
   signal?: AbortSignal;
   /** 子工作流嵌套深度（subflow 节点内部递增） */
@@ -59,6 +62,8 @@ export interface RunSummary {
   successCount: number;
   failedCount: number;
   skippedCount: number;
+  /** ★ 容错（2026-10-03）：失败但被 tolerate 开关放行的节点数——不计入 failedCount、不影响 status */
+  toleratedCount?: number;
   totalDurationMs: number;
   startedAt: string;
   endedAt: string;
@@ -127,7 +132,13 @@ export async function runWorkflow(defInput: unknown, opts: RunOptions): Promise<
   });
 
   let successCount = 0, failedCount = 0, skippedCount = 0;
+  let toleratedCount = 0;
   let firstError: RunSummary['error'] | undefined;
+
+  /** ★ 容错判定（2026-10-03 用户拍板 A 方案）：勾了 tolerate 的节点失败时放行后续执行。
+   *  取消（RUN_CANCELLED）永远不算容错——用户主动取消必须真的停下来。 */
+  const isTolerated = (node: Node | undefined, r: NodeResult): boolean =>
+    r.status === 'failed' && node?.tolerate === true && r.error?.code !== 'RUN_CANCELLED';
 
   // 记录哪些节点"被合流/被跳过的"
   const scheduled = new Set<string>();
@@ -150,11 +161,12 @@ export async function runWorkflow(defInput: unknown, opts: RunOptions): Promise<
     if (!defReg) {
       const r: NodeResult = { ...makeResult('failed', { error: { code: 'UNKNOWN_NODE_TYPE', message: `节点类型 "${node.type}" 未注册（提供该节点的插件是否已安装？）` } }), durationMs: 0, startedAt: new Date().toISOString(), endedAt: new Date().toISOString() };
       ctx.results[node.id] = r;
-      failedCount++;
+      if (isTolerated(node, r)) { r.tolerated = true; toleratedCount++; } else failedCount++;
       opts.onNodeDone?.(node.id, r);
       return r;
     }
 
+    opts.onNodeStart?.(node.id);   // ★ legacy 路径同样通知「开始执行」
     const r = await safeNodeRun(async () => {
       // 数据传递：解析 params 中的 {{nodeId.out}} 模板引用为上游实际输出
       let resolved: Record<string, JsonValue> = node.params ?? {};
@@ -176,7 +188,10 @@ export async function runWorkflow(defInput: unknown, opts: RunOptions): Promise<
     });
     ctx.results[node.id] = r;
     if (r.status === 'success') successCount++;
-    else if (r.status === 'failed') failedCount++;
+    else if (r.status === 'failed') {
+      // ★ 容错：失败但勾了 tolerate → 不中断（记 tolerated，节点自身仍标 failed）
+      if (isTolerated(node, r)) { r.tolerated = true; toleratedCount++; } else failedCount++;
+    }
     else skippedCount++;
     opts.onNodeDone?.(node.id, r);
     return r;
@@ -185,7 +200,8 @@ export async function runWorkflow(defInput: unknown, opts: RunOptions): Promise<
   async function advance(fromNode: Node, fromResult: NodeResult): Promise<void> {
     // 终止
     if (fromNode.type === 'end') return;
-    if (fromResult.status === 'failed') {
+    // ★ 容错（tolerate）：失败但已放行 → 不进入 onError 分支，按成功语义继续推进 next
+    if (fromResult.status === 'failed' && !fromResult.tolerated) {
       // onError 处理
       if (fromNode.onError === 'continue') {
         // 跳过 next 推进（认为该节点已"消费"）
@@ -214,7 +230,7 @@ export async function runWorkflow(defInput: unknown, opts: RunOptions): Promise<
       const ps = next.map((id) => def.nodes.find((x) => x.id === id)).filter(Boolean) as Node[];
       const rs = await Promise.all(ps.map((n) => executeNode(n)));
       // 任意失败 → 不继续推进（除非 onError）
-      const anyFailed = rs.some((r) => r.status === 'failed');
+      const anyFailed = rs.some((r) => r.status === 'failed' && !r.tolerated);
       if (anyFailed) {
         if (!firstError) firstError = { code: 'PARALLEL_FAILED', message: '一个或多个并行分支失败', nodeId: fromNode.id };
         return;
@@ -249,7 +265,9 @@ export async function runWorkflow(defInput: unknown, opts: RunOptions): Promise<
     if (!scheduled.has(endNode.id)) {
       const r = await executeNode(endNode);
       if (r.status === 'success') successCount++;
-      else if (r.status === 'failed') failedCount++;
+      else if (r.status === 'failed') {
+        if (isTolerated(endNode, r)) { r.tolerated = true; toleratedCount++; } else failedCount++;
+      }
     }
   }
 
@@ -262,6 +280,7 @@ export async function runWorkflow(defInput: unknown, opts: RunOptions): Promise<
     successCount,
     failedCount,
     skippedCount,
+    ...(toleratedCount ? { toleratedCount } : {}),
     totalDurationMs: Date.now() - t0,
     startedAt,
     endedAt,
@@ -349,6 +368,7 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
 
   // 3. 分层执行（预算防护：最多 10 万节点执行）
   let successCount = 0, failedCount = 0, skippedCount = 0;
+  let toleratedCount = 0;
   let firstError: RunSummary['error'] | undefined;
   const MAX_NODES = 100_000;
   let executed = 0;
@@ -377,6 +397,7 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
       if (!defReg) {
         return { id, r: { ...makeResult('failed', { error: { code: 'UNKNOWN_NODE_TYPE', message: `节点类型 "${node.type}" 未注册（提供该节点的插件是否已安装？）` } }), durationMs: 0, startedAt, endedAt: startedAt } as NodeResult, skip: false as const };
       }
+      opts.onNodeStart?.(id);   // ★ 通知「本节点开始执行」（画布据此显示「运行中」）
       const r = await safeNodeRun(async () => {
         // 数据传递：解析 params 中的 {{nodeId.out}} 模板引用
         let resolved: Record<string, JsonValue> = node.params ?? {};
@@ -443,9 +464,18 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
       if (skip) { skippedCount++; continue; }
       if (r.status === 'success') successCount++;
       else if (r.status === 'failed') {
-        failedCount++;
-        // ★ 补 nodeId：失败弹窗的「失败原因：显示名_id」需要定位到节点
-        if (!firstError) firstError = { code: r.error?.code ?? 'NODE_FAILED', message: r.error?.message ?? 'node failed', nodeId: id };
+        // ★ 容错（2026-10-03 用户拍板 A 方案）：勾了「失败不影响流程」的节点失败**不计入 failedCount**
+        //   → 既不触发下面的 break（后续层照常跑），也不写 firstError/把汇总判为 failed；
+        //   节点自身仍保留 failed + tolerated=true（界面据此标「已容错」+ 悬浮看错误详情）。
+        //   取消（RUN_CANCELLED）永远不算容错。
+        if (r.error?.code !== 'RUN_CANCELLED' && nodeById.get(id)?.tolerate === true) {
+          r.tolerated = true;
+          toleratedCount++;
+        } else {
+          failedCount++;
+          // ★ 补 nodeId：失败弹窗的「失败原因：显示名_id」需要定位到节点
+          if (!firstError) firstError = { code: r.error?.code ?? 'NODE_FAILED', message: r.error?.message ?? 'node failed', nodeId: id };
+        }
       }
       else skippedCount++;
     }
@@ -459,6 +489,7 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
     runId, workflowName: def.name,
     status: failedCount === 0 ? 'success' : 'failed',
     totalNodes: def.nodes.length, successCount, failedCount, skippedCount,
+    ...(toleratedCount ? { toleratedCount } : {}),
     totalDurationMs: Date.now() - t0, startedAt, endedAt, results: ctx.results,
     ...(firstError ? { error: firstError } : {}),
   };

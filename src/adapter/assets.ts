@@ -6,7 +6,7 @@
 // 安全：filename 解析后必须仍在 .dag-flow/ 内（防路径穿越 ../）
 
 import { promises as fs } from 'node:fs';
-import { createWriteStream } from 'node:fs';
+import { createWriteStream, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
@@ -43,14 +43,35 @@ function safeOutputPath(dir: string, filename: string): string {
   return resolved;
 }
 
-/** 保存文本/binary 内容为产出文件（直接写 .dag-flow 目标位置） */
+/**
+ * ★ 同名冲突策略（2026-10-03 用户拍板**方案 A：默认自动改名不覆盖**）：
+ *   目标文件已存在时改成 `报告.md` → `报告-2.md` → `报告-3.md` …（保留历史，绝不静默覆盖）。
+ *   为什么选 A：DAG 工作流里"文件已存在"不该让节点失败，也不该悄悄吃掉上一份产出；
+ *   返回的还是**实际写入的路径**（out.path/absolutePath），下游/邮件拿到的是真实文件名。
+ *   ★ 行为变更声明：此前是静默覆盖，从本版起同名即改名（同一天跑两次日报会得到 -2.md）。
+ *   并发同名的极限竞态（两个节点同时探测到同一空位）各自写入不报错，最多其中一个被后写覆盖——
+ *   单机工作流场景可接受，不为此加锁。
+ */
+function uniqueOutputPath(file: string): string {
+  if (!existsSync(file)) return file;
+  const dir = path.dirname(file);
+  const ext = path.extname(file);
+  const stem = path.basename(file, ext);
+  for (let i = 2; i < 1000; i++) {
+    const cand = path.join(dir, `${stem}-${i}${ext}`);
+    if (!existsSync(cand)) return cand;
+  }
+  return path.join(dir, `${stem}-${Date.now()}${ext}`);   // 极端情况兜底（同名 1000 份）
+}
+
+/** 保存文本/binary 内容为产出文件（直接写 .dag-flow 目标位置；同名自动改名，见 uniqueOutputPath） */
 export async function saveAsset(
   filename: string,
   content: string | Uint8Array,
   encoding?: 'utf8' | 'base64',
 ): Promise<SavedAsset> {
   const dir = await outputDir();
-  const file = safeOutputPath(dir, filename);
+  const file = uniqueOutputPath(safeOutputPath(dir, filename));
   await fs.mkdir(path.dirname(file), { recursive: true });
   const buf = typeof content === 'string'
     ? (encoding === 'base64' ? Buffer.from(content, 'base64') : Buffer.from(content, 'utf8'))
@@ -71,7 +92,7 @@ export async function saveAsset(
  */
 export async function downloadAsset(url: string, filename: string, timeoutMs = 300_000): Promise<SavedAsset> {
   const dir = await outputDir();
-  const file = safeOutputPath(dir, filename);
+  const file = uniqueOutputPath(safeOutputPath(dir, filename));   // ★ 同名自动改名（方案 A）
   await fs.mkdir(path.dirname(file), { recursive: true });
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), timeoutMs);

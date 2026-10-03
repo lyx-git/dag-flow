@@ -28,6 +28,10 @@ const TESTS = [
   ['loop-jump', () => import('./test-loop-jump.mjs')],
   ['switch-chips', () => import('./test-switch-chips.mjs')],
   ['var-refs', () => import('./test-var-refs.mjs')],
+  // ★ 2026-10-03：节点「最终执行结果」悬浮卡 + A 方案「失败不影响流程」勾选框
+  ['node-result-tip', () => import('./test-node-result-tip.mjs')],
+  // ★ 2026-10-03：运行过程态（待运行/运行中/依次点亮 + 动态运行按钮 + 红色取消）
+  ['live-status', () => import('./test-live-status.mjs')],
 ];
 
 // —— fixture 服务器 ——

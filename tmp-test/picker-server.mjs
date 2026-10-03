@@ -44,6 +44,12 @@ const versions = new Map();                  // name -> [{ ts, workflow }] 新�
 const MANUAL_STUB_PROMPT = '请核对【技术简报】正文与配图是否符合要求。';
 let stubRunId = 0;
 const awaitingRuns = new Map();              // runId -> { name, nodeId }
+// ★ 慢速运行模式（2026-10-03 新增，供 CDP 观测「待运行/运行中/依次点亮」）：
+//   POST /__run-mode {mode:'slow'} 打开 → /run 分阶段推进、立刻返回（不 hold），
+//   /run/status?name=<工作流名> 返回逐节点进度（对齐 host ActiveRun 的 results + running）。
+let runMode = 'fast';
+let slowRun = null;                          // { name, ids, stage }
+const SLOW_STEP_MS = 500;
 // /models stub 的返回模式（2026-10-03 模型显示名回归锁）：'empty'（默认，= 老行为 404 → 空列表）| 'name'
 let modelsMode = 'empty';
 const STATIC = new Set(['/picker-replica.html', '/picker-test.js', '/grab-test.html', '/grab-test.js', '/grab-test.css', '/dom-debug.html', '/cdp-host.html']);
@@ -81,6 +87,16 @@ createServer((req, res) => {
         // ③ 宿主没给显示名（settings 直读源）→ 回退 model id，不得显示成 llm:provider:model
         { id: 'dsh:custom-model:glm-x', name: 'custom-model:glm-x', model: 'glm-x', kind: 'dsh', input: ['text'], hasImage: false },
       ],
+    });
+    return;
+  }
+  // 测试控制口：运行模式（'fast' 默认 | 'slow' 分阶段推进，供 CDP 看中间状态）
+  if (u.pathname === '/__run-mode' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      try { const j = JSON.parse(body || '{}'); runMode = j.mode === 'slow' ? 'slow' : 'fast'; slowRun = null; json({ ok: true, mode: runMode }); }
+      catch { res.writeHead(400); res.end('bad json'); }
     });
     return;
   }
@@ -147,6 +163,25 @@ createServer((req, res) => {
           results[n.id] = { status: 'success', durationMs: 1, out: stubOut(n) };
         }
         const manual = (def.nodes ?? []).find((n) => n.type === 'manual');
+        // ★ 慢速模式（CDP 用）：逐节点推进，先返回「运行中」进度，最后才给完整 summary
+        if (runMode === 'slow' && !manual) {
+          const ids = (def.nodes ?? []).map((n) => n.id);
+          slowRun = { name: def.name, ids, stage: 0 };
+          const acc = {};
+          ids.forEach((id, i) => {
+            setTimeout(() => {
+              if (!slowRun || slowRun.name !== def.name) return;
+              acc[id] = { status: 'success', durationMs: 20, out: stubOut((def.nodes ?? []).find((n) => n.id === id)) };
+              slowRun.stage = i + 1;
+            }, SLOW_STEP_MS * (i + 1));
+          });
+          setTimeout(() => {
+            const done = { ok: true, summary: { status: 'success', totalDurationMs: SLOW_STEP_MS * ids.length, results: acc } };
+            slowRun = null;
+            json(done);
+          }, SLOW_STEP_MS * (ids.length + 1));
+          return;
+        }
         if (manual) {
           const runId = `run-stub-manual-${++stubRunId}`;
           awaitingRuns.set(runId, { name: def.name, nodeId: manual.id });
@@ -167,6 +202,17 @@ createServer((req, res) => {
   // /run/status：等待中 → awaiting；已被 DELETE 取消 → completed(failed)
   if (u.pathname === '/api/dag-flow/run/status') {
     const runId = u.searchParams.get('runId') ?? '';
+    // ★ 慢速运行：按工作流名回报「逐节点进度 + 正在执行的节点」（对齐 host 的 results/running）
+    const byName = u.searchParams.get('name') ?? '';
+    if (slowRun && byName && slowRun.name === byName) {
+      const results = {};
+      for (let i = 0; i < slowRun.stage && i < slowRun.ids.length; i++) {
+        results[slowRun.ids[i]] = { status: 'success', durationMs: 20, out: null };
+      }
+      const running = slowRun.stage < slowRun.ids.length ? [slowRun.ids[slowRun.stage]] : [];
+      json({ runId: 'run-stub-slow', workflowName: slowRun.name, status: 'running', results, running });
+      return;
+    }
     const rec = awaitingRuns.get(runId);
     if (rec) {
       json({ runId, workflowName: rec.name, status: 'awaiting', awaiting: { nodeId: rec.nodeId, prompt: MANUAL_STUB_PROMPT }, results: {} });

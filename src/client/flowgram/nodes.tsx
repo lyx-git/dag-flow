@@ -6,10 +6,12 @@
 
 import { createElement } from 'react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { DataEvent, Field, FlowNodeRegistry, useNodeRender } from '@flowgram.ai/free-layout-editor';
 import { findMeta } from '../types';
 import { runStatusStore, selectionStore } from './runStatus';
 import { switchCaseStore } from './switchCaseStore';
+import { tipModel, tipFullText, type TipModel } from '../resultTip';
 
 /** loop 卡片副标题（P1，2026-10-03 用户拍板）：按**实际生效的边界**显示。
  *  引擎优先级 over > count > while——旧实现只认 count，配了 over/while 的循环卡片显示 `count=?`（错信息）。 */
@@ -121,6 +123,79 @@ function SwitchChip(props: { text: string; title: string; cls: string; onPick: (
   return createElement('span', { ref, className: props.cls, title: props.title }, props.text);
 }
 
+/** ★ 节点「最终执行结果」悬浮卡本体（2026-10-03 用户需求：每个节点执行完，无论失败还是成功，
+ *  都能在节点上看到最终结果，方便定位；悬浮查看）。内容模型见 src/client/resultTip.ts（纯函数，离线单测）。
+ *  ★ 同日用户反馈「无法将鼠标移动到报错的浮窗上去，无法复制错误信息」→ 浮窗改为**可交互**：
+ *    自身悬停会取消隐藏（onEnter），带 📋 一键复制按钮；鼠标进入/离开必须用原生监听器
+ *    （与节点卡同理：画布层会 stopPropagation 掉委托事件）。 */
+function ResultTipBox({ model, at, onEnter, onLeave }: {
+  model: TipModel;
+  at: { left: number; top: number };
+  onEnter?: () => void;
+  onLeave?: () => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [copied, setCopied] = useState(false);
+  const enterRef = useRef(onEnter);
+  enterRef.current = onEnter;
+  const leaveRef = useRef(onLeave);
+  leaveRef.current = onLeave;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const enter = (): void => enterRef.current?.();
+    const leave = (): void => leaveRef.current?.();
+    el.addEventListener('mouseenter', enter);
+    el.addEventListener('mouseleave', leave);
+    return () => {
+      el.removeEventListener('mouseenter', enter);
+      el.removeEventListener('mouseleave', leave);
+    };
+  }, []);
+  /** 复制全文：优先 Clipboard API，失败退回 textarea + execCommand（旧 WebView/无权限时可用） */
+  const copy = (): void => {
+    const text = tipFullText(model);
+    const mark = (): void => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    };
+    const fallback = (): void => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch { /* 复制失败也不弹错 */ }
+    };
+    try {
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).then(mark, () => { fallback(); mark(); });
+        return;
+      }
+    } catch { /* 落到兜底 */ }
+    fallback();
+    mark();
+  };
+  return createElement(
+    'div',
+    { ref, className: `dsh-wf-fg-tip is-${model.badgeKind}`, style: { left: `${at.left}px`, top: `${at.top}px` } },
+    createElement('div', { className: 'dsh-wf-fg-tip-head' },
+      createElement('span', { className: 'dsh-wf-fg-tip-title' }, model.title),
+      createElement('span', { className: `dsh-wf-fg-tip-badge is-${model.badgeKind}` }, model.badge),
+      createElement('span', {
+        className: `dsh-wf-fg-tip-copy${copied ? ' is-done' : ''}`,
+        title: '复制这个节点的完整运行结果（错误信息太长时点这里）',
+        onClick: copy,
+      }, copied ? '✓ 已复制' : '📋 复制'),
+    ),
+    ...model.lines.map((l, i) => createElement('div', { key: `line-${i}`, className: `dsh-wf-fg-tip-line is-${l.kind}` }, l.text)),
+  );
+}
+
 /** switch 卡片（渲染在 FlowGram 节点体内） */
 function NodeCardBody({ type }: { type: string }) {
   const { node, form } = useNodeRender();
@@ -133,7 +208,62 @@ function NodeCardBody({ type }: { type: string }) {
   const rs = useSyncExternalStore(runStatusStore.subscribe, rsSelector, rsSelector);
   const selSelector = () => selectionStore.getSnapshot() === node.id;
   const isSelected = useSyncExternalStore(selectionStore.subscribe, selSelector, selSelector);
-  const statusCls = rs?.status === 'success' ? 'is-ok' : rs?.status === 'failed' ? 'is-err' : rs?.status === 'skipped' ? 'is-skip' : '';
+  const statusCls = rs?.status === 'success' ? 'is-ok' : rs?.status === 'failed' ? 'is-err' : rs?.status === 'skipped' ? 'is-skip' : rs?.status === 'running' ? 'is-running' : '';
+  // ★ 悬浮查看最终执行结果（2026-10-03 用户需求）：**必须用原生监听器**——
+  //   节点卡所在的 FlowGram 节点层会把卡内事件的冒泡 stopPropagation 掉，React 的委托事件
+  //   （onClick/mousedown，以及由 mouseover 合成的 onMouseEnter）在卡内收不到；
+  //   与下方 SwitchChip 是同一个坑位、同一套解法（元素级 addEventListener）。
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [tipAt, setTipAt] = useState<{ left: number; top: number } | null>(null);
+  const tipValue = rs ? tipModel(rs, { label: (values.label as string) ?? node.id, id: node.id }) : null;
+  const showTip = (): void => {
+    cancelHide(); // 重新移入卡片时取消"待隐藏"
+    // 诊断钩子（真机/CDP 排查「悬浮没反应」：是监听没挂上、还是没有本次运行结果）
+    (window as any).__df_tipShow = { node: node.id, hasRs: !!rs, hasModel: !!tipValue, at: Date.now() };
+    if (!tipValue) return; // 本次运行没有该节点的结果 → 不弹（不做无信息的噪声提示）
+    const el = cardRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const W = 420, H = 320, gap = 10;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - W - 8));
+    const top = r.bottom + gap + H > window.innerHeight ? Math.max(8, r.top - gap - H) : r.bottom + gap;
+    setTipAt({ left, top });
+  };
+  // ★ 用户反馈「无法把鼠标移到浮窗上复制错误」：卡片 mouseleave **不立刻**收起，留 260ms 让鼠标移进浮窗；
+  //   浮窗自身 mouseenter 会 cancelHide（见 ResultTipBox 的 onEnter），这样就能选中文本 / 点复制。
+  const hideTimer = useRef<number | null>(null);
+  const cancelHide = (): void => {
+    if (hideTimer.current != null) {
+      window.clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    }
+  };
+  const scheduleHide = (): void => {
+    cancelHide();
+    hideTimer.current = window.setTimeout(() => {
+      hideTimer.current = null;
+      setTipAt(null);
+    }, 260);
+  };
+  // 回调走 ref：原生监听只绑一次，避免每次 runStatus 变化都重绑
+  const showRef = useRef(showTip);
+  showRef.current = showTip;
+  const hideRef = useRef(scheduleHide);
+  hideRef.current = scheduleHide;
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el) return undefined;
+    (window as any).__df_tipBound = ((window as any).__df_tipBound ?? 0) + 1;
+    const enter = (): void => showRef.current();
+    const leave = (): void => hideRef.current();
+    el.addEventListener('mouseenter', enter);
+    el.addEventListener('mouseleave', leave);
+    return () => {
+      el.removeEventListener('mouseenter', enter);
+      el.removeEventListener('mouseleave', leave);
+      if (hideTimer.current != null) { window.clearTimeout(hideTimer.current); hideTimer.current = null; }
+    };
+  }, []);
   // ★ switch 卡片（2026-10-03 用户拍板 B）：端口行删除，只留一行 chips ——
   //   点 chip 选分支 → 之后从本节点拉出的线**自带**该分支键；没选 → 拉出的线不带分支键（先画线、再在线上点选）。
   const caseKeys = type === 'switch' ? Object.keys((values.cases as Record<string, unknown>) ?? {}) : [];
@@ -205,6 +335,7 @@ function NodeCardBody({ type }: { type: string }) {
   return createElement(
     'div',
     {
+      ref: cardRef,
       className: `dsh-wf-fg-card${type === 'switch' ? ' is-switch' : ''}${statusCls ? ' ' + statusCls : ''}${isSelected ? ' fg-selected' : ''}`,
       style: {
         ['--kind' as string]: meta.color,
@@ -212,12 +343,17 @@ function NodeCardBody({ type }: { type: string }) {
       },
     },
     // 运行耗时徽标（右上）
-    rs?.durationMs != null
-      ? createElement('span', { className: `dsh-wf-fg-badge${rs.status === 'failed' ? ' err' : ''}${type === 'loop' && rs.count != null ? ' is-loop' : ''}` },
-          `${rs.status === 'failed' ? '✕' : rs.status === 'skipped' ? '○' : '✓'} ${Math.round(rs.durationMs)}ms${type === 'loop' && rs.count != null ? ` · 循环 ${rs.count} 次` : ''}`)
-      : rs?.status === 'skipped'
-        ? createElement('span', { className: 'dsh-wf-fg-badge' }, '○ skip')
-        : null,
+    // ★ 运行过程态（2026-10-03 用户需求：待运行 / 运行中 也要显示，按运行路径依次点亮，不要最后一次性显示）
+    rs?.status === 'running'
+      ? createElement('span', { className: 'dsh-wf-fg-badge is-run' }, '运行中…')
+      : rs?.status === 'pending'
+        ? createElement('span', { className: 'dsh-wf-fg-badge is-wait' }, '待运行')
+        : rs?.durationMs != null
+          ? createElement('span', { className: `dsh-wf-fg-badge${rs.status === 'failed' ? (rs.tolerated ? ' is-tol' : ' err') : rs.status === 'success' ? ' is-ok' : ''}${type === 'loop' && rs.count != null ? ' is-loop' : ''}` },
+              `${rs.status === 'failed' ? (rs.tolerated ? '⚠' : '✕') : rs.status === 'skipped' ? '○' : '✓'} ${Math.round(rs.durationMs)}ms${rs.tolerated ? ' · 已容错' : ''}${type === 'loop' && rs.count != null ? ` · 循环 ${rs.count} 次` : ''}`)
+          : rs?.status === 'skipped'
+            ? createElement('span', { className: 'dsh-wf-fg-badge' }, '○ skip')
+            : null,
     createElement('div', { className: 'dsh-wf-fg-card-head' },
       createElement('div', { className: 'dsh-wf-fg-card-icon' }, meta.emoji),
       createElement('div', { className: 'dsh-wf-fg-card-titles' },
@@ -229,6 +365,11 @@ function NodeCardBody({ type }: { type: string }) {
     switchChips,
     switchNote,
     ifLabels.length ? ifLabels : null,
+    // ★ 悬浮结果卡（Portal 到 document.body）：画布容器带 transform，留在卡片内会被缩放/裁切
+    //   onEnter/onLeave：鼠标移进浮窗时不收起（用户要能选中文本 / 点 📋 复制），离开才收
+    tipAt && tipValue ? createPortal(createElement(ResultTipBox, {
+      model: tipValue, at: tipAt, onEnter: cancelHide, onLeave: scheduleHide,
+    }), document.body) : null,
   );
 }
 

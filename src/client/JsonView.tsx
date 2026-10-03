@@ -44,6 +44,7 @@ const WORKFLOW_SCHEMA = {
             ],
           },
           onError: { type: ['string', 'object'] },
+          tolerate: { type: 'boolean' },
           label: { type: 'string' },
         },
       },
