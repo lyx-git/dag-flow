@@ -75792,15 +75792,20 @@ Please add \`${key}Action\` when creating your handler.`
       }
       return out;
     }, [node2.id, edges]);
-    const [copied, setCopied] = (0, import_react101.useState)("");
+    const [copied, setCopied] = (0, import_react101.useState)(null);
+    const copyTimer = (0, import_react101.useRef)(null);
     const copyRef = async (text) => {
       try {
         await navigator.clipboard.writeText(text);
-        setCopied(text);
-        setTimeout(() => setCopied(""), 1200);
+        setCopied((prev2) => ({ text, n: (prev2?.n ?? 0) + 1 }));
+        if (copyTimer.current) window.clearTimeout(copyTimer.current);
+        copyTimer.current = window.setTimeout(() => setCopied(null), 1600);
       } catch {
       }
     };
+    (0, import_react101.useEffect)(() => () => {
+      if (copyTimer.current) window.clearTimeout(copyTimer.current);
+    }, []);
     const selfSpec = outSpecOf(node2.type);
     const inputKeys = Object.keys(inputs ?? {});
     const { globalVars, varOwner } = (0, import_react101.useMemo)(() => {
@@ -76250,7 +76255,16 @@ Please add \`${key}Action\` when creating your handler.`
         (0, import_react102.createElement)("div", { className: "dsh-wf-var-legend" }, "\u5168\u5C40\u53D8\u91CF\uFF08\u4E0B\u6E38\u540C\u6837\u80FD\u76F4\u63A5\u5F15\u7528\uFF09\uFF1A"),
         (0, import_react102.createElement)("div", { className: "dsh-wf-var-list" }, ...globalChips("self-gv"))
       ),
-      copied && (0, import_react102.createElement)("div", { className: "dsh-wf-panel-hint" }, `\u5DF2\u590D\u5236\uFF1A${copied}`),
+      // 复制反馈浮窗（Portal 到 body：面板的 backdrop-filter 会把 fixed 元素困在面板内，且面板滚动/裁剪都不该影响它）
+      copied && (0, import_react_dom9.createPortal)(
+        (0, import_react102.createElement)(
+          "div",
+          { className: "dsh-wf-copy-toast", key: "copy-toast-" + copied.n },
+          (0, import_react102.createElement)("span", { className: "dsh-wf-copy-toast-ico" }, "\u{1F4CB}"),
+          (0, import_react102.createElement)("span", { className: "dsh-wf-copy-toast-text" }, `\u5DF2\u590D\u5236 ${copied.text}`)
+        ),
+        document.body
+      ),
       // #A4 失败策略（onError：节点失败时的行为）
       (0, import_react102.createElement)(
         "div",

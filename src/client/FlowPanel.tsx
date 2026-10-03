@@ -1450,10 +1450,22 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
     }
     return out;
   }, [node.id, edges]);
-  const [copied, setCopied] = useState('');
+  // ★ 2026-10-03 用户要求：「上游变量复制和输出变量复制，提示信息，改为浮窗提示：已复制xxxx」
+  //   原来是面板里一行行内小字（`已复制：xxx`，面板长了还得往下找）；现在改成 Portal 到 body 的浮窗 toast
+  //   （fixed 定位，与面板滚动位置无关），文案 = 「已复制 <复制到的变量引用>」。
+  //   用 {text,n} 记次数：连点同一个 chip 也能重新触发（只存字符串时 React 不重渲染、计时器不重置）。
+  const [copied, setCopied] = useState<{ text: string; n: number } | null>(null);
+  const copyTimer = useRef<number | null>(null);
   const copyRef = async (text: string) => {
-    try { await navigator.clipboard.writeText(text); setCopied(text); setTimeout(() => setCopied(''), 1200); } catch { /* 忽略 */ }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied((prev) => ({ text, n: (prev?.n ?? 0) + 1 }));
+      if (copyTimer.current) window.clearTimeout(copyTimer.current);
+      copyTimer.current = window.setTimeout(() => setCopied(null), 1600);
+    } catch { /* 忽略 */ }
   };
+  // 卸载时清掉计时器（避免面板重挂载后对已卸载组件 setState）
+  useEffect(() => () => { if (copyTimer.current) window.clearTimeout(copyTimer.current); }, []);
   // —— 变量引用用的派生数据（2026-10-03 用户需求：上游/下游变量都要展示 + 说明作用 + 含全局变量）——
   const selfSpec = outSpecOf(node.type);
   const inputKeys = Object.keys(inputs ?? {});
@@ -1854,7 +1866,13 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
       createElement('div', { className: 'dsh-wf-var-legend' }, '全局变量（下游同样能直接引用）：'),
       createElement('div', { className: 'dsh-wf-var-list' }, ...globalChips('self-gv')),
     ),
-    copied && createElement('div', { className: 'dsh-wf-panel-hint' }, `已复制：${copied}`),
+    // 复制反馈浮窗（Portal 到 body：面板的 backdrop-filter 会把 fixed 元素困在面板内，且面板滚动/裁剪都不该影响它）
+    copied && createPortal(
+      createElement('div', { className: 'dsh-wf-copy-toast', key: 'copy-toast-' + copied.n },
+        createElement('span', { className: 'dsh-wf-copy-toast-ico' }, '📋'),
+        createElement('span', { className: 'dsh-wf-copy-toast-text' }, `已复制 ${copied.text}`)),
+      document.body,
+    ),
     // #A4 失败策略（onError：节点失败时的行为）
     createElement('div', { className: 'dsh-wf-panel-row' },
       createElement('label', { className: 'dsh-wf-panel-label' }, '🛟 失败策略'),

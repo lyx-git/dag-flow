@@ -6,6 +6,13 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261003-copy-toast：变量复制反馈改浮窗（用户 2026-10-03 原话：「画布的右侧编辑画板里面，上游变量复制和输出变量复制，
+//   提示信息，改为浮窗提示：已复制xxxx」）——原实现是在面板底部补一行行内小字（`.dsh-wf-panel-hint`「已复制：xxx」），
+//   面板一长就得往下找、还占版面。现在：Portal 到 document.body 的 fixed 浮窗 `.dsh-wf-copy-toast`（底部居中、
+//   入场轻微上浮、约 1.6s 自动消失、`pointer-events:none` 不挡操作），文案「📋 已复制 <复制到的变量引用>」。
+//   状态用 `{text,n}` 记次数：连点同一个 chip 也能重新弹出（只存字符串时 React 不重渲染、计时器不重置）。
+//   作用范围仅「上游变量 / 本节点输出 / 全局变量」三组 chip 的复制反馈；节点悬浮卡的复制按钮（nodes.tsx 的
+//   「✓ 已复制」）与失败详情弹窗的复制提示不在本次范围内，未改。
 // v20261003-view-zoom：画布视图控件（用户 2026-10-03 原话：「适应画布的按钮现在没啥用，现在刚进工作流画布的时候，
 //   画布上的节点太小了，无法看清，最好可以一键放大缩小，方便修改」）——根因：onAllLayersRendered 里**每次渲染都
 //   fitView**，大图被硬塞进视口（~30%），节点看不清；而且「适应画布」按钮与这个自动行为重复，所以"没啥用"。
@@ -461,7 +468,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261003-zoom75 · apply OK');
+    console.log('[dag-flow] client v20261003-copy-toast · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

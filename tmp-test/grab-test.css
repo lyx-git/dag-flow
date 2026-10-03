@@ -1461,6 +1461,50 @@
   background: color-mix(in srgb, var(--wf-success, #34d399) 14%, var(--wf-panel, #101a2b));
   border-color: color-mix(in srgb, var(--wf-success, #34d399) 45%, transparent);
 }
+.dsh-wf-copy-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(72vw, 620px);
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--wf-text, #e6edf7);
+  background: color-mix(in srgb, var(--wf-panel, #101a2b) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--wf-accent, #4f8cff) 55%, transparent);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .45), 0 0 0 3px color-mix(in srgb, var(--wf-accent, #4f8cff) 12%, transparent);
+  pointer-events: none;
+  animation: dsh-wf-copy-toast-in .18s ease-out;
+}
+.dsh-wf-copy-toast-ico {
+  font-size: 12px;
+  line-height: 1;
+  flex: none;
+}
+.dsh-wf-copy-toast-text {
+  font-family:
+    ui-monospace,
+    Consolas,
+    monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@keyframes dsh-wf-copy-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
 .dsh-wf-ver-list {
   display: flex;
   flex-direction: column;

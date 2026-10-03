@@ -97,7 +97,7 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
     '④ 说明「输出是什么」+「下游怎么用」（实际：' + JSON.stringify(groups.meLegends).slice(0, 200) + '…）');
   ok(groups.outCls, '④ 本节点输出的 chip 有独立配色（is-out）');
 
-  // ⑤ 点击复制 → 剪贴板 + 面板「已复制」提示
+  // ⑤ 点击复制 → 剪贴板 + **浮窗**提示「已复制 xxxx」（2026-10-03 用户要求：原来是面板内行内小字，改成浮窗）
   await evaluate(cdp, `(() => {
     const chips = [...document.querySelectorAll('.dsh-wf-var-chip')];
     const c = chips.find((x) => x.textContent.trim() === '{{fetch.out.count}}');
@@ -105,9 +105,37 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
     return true;
   })()`);
   await sleep(250);
-  const copied = await evaluate(cdp, `({ list: window.__copied ?? [], hint: [...document.querySelectorAll('.dsh-wf-panel-hint')].map((h) => h.textContent).filter((t) => t.includes('已复制')).join('|') })`);
+  const copied = await evaluate(cdp, `(() => {
+    const t = document.querySelector('.dsh-wf-copy-toast');
+    const cs = t ? getComputedStyle(t) : null;
+    const r = t ? t.getBoundingClientRect() : null;
+    return {
+      list: window.__copied ?? [],
+      toast: t ? t.textContent : null,
+      parentIsBody: t ? (t.parentElement === document.body) : false,
+      pos: cs ? cs.position : null,
+      fixedInViewport: r ? (r.bottom <= window.innerHeight + 1 && r.left >= 0 && r.right <= window.innerWidth + 1) : false,
+      inlineHints: [...document.querySelectorAll('.dsh-wf-panel-hint')].map((h) => h.textContent).filter((x) => x.includes('已复制')).join('|'),
+    };
+  })()`);
   ok(copied.list.includes('{{fetch.out.count}}'), '⑤ 点击 chip 真的把引用写进剪贴板（实际：' + JSON.stringify(copied.list) + '）');
-  ok(copied.hint.includes('{{fetch.out.count}}'), '⑤ 面板提示「已复制：{{fetch.out.count}}」（实际：' + copied.hint + '）');
+  ok(!!copied.toast && copied.toast.includes('已复制') && copied.toast.includes('{{fetch.out.count}}'),
+    '⑤ 浮窗提示「已复制 {{fetch.out.count}}」（实际：' + JSON.stringify(copied.toast) + '）');
+  ok(copied.parentIsBody && copied.pos === 'fixed', '⑤ 是浮窗不是面板内文字（Portal 到 body、position=fixed，实际 parent=body:' + copied.parentIsBody + ' pos=' + copied.pos + '）');
+  ok(copied.fixedInViewport, '⑤ 浮窗落在视口内可见（不被面板裁剪/溢出）');
+  ok(copied.inlineHints === '', '⑤ 面板里不再有行内「已复制」小字（实际：' + copied.inlineHints + '）');
+  // 连点同一个 chip 也要能重新弹出（只存字符串时 React 不重渲染、计时器不重置）
+  await evaluate(cdp, `(() => {
+    const c = [...document.querySelectorAll('.dsh-wf-var-chip')].find((x) => x.textContent.trim() === '{{fetch.out.count}}');
+    c.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+    return true;
+  })()`);
+  await sleep(150);
+  const again = await evaluate(cdp, `document.querySelector('.dsh-wf-copy-toast')?.textContent ?? null`);
+  ok(!!again && again.includes('{{fetch.out.count}}'), '⑤ 连点同一个 chip，浮窗重新弹出（实际：' + JSON.stringify(again) + '）');
+  // 1.6s 后自动消失（浮窗不该常驻挡住画布）
+  await sleep(1800);
+  ok(await evaluate(cdp, `!document.querySelector('.dsh-wf-copy-toast')`), '⑤ 浮窗自动消失（约 1.6s 后）');
 
   // ⑥ 换选 fetch（web_search）→ 本节点输出变成字段级
   await evaluate(cdp, clickCardByText(' · fetch'));

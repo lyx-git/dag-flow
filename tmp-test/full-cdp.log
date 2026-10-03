@@ -1,29 +1,30 @@
 ﻿
-✓ close-btn  232ms
-✓ deselect-flash  690ms
-✓ panel-resize  290ms
-✓ minimap  260ms
-✓ versions  2932ms
-✓ picker-copy  425ms
-✓ inputs  156ms
-✓ palette-drag  640ms
-✓ run-button  650ms
-✓ inspector-switch  525ms
-✓ code-file  285ms
-✓ switch-cases  279ms
-✓ delete-button  250ms
-✓ file-save-click  256ms
-✓ line-drop-panel  4238ms
-✓ manual-confirm  1242ms
-✓ branch-labels  649ms
-✓ loop-visible  381ms
-✓ switch-many  451ms
-✓ model-select  3406ms
-✓ loop-jump  1005ms
-✓ switch-chips  8075ms
-✓ var-refs  1185ms
-✓ node-result-tip  1611ms
-✓ live-status  5135ms
-✓ view-controls  4445ms
+✓ close-btn  124ms
+✓ deselect-flash  650ms
+✓ panel-resize  274ms
+✓ minimap  262ms
+✓ versions  2961ms
+✓ picker-copy  478ms
+✓ inputs  159ms
+✓ palette-drag  670ms
+✓ run-button  669ms
+✓ inspector-switch  304ms
+✓ code-file  168ms
+✓ switch-cases  161ms
+✓ delete-button  258ms
+✓ file-save-click  150ms
+✓ line-drop-panel  4325ms
+✓ manual-confirm  1280ms
+✓ branch-labels  564ms
+✓ loop-visible  358ms
+✓ switch-many  378ms
+✓ model-select  3375ms
+✓ loop-jump  1031ms
+✗ switch-chips  
+    waitFor 超时: !!document.querySelector('.dsh-wf-fg-quick') | reqs=[]
+✓ var-refs  2892ms
+✓ node-result-tip  1504ms
+✓ live-status  5215ms
+✓ view-controls  4535ms
 
-全部 26 项通过
+25/26 通过
