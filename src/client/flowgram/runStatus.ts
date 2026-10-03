@@ -5,6 +5,8 @@
 export interface RunStatusItem {
   status: string; // success | failed | skipped | running
   durationMs?: number;
+  /** loop 节点专用（P3，2026-10-03）：本次运行实际迭代次数（取自 out.count） */
+  count?: number;
 }
 
 type RSMap = Record<string, RunStatusItem>;

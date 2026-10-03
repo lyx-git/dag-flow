@@ -103,7 +103,7 @@ export function apply(ctx: any, config?: any): void {
     const status = (r: AttachResult) => (r.registered ? 'registered' : `skipped${r.reason ? ` (${r.reason})` : ''}`);
     try {
       logger.info(
-        `[dag-flow] loaded, ${WorkflowNodeRegistry.list().length} nodes, workflow tool ${status(toolResult)}, api ${status(apiResult)}, ${driftMsg}`
+        `[dag-flow] loaded (host v20261003-model-label+err-msg+dedupe), ${WorkflowNodeRegistry.list().length} nodes, workflow tool ${status(toolResult)}, api ${status(apiResult)}, ${driftMsg}`
       );
     } catch {}
   } catch (e) {

@@ -275,5 +275,30 @@ function t(name, cond) {
   t('I5 未匹配模型明确报错（不再静默换端点）', notFound.includes('未找到模型'), notFound.slice(0, 120));
 }
 
+// ---- J：显示名字段（2026-10-03 用户要求「下拉/报错不要用模型 id，不容易分辨」）----
+{
+  const settings = {
+    'llm-pi-ai': {
+      providers: {
+        'pi-ai-disp': {
+          baseURL: 'https://j.example.com/v1',
+          models: [
+            { id: 'm-disp', name: '显示名-甲' },  // name ≠ id → 算显示名
+            { id: 'm-same', name: 'm-same' },     // name === id（本机常见写法）→ 不带头，让 UI 回退 model id
+            { id: 'm-no-name' },                  // 无 name
+          ],
+        },
+      },
+    },
+  };
+  const eps = buildLlmCandidates(settings, {});
+  const by = (id) => eps.find((e) => e.model === id);
+  t('J1 providerLabel = provider 键名（同名消歧用，比内部串 pid:model 好认）', by('m-disp')?.providerLabel === 'pi-ai-disp', String(by('m-disp')?.providerLabel));
+  t('J2 name ≠ id → modelLabel = 显示名', by('m-disp')?.modelLabel === '显示名-甲', String(by('m-disp')?.modelLabel));
+  t('J3 name === id → 不带 modelLabel（UI 回退 model id，不假装有显示名）', by('m-same')?.modelLabel === undefined, String(by('m-same')?.modelLabel));
+  t('J4 无 name → 不带 modelLabel', by('m-no-name')?.modelLabel === undefined, String(by('m-no-name')?.modelLabel));
+  t('J5 ★ 存值/路由字段不受显示名影响', by('m-disp')?.providerName === 'pi-ai-disp:m-disp' && by('m-disp')?.model === 'm-disp');
+}
+
 console.log(`\n=== llm-config: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) process.exit(1);

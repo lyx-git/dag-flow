@@ -8,7 +8,7 @@
 //   node: { id, type, position:{x,y}, data }  ↔  { id, type, meta:{position:{x,y}}, data }
 //   edge: { id, source, target, sourceHandle:'t'|'f' }  ↔  { sourceNodeID, targetNodeID, sourcePortID:'true'|'false' }
 
-import { createElement, useEffect, useMemo, useRef, useState } from 'react';
+import { createElement, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import 'reflect-metadata';
 import {
@@ -29,9 +29,14 @@ import { PlaygroundConfigEntity } from '@flowgram.ai/free-layout-editor';
 import { MinimapRender, createMinimapPlugin } from '@flowgram.ai/minimap-plugin';
 import { createFreeSnapPlugin } from '@flowgram.ai/free-snap-plugin';
 import { createFreeNodePanelPlugin, WorkflowNodePanelService, WorkflowNodePanelUtils } from '@flowgram.ai/free-node-panel-plugin';
+// 分支键显形（2026-10-03 用户需求 B）：连线上打分支标签 + true 绿/false 红。
+// free-lines-plugin 是 free-layout-editor 的传递依赖；createFreeLinesPlugin 声明了 singleton:true，
+// 而核心 loadPlugins 用 reduceRight 收集单例（列表越靠后越优先）→ 我们这份实例会取代预设里的空实例。
+import { createFreeLinesPlugin } from '@flowgram.ai/free-lines-plugin';
 import '@flowgram.ai/free-layout-editor/index.css';
 import './fg.css';
 import { NODE_PALETTE } from '../types';
+import { branchEditStore, branchKeyText, type BranchEditTarget } from './branchEdit';
 import type { RFNode, RFEdge } from '../util/flowDef';
 import { startResize8, readStoredJSON, saveJSON, readStoredWidth, clampNum, type PaletteGeom } from '../util/edge-drag';
 import { DSH_NODE_REGISTRIES } from './nodes';
@@ -211,9 +216,43 @@ export function disposeCanvasNode(id: string): boolean {
   return !!disposeNodeRef.current && disposeNodeRef.current(id);
 }
 
-/** 画布级交互控制器：坐标换算注册 + 实体坐标诊断桥 + 同步删除桥 */
-function CanvasInteractions() {
+/** 画布级交互控制器：坐标换算注册 + 实体坐标诊断桥 + 同步删除桥 + 分支键就地编辑 */
+function CanvasInteractions(props: { nodes: RFNode[]; edges: RFEdge[]; onChange: (n: RFNode[], e: RFEdge[]) => void }) {
   const ctx = useClientContext();
+
+  // ★ 分支键就地编辑（2026-10-03 修复「switch 切不回原 case + 切换很慢」）：
+  //   原实现只调 props.onChange → DefSync 整文档 fromJSON 重建；FlowGram 这层对**被替换掉的线**
+  //   回收不完整，旧线连 DOM 带标签留在画布上（实测每次编辑 +1 条幽灵线，且带着旧分支键）——
+  //   于是「看着没切过去」，线越积越多还越来越慢。现在：直接在画布上改这条线的端口
+  //   （updateInfo → rebindLinePorts + fireChange，官方拖线重连内部走的就是它），并把新 sig
+  //   标成「画布自己产生的变更」让 DefSync 跳过整文档重建。
+  editEdgeKeyRef.current = (p) => {
+    const nextNodes = props.nodes.map((n) => {
+      if (!p.addCase || !p.key || p.key === '*' || n.id !== p.source) return n;
+      const cases = { ...(((n.data as Record<string, unknown>)?.cases as Record<string, unknown>) ?? {}) };
+      cases[p.key] = p.target;
+      return { ...n, data: { ...n.data, cases } };
+    });
+    const nextEdges = props.edges.map((e) => (
+      e.source === p.source && e.target === p.target ? { ...e, sourceHandle: p.key || null } : e
+    ));
+    let applied = false;
+    try {
+      const lm: any = ctx.container.get(WorkflowLinesManager);
+      const line: any = (lm.getAllLines?.() ?? []).find((l: any) => l.from?.id === p.source && l.to?.id === p.target);
+      const node: any = line?.from;
+      // 新建 case 的端口由节点表单效应生成（可能还没落地）→ 取不到端口就退回重建路径
+      const port: any = p.key ? node?.ports?.getPortEntityByKey?.('output', p.key) : undefined;
+      if (line && (!p.key || port)) {
+        line.updateInfo((info: any) => { info.fromPort = p.key || undefined; });
+        applied = true;
+      }
+    } catch { applied = false; }
+    if (applied) lastEmittedSig.current = structSigOf(nextNodes, nextEdges); // 画布已改好 → 别重建
+    // 诊断钩子（真机/CDP 排查「改了没生效」）：记录这次编辑走了哪条路径
+    (window as any).__df_lastBranchEdit = { source: p.source, target: p.target, key: p.key, inPlace: applied, at: Date.now() };
+    props.onChange(nextNodes, nextEdges);
+  };
 
   // 注册坐标换算读取器（zoom/scroll 来自 PlaygroundConfigEntity）+ 实体坐标诊断桥 + 删除桥
   useEffect(() => {
@@ -397,6 +436,30 @@ function computeProblems(nodes: any[], edges: any[]): FlowProblem[] {
     if (n.type === 'set_var' && (!d.vars || typeof d.vars !== 'object' || Array.isArray(d.vars) || Object.keys(d.vars).length === 0)) problems.push({ level: 'error', nodeId: n.id, msg: `${n.id} 变量表（vars）为空——没有要写入的变量` });
     if (n.type === 'subflow' && !String(d.workflowName ?? '').trim()) problems.push({ level: 'error', nodeId: n.id, msg: `${n.id} 子工作流名（workflowName）为空` });
     if (n.type === 'session_input' && !String(d.sessionId ?? '').trim()) problems.push({ level: 'warn', nodeId: n.id, msg: `${n.id} 未选择会话——运行时会报「session not found」` });
+    // ★ loop 循环边界（P1，2026-10-03）：count/while/over 全缺 → 运行必然 LOOP_NO_BOUND 失败，
+    //   提前在问题面板显形（引擎优先级 over > count > while，卡片副标题同口径）
+    if (n.type === 'loop') {
+      const hasOver = Array.isArray(d.over) || (typeof d.over === 'string' && d.over.trim() !== '');
+      const hasCount = typeof d.count === 'number';
+      const hasWhile = typeof d.while === 'string' && d.while.trim() !== '';
+      if (!hasOver && !hasCount && !hasWhile) {
+        problems.push({ level: 'error', nodeId: n.id, msg: `${n.id} 循环边界缺失（count / while / over 至少配置一个）——运行时会报 LOOP_NO_BOUND` });
+      }
+    }
+  }
+  // ★ 分支线缺分支键（2026-10-03 方案 C）：执行器对「if/switch 出边没有 when」按恒激活处理——
+  //   也就是说两条分支都会跑。这是静默错误，必须在问题面板里显形（点击该问题会选中源节点）。
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  for (const e of edges) {
+    const src = byId.get(e.source) as any;
+    const t = src?.type;
+    if (t !== 'if' && t !== 'switch') continue;
+    if (e.sourceHandle) continue;
+    problems.push({
+      level: 'warn',
+      nodeId: e.source,
+      msg: `${e.source} → ${e.target} 这条分支线没设分支键——运行时会当作恒激活（所有分支都会执行）。点画布上该线中点的「未设分支」标签可设置`,
+    });
   }
   return problems;
 }
@@ -427,6 +490,161 @@ function ProblemPanel(props: { problems: FlowProblem[]; onClose: () => void; onS
 let onSelectRef: { current: ((id: string) => void) | null } = { current: null };
 let onChangeRef: { current: ((n: RFNode[], e: RFEdge[]) => void) | null } = { current: null };
 let lastEmittedSig: { current: string } = { current: '' };
+
+// ================= 分支键显形 + 就地编辑（连线标签 / 线色 / 方案 C）=================
+
+/** 分支键显示名（真/假/其他；case 值原样）——与编辑器面板同一口径 */
+function branchKeyLabel(key: string): string {
+  return branchKeyText(key);
+}
+
+/** 当前画布图（RF 视图）：标签组件要按源节点类型/cases 决定「能不能编辑 / 候选键有哪些」 */
+let graphRef: { current: { nodes: RFNode[]; edges: RFEdge[] } } = { current: { nodes: [], edges: [] } };
+/** 就地改分支键的回调桥（editorProps 只构建一次，回调由 FlowGramCanvas 每次渲染刷新） */
+export interface EdgeKeyEditPayload { source: string; target: string; key: string; addCase?: boolean }
+let editEdgeKeyRef: { current: ((p: EdgeKeyEditPayload) => void) | null } = { current: null };
+
+/** 连线中点的分支标签。挂在 free-lines-plugin 的 renderInsideLine 上：
+ *  容器 = 「该线自身包围盒 + LINE_PADDING」的绝对定位盒（LineSVG 里 left=bounds.x-PADDING），
+ *  所以 50%/50% + translate(-50%,-50%) 正好落在线中点，且随画布缩放/平移自动跟随。
+ *  - 普通线（源节点非 if/switch）返回 null，不打扰原有观感
+ *  - if/switch 的线：有分支键 → 显示标签；**没有分支键 → 琥珀色「未设分支」警示**（否则所有分支都会跑）
+ *  - 点标签就地打开编辑器（方案 C） */
+function LineBranchLabel(props: any) {
+  const line = props?.line;
+  const key = String(line?.fromPort?.portID ?? '');
+  // ★ 源/目标节点用 line.from/line.to 取——它们与端口无关；未设分支键的线可能没有 fromPort
+  //   （若用 fromPort.node.id 取，恰恰是这种最该报警的线取不到节点 → 警示永远不显示）
+  const src = String(line?.from?.id ?? line?.fromPort?.node?.id ?? '');
+  const dst = String(line?.to?.id ?? line?.toPort?.node?.id ?? '');
+  const node = graphRef.current.nodes.find((n) => n.id === src);
+  const nodeType = String(node?.type ?? '');
+  // ★ 循环标记（P3，2026-10-03 用户拍板）：loop 出边挂「循环」小标——画布上一眼看出这条线来自循环节点。
+  //   与分支标签同一挂载点（线中点），但不可点（循环没有分支键可编辑）。
+  if (nodeType === 'loop') {
+    return createElement('div', {
+      className: 'dsh-wf-fg-line-label is-loop',
+      title: '来自循环节点的连线：loop 只产出迭代序列（out.count / out.items），下游节点只执行一次——需要重复执行请把循环体写成子工作流或放进单个 python/bash 节点',
+    }, '循环');
+  }
+  const isBranchNode = nodeType === 'if' || nodeType === 'switch';
+  if (!isBranchNode) return null;
+  const openEditor = (e: any): void => {
+    e.stopPropagation();
+    e.preventDefault();
+    const cases = Object.keys(((node?.data ?? {}) as Record<string, unknown>).cases as object ?? {});
+    branchEditStore.open({
+      source: src, target: dst, current: key, nodeType, cases,
+      anchor: { x: e.clientX ?? 0, y: e.clientY ?? 0 },
+    });
+  };
+  if (!key) {
+    return createElement('div', {
+      className: 'dsh-wf-fg-line-label is-warn',
+      title: '这条线没设分支键——运行时会把它当作恒激活（if/switch 的所有分支都会执行）。点击设置',
+      onClick: openEditor,
+    }, '未设分支');
+  }
+  const cls = key === 'true' ? 'is-true' : key === 'false' ? 'is-false' : key === '*' ? 'is-case' : 'is-case';
+  return createElement('div', {
+    className: `dsh-wf-fg-line-label ${cls}`,
+    title: `分支键 ${key}（点击修改）`,
+    onClick: openEditor,
+  }, branchKeyLabel(key));
+}
+
+/** 线条配色：true 绿 / false 红（选中、悬停、运行流动时不覆盖，保留官方交互反馈色） */
+function branchLineProps(line: any, oldProps: any): any {
+  try {
+    if (oldProps?.selected || oldProps?.hovered || line?.processing || line?.flowing) return oldProps;
+    const key = String(line?.fromPort?.portID ?? '');
+    const color = key === 'true' ? '#10b981' : key === 'false' ? '#f43f5e' : null;
+    return color ? { ...oldProps, color } : oldProps;
+  } catch { return oldProps; }
+}
+
+/** 分支键就地编辑器（方案 C）：连线标签点击后在锚点处弹出，直接选/改/清空分支键。
+ *  渲染进 body（Portal）——画布层有 transform，面板内 fixed 定位会被包含块拖走。 */
+function BranchKeyEditor() {
+  const target: BranchEditTarget | null = useSyncExternalStore(
+    branchEditStore.subscribe, branchEditStore.getSnapshot, branchEditStore.getSnapshot,
+  );
+  const [custom, setCustom] = useState('');
+  useEffect(() => { setCustom(''); }, [target?.source, target?.target, target?.current]);
+  if (!target) return null;
+
+  const isIf = target.nodeType === 'if';
+  // if 只有 true/false 两个固定端口；switch 是已有 cases 键 + '*' 兜底
+  const keys = isIf ? ['true', 'false'] : [...target.cases, '*'];
+  const apply = (key: string, addCase = false): void => {
+    if (!editEdgeKeyRef.current) return;
+    editEdgeKeyRef.current({ source: target.source, target: target.target, key, addCase });
+    branchEditStore.close();
+  };
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const left = Math.max(8, Math.min(target.anchor.x, vw - 300));
+  const top = Math.max(8, Math.min(target.anchor.y + 8, vh - 220));
+
+  const btn = (key: string, label: string, addCase = false) => createElement('button', {
+    key: `k-${key}`,
+    type: 'button',
+    className: `dsh-wf-fg-bedit-key${target.current === key ? ' is-current' : ''}`,
+    onClick: () => apply(key, addCase),
+  }, label);
+
+  return createPortal(
+    createElement('div', { className: 'dsh-wf-fg-bedit-mask', onClick: () => branchEditStore.close() },
+      createElement('div', {
+        className: 'dsh-wf-fg-bedit',
+        style: { left, top },
+        onClick: (e: any) => e.stopPropagation(),
+      },
+        createElement('div', { className: 'dsh-wf-fg-bedit-title' },
+          '分支键',
+          createElement('span', { className: 'dsh-wf-fg-bedit-node' }, `${target.source} → ${target.target}`),
+          createElement('button', { className: 'dsh-wf-fg-bedit-close', title: '关闭', onClick: () => branchEditStore.close() }, '✕'),
+        ),
+        createElement('div', { className: 'dsh-wf-fg-bedit-hint' },
+          isIf
+            ? '条件分支只有 true/false 两条出口——这条线走哪一条？'
+            : '多路分支：可选已有 case，或在下面输入新 case 名（会自动写进该节点的分支表并指向本线目标）。'),
+        createElement('div', { className: 'dsh-wf-fg-bedit-keys' },
+          keys.map((k) => btn(k, k === '*' ? '* 其他' : `${branchKeyText(k)}（${k}）`)),
+          target.current || isIf ? null : btn(target.current, `当前：未设置`, false),
+        ),
+        !isIf && createElement('div', { className: 'dsh-wf-fg-bedit-custom' },
+          createElement('input', {
+            value: custom,
+            placeholder: '新 case 名（回车确认）',
+            onChange: (e: any) => setCustom(e.target.value),
+            onKeyDown: (e: any) => {
+              if (e.key === 'Enter' && custom.trim()) apply(custom.trim(), true);
+              if (e.key === 'Escape') branchEditStore.close();
+            },
+          }),
+          createElement('button', {
+            type: 'button',
+            className: 'dsh-wf-fg-bedit-add',
+            disabled: !custom.trim(),
+            onClick: () => { if (custom.trim()) apply(custom.trim(), true); },
+          }, '＋ 新建 case'),
+        ),
+        createElement('div', { className: 'dsh-wf-fg-bedit-foot' },
+          createElement('button', {
+            type: 'button',
+            className: 'dsh-wf-fg-bedit-clear',
+            title: '清空分支键（该线变回恒激活——if/switch 的所有分支都会执行）',
+            disabled: !target.current,
+            onClick: () => apply(''),
+          }, '清空分支键'),
+          createElement('span', { className: 'dsh-wf-fg-bedit-warn' }, '未设置分支键的线 = 恒激活'),
+        ),
+      ),
+    ),
+    document.body,
+  );
+}
 
 // ================= 编辑器 props =================
 
@@ -495,6 +713,8 @@ function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
       }),
       // 节点快选面板（自定义 renderer = 深空蓝主题；官方服务负责定位/创建/连线）
       createFreeNodePanelPlugin({ renderer: NodeQuickPanel }),
+      // 连线分支标签 + 分支线配色（覆盖预设里的空实例，见文件头 import 处说明）
+      createFreeLinesPlugin({ renderInsideLine: LineBranchLabel, customLineProps: branchLineProps }),
     ],
   };
 }
@@ -510,6 +730,17 @@ function DefSync(props: { nodes: RFNode[]; edges: RFEdge[] }) {
     if (sig === lastApplied.current) return;
     lastApplied.current = sig;
     try {
+      // ★ 幽灵线清理（2026-10-03）：FlowGram 的 fromJSON 对「被替换掉的线」回收不完整——
+      //   旧线实体留在 linesManager 里、DOM 也留在画布上（实测改一次分支键多一条线，
+      //   且带着旧分支键标签）。重建前把「不在目标边集合里」的现存线先 dispose 掉：
+      //   dispose 会触发线的 onDispose → 移除 DOM（free-lines-plugin 的 mountedLines 清理路径）。
+      const lm: any = ctx.container.get(WorkflowLinesManager);
+      const want = new Set(props.edges.map((e) => `${e.source}|${e.sourceHandle ?? ''}|${e.target}`));
+      for (const l of (lm.getAllLines?.() ?? [])) {
+        if (l?.isDrawing) continue;                        // 正在拖拽绘制的线别动
+        const k = `${l?.from?.id ?? ''}|${l?.fromPort?.portID ?? ''}|${l?.to?.id ?? ''}`;
+        if (!want.has(k)) { try { l.dispose(); } catch { /* 忽略 */ } }
+      }
       ctx.document.fromJSON(toFG(props.nodes, props.edges));
     } catch (e) {
       console.warn('[dag-flow] fromJSON failed:', e);
@@ -817,6 +1048,8 @@ export function Canvas(props: {
   // 回调桥：保持最新（editorProps 只构建一次）
   onChangeRef.current = props.onChange;
   onSelectRef.current = props.onSelectNode;
+  // 分支标签要按源节点类型/cases 决定候选键（标签在 FlowGram 层渲染，拿不到我们的 RF 数组）
+  graphRef.current = { nodes, edges };
 
   // 运行状态 → 外置 store（不进 document 数据）
   useEffect(() => {
@@ -843,7 +1076,7 @@ export function Canvas(props: {
       editorProps,
       createElement(DefSync, { nodes, edges }),
       createElement(EditorRenderer, { className: 'dsh-wf-fg-editor' }),
-      createElement(CanvasInteractions),
+      createElement(CanvasInteractions, { nodes, edges, onChange: props.onChange }),
       createElement(NodePalette),
       createElement(Toolbar, {
         problemCount: problems.length,
@@ -856,6 +1089,7 @@ export function Canvas(props: {
         onSelect: (id: string) => props.onSelectNode(id),
       }),
       createElement(Minimap, { rightInset: props.rightInset ?? 12 }),
+      createElement(BranchKeyEditor),
       createElement(StatusBar, {
         nodeCount: nodes.length,
         edgeCount: edges.length,

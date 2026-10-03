@@ -537,6 +537,12 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
             id: `dsh:${e.providerName ?? `model-${i}`}`,
             name: e.providerName ?? e.model,
             model: e.model,
+            // ★ 显示名（2026-10-03 用户要求「下拉显示模型显示名称，不用 id」）：
+            //   label = 宿主给的模型显示名（如 DeepSeek-V41-Flash）；宿主没给（settings 直读源）时
+            //   回退到 model id（是能认的模型名，不会退化成 llm:provider:model 这种内部串）。
+            //   name/id 字段保持原样不动（存值/执行/旧断言都不受影响），label 纯展示用。
+            label: e.modelLabel ?? e.model,
+            providerLabel: e.providerLabel ?? '',
             baseURL: e.baseURL,
             kind: 'dsh',
             input: e.input ?? ['text'],

@@ -48,9 +48,13 @@ export interface SubagentResult {
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 export class SubagentUnavailableError extends Error {
-  constructor(reason: string) {
+  /** 可选的节点级错误码：同一种病在不同路径要报同一个码（如空输出 SUBAGENT_EMPTY_OUTPUT），
+   *  否则「host 路径 vs 直连路径」会给出不同 code（2026-10-03 契约测试 E1 暴露）。 */
+  code?: string;
+  constructor(reason: string, code?: string) {
     super(`subagent unavailable: ${reason}`);
     this.name = 'SubagentUnavailableError';
+    if (code) this.code = code;
   }
 }
 
@@ -77,7 +81,7 @@ export function detectModalities(text: string): string[] {
  * 运行前模态校验：prompt 引用了图片/视频/文件，而所选模型的 input 能力不含对应模态 → 返回提示消息；通过返回 null。
  * input 未标注的模型按 dsh 语义视为仅文本（['text']）。
  */
-export function checkModelModality(endpoint: Pick<LlmEndpoint, 'input' | 'model' | 'providerName'>, prompt: string): string | null {
+export function checkModelModality(endpoint: Pick<LlmEndpoint, 'input' | 'model' | 'providerName' | 'modelLabel'>, prompt: string): string | null {
   const needed = detectModalities(prompt);
   if (needed.length === 0) return null;
   const caps = endpoint.input?.length ? endpoint.input : ['text'];
@@ -86,7 +90,9 @@ export function checkModelModality(endpoint: Pick<LlmEndpoint, 'input' | 'model'
   const label: Record<string, string> = { image: '图片', video: '视频', file: '文件' };
   const missingLabel = missing.map((m) => label[m] ?? m).join('、');
   const suggest = missing.includes('image') ? '（如 dsh:custom-model:kimi-k3 / minimax-m3）' : '';
-  return `所选模型 ${endpoint.providerName ?? endpoint.model} 不支持${missingLabel}输入（能力: ${caps.join(', ')}）——prompt 中引用了${missingLabel}文件。请换支持对应模态的模型${suggest}，或在 dsh settings.yaml 为该模型标注 input: [text, image]`;
+  // ★ 错误消息用**显示名**（2026-10-03 用户要求「不用模型id，不容易分辨」，与下拉文案同口径）：
+  //   modelLabel（宿主显示名 / settings 的 name）→ providerName → model 三级回退。
+  return `所选模型 ${endpoint.modelLabel ?? endpoint.providerName ?? endpoint.model} 不支持${missingLabel}输入（能力: ${caps.join(', ')}）——prompt 中引用了${missingLabel}文件。请换支持对应模态的模型${suggest}，或在 dsh settings.yaml 为该模型标注 input: [text, image]`;
 }
 
 function parseOpenAICompat(endpoint: LlmEndpoint): { baseURL: string; apiKey: string; model: string } {
@@ -108,7 +114,13 @@ let _structureWarned = false; // 结构异常告警每次进程只发一次（�
 
 export async function listAllEndpoints(): Promise<LlmEndpoint[]> {
   const out: LlmEndpoint[] = [];
-  const seen = new Set<string>(); // providerName 去重（host 发现优先，直读补缺）
+  // ★ 去重键 = providerName 去掉 `llm:` 前缀（2026-10-03 用户拍板「要去重」）：
+  //   host 发现的 `llm:<provider>:<model>` 与 settings 直读的 `<provider>:<model>` 是**同一批模型的两种来源**，
+  //   去重后保留 host 发现的那条（先入为主 → 它带显示名 + host 路由标记）。
+  //   ★ 注意只按「provider+model」去重，**不按 model 单独去重**：`custom-model` 与 `custom-model-vision`
+  //     是同一模型的两条不同路由（后者多「自动识图」能力），按 model 去重会把它们误删、用户会丢能力。
+  const seen = new Set<string>();
+  const dedupeKey = (name: string) => name.replace(/^llm:/, '');
   // ① host llm 服务发现（自带模型 + 已注册自定义 provider）
   try {
     const llm = hostLlmRuntime();
@@ -119,13 +131,19 @@ export async function listAllEndpoints(): Promise<LlmEndpoint[]> {
           for (const m of await llm.listModels(p.id)) {
             if (!m?.id) continue;
             const name = `llm:${p.id}:${m.id}`;
-            if (seen.has(name)) continue;
-            seen.add(name);
+            const key = dedupeKey(name);
+            if (seen.has(key)) continue;
+            seen.add(key);
             out.push({
               baseURL: '',
               apiKey: '',
               model: m.id,
               providerName: name,
+              // ★ 显示名（2026-10-03）：只给 UI 用，存值/路由仍是 providerName + model
+              modelLabel: typeof (m as { name?: unknown }).name === 'string' && (m as { name?: string }).name
+                ? (m as { name?: string }).name : undefined,
+              providerLabel: typeof (p as { name?: unknown }).name === 'string' && (p as { name?: string }).name
+                ? (p as { name?: string }).name : undefined,
               input: Array.isArray(m.inputModalities) && m.inputModalities.length > 0
                 ? (m.inputModalities.includes('text') ? [...m.inputModalities] : ['text', ...m.inputModalities])
                 : ['text'],
@@ -142,8 +160,9 @@ export async function listAllEndpoints(): Promise<LlmEndpoint[]> {
   try {
     for (const ep of buildLlmCandidates(settings, creds)) {
       const name = ep.providerName ?? `${ep.model}`;
-      if (seen.has(name)) continue;
-      seen.add(name);
+      const key = dedupeKey(name);
+      if (seen.has(key)) continue;
+      seen.add(key);
       out.push(ep);
     }
   } catch { /* 忽略 */ }
@@ -156,7 +175,7 @@ export async function listAllEndpoints(): Promise<LlmEndpoint[]> {
   }
   // ③ 环境变量兜底端点附在末尾（dsh 发现的模型优先展示；放在告警判定之后，不吞掉 0 端点告警）
   const envEp = envFallbackEndpoint();
-  if (envEp && !seen.has(envEp.providerName ?? '')) out.push(envEp);
+  if (envEp && !seen.has(dedupeKey(envEp.providerName ?? ''))) out.push(envEp);
   return out;
 }
 
@@ -294,12 +313,16 @@ async function callViaHostLlm(endpoint: LlmEndpoint, opts: SubagentOptions, onDe
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const parts: string[] = [];
+  const seen: string[] = []; // ★ 收到的 chunk 摘要（诊断用：空流时把"到底收到了什么"写进错误消息）
   try {
     const stream = llm.stream({
       provider: endpoint.hostProvider,
       model: endpoint.model,
       ...(opts.system ? { system: opts.system } : {}),
-      messages: [{ role: 'user', content: opts.prompt }],
+      // ★ content 必须是**内容块数组**（dsh-llm 的 RequestUserInput.content = readonly ContentBlock[]，
+      //   TextBlock = {type:'text',text}）。2026-10-03 前这里传的是字符串 → 宿主适配器校验失败 →
+      //   finish{kind:'error',failure} → 被旧代码当正常结束 → 空输出。这是「AI 节点成功但正文为空」的真根因。
+      messages: [{ role: 'user', content: [{ type: 'text', text: opts.prompt }] }],
       ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
       ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
       signal: ac.signal,
@@ -309,11 +332,33 @@ async function callViaHostLlm(endpoint: LlmEndpoint, opts: SubagentOptions, onDe
         parts.push(chunk.text);
         onDelta?.(chunk.text);
       } else if (chunk?.type === 'finish') {
-        // host 把适配器失败归一成 finish{reason:'error'|'aborted', error}——转成显式失败，避免静默空输出
+        // ★ host 的 finish 契约（2026-10-03 按 dsh-llm 的 FinishReasonMap 校正）：
+        //   reason = { kind:'stop' | 'tool-calls' | 'max-tokens' } 或 { kind:'error'|'aborted', failure:LlmFailure }
+        //   其中 LlmFailure = { message, code, status? }。
+        //   旧实现同时犯两个错：①按**字符串** 'error' 判 kind（实际是对象）②读不存在的 `finish.error.message`
+        //   → 任何宿主失败都被当成正常结束 → 节点 success + out=''（真机 9ms 空输出、落盘简报 AI 段全空）。
         const finish = chunk as unknown as { reason?: unknown; error?: { message?: string } };
-        if (finish.reason === 'error' && finish.error?.message) {
-          throw new SubagentUnavailableError(`host llm.stream 失败: ${finish.error.message}`);
+        const reason = finish.reason;
+        const kind = typeof reason === 'string'
+          ? reason
+          : (reason && typeof reason === 'object' ? String((reason as { kind?: unknown }).kind ?? '') : '');
+        const failure = (reason && typeof reason === 'object'
+          ? (reason as { failure?: { message?: string; code?: string; status?: number } }).failure
+          : undefined);
+        if (kind === 'error' || kind === 'aborted') {
+          const bits = [
+            failure?.code,
+            failure?.message ?? finish.error?.message,
+            failure?.status != null ? `HTTP ${failure.status}` : '',
+          ].filter(Boolean);
+          const detail = bits.length
+            ? bits.join(' / ')
+            : (typeof reason === 'string' ? '（host 没有提供错误详情）' : JSON.stringify(reason));
+          throw new SubagentUnavailableError(`host llm.stream ${kind === 'aborted' ? '被中止' : '失败'}: ${detail}`);
         }
+        seen.push(`finish:${typeof reason === 'string' ? reason : JSON.stringify(reason)}`);
+      } else if (chunk?.type) {
+        seen.push(String(chunk.type));
       }
     }
   } catch (e) {
@@ -325,7 +370,16 @@ async function callViaHostLlm(endpoint: LlmEndpoint, opts: SubagentOptions, onDe
   } finally {
     clearTimeout(timer);
   }
-  return parts.join('');
+  // ★ 空流不许当成功（2026-10-03，用户报「ai_summary 成功但正文为空」）：收集到空文本说明这轮调用
+  //   没有任何输出，过去直接 return '' → 节点 success → 下游/落盘拿到空内容。这里显式抛错。
+  const text = parts.join('');
+  if (!text.trim()) {
+    const detail = seen.length ? seen.join(',') : '（host 一个 chunk 都没产出）';
+    // eslint-disable-next-line no-console
+    console.warn(`[dag-flow] host llm.stream 空流：provider=${endpoint.hostProvider ?? '?'} model=${endpoint.model} chunks=[${detail}]`);
+    throw new SubagentUnavailableError(`host llm.stream 未返回任何文本（provider=${endpoint.hostProvider ?? '?'} model=${endpoint.model}；收到的 chunk：${detail}）——请确认该模型在 dsh 里可用，或在节点「选择模型」里换一个`, 'SUBAGENT_EMPTY_OUTPUT');
+  }
+  return text;
 }
 
 /** 业务代码调这个。内部决定走 DSH host、直连 fetch、还是抛 Unavailable。 */
@@ -488,6 +542,17 @@ export async function runSubagentNode(
       };
     }
     const r = await callSubagent(params);
+    // ★ 空输出兜底（2026-10-03）：任何调用路径拿到空文本都不许报成功——否则下游静默拿到空数据
+    //   （演示工作流落盘简报的「AI 简报正文」段就是全空）。code=SUBAGENT_EMPTY_OUTPUT。
+    if (!String(r.text ?? '').trim()) {
+      return {
+        status: 'failed',
+        error: { code: 'SUBAGENT_EMPTY_OUTPUT', message: 'AI 节点返回空内容（模型没有输出）——已不再按成功处理；请换一个可用模型，或检查 prompt/上游数据是否为空' },
+        durationMs: Date.now() - t0,
+        startedAt,
+        endedAt: new Date().toISOString(),
+      };
+    }
     return {
       status: 'success',
       out: r.text,
@@ -498,7 +563,8 @@ export async function runSubagentNode(
   } catch (e) {
     return {
       status: 'failed',
-      error: { code: 'SUBAGENT_UNAVAILABLE', message: (e as Error).message },
+      // 带 code 的用带过来的（如空输出的 SUBAGENT_EMPTY_OUTPUT），其余归 SUBAGENT_UNAVAILABLE
+      error: { code: (e as SubagentUnavailableError).code ?? 'SUBAGENT_UNAVAILABLE', message: (e as Error).message },
       durationMs: Date.now() - t0,
       startedAt,
       endedAt: new Date().toISOString(),

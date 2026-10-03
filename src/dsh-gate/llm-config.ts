@@ -32,6 +32,12 @@ export interface LlmEndpoint {
   viaHost?: boolean;
   /** host llm 注册的 provider 路由名（viaHost=true 时供 GenerateOptions.provider 用） */
   hostProvider?: string;
+  /** ★ 模型显示名（2026-10-03 用户要求「下拉显示模型显示名称，不用 id」）：
+   *  host llm listModels 的 `name`（如 deepseek-flash → DeepSeek-V41-Flash）。
+   *  仅供 UI 展示；**存值/执行一律仍用 model id**，本字段不参与路由。 */
+  modelLabel?: string;
+  /** ★ provider 显示名（host llm listProviders 的 `name`，如 DeepSeek）：仅用于同名模型消歧展示 */
+  providerLabel?: string;
 }
 
 // ==================== dsh 配置 schema 键名 ====================
@@ -141,8 +147,15 @@ export function buildLlmCandidates(settings: Record<string, unknown>, creds: Rec
     for (const m of models) {
       const modelId = (m as { id?: string; name?: string })?.id ?? (m as { name?: string })?.name;
       if (modelId) {
+        // ★ 显示名（2026-10-03）：settings 的 `models[].name` 只有与 id **不同**时才算显示名；
+        //   本机常见写法是 `- id: x` 紧跟 `name: x`（两者相同）→ 不带 modelLabel，让 UI 回退 model id。
+        const rawName = (m as { name?: unknown })?.name;
+        const modelLabel = typeof rawName === 'string' && rawName && rawName !== modelId ? rawName : undefined;
         candidates.push({
           baseURL, apiKey, model: modelId, providerName: `${pid}:${modelId}`, input: readInput(m),
+          // providerLabel = provider 键名：同名模型消歧时显示它（比内部串 `pid:model` 好认）
+          providerLabel: pid,
+          ...(modelLabel ? { modelLabel } : {}),
           ...(needsHost ? { viaHost: true, hostProvider: pid } : {}),
         });
       }
@@ -157,6 +170,7 @@ export function buildLlmCandidates(settings: Record<string, unknown>, creds: Rec
       apiKey: keyFor(credRefs, 'DEEPSEEK_API_KEY') || keyFor(credRefs, 'ARK_CODE_LATEST_API_KEY'),
       model: adm.model ?? 'deepseek-chat',
       providerName: 'llm-deepseek',
+      providerLabel: 'llm-deepseek',
       input: ['text'],
     });
   }

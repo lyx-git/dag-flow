@@ -1146,7 +1146,7 @@
             var dispatcher = resolveDispatcher();
             return dispatcher.useId();
           }
-          function useSyncExternalStore2(subscribe, getSnapshot, getServerSnapshot) {
+          function useSyncExternalStore3(subscribe, getSnapshot, getServerSnapshot) {
             var dispatcher = resolveDispatcher();
             return dispatcher.useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
           }
@@ -1896,7 +1896,7 @@
           exports3.useReducer = useReducer;
           exports3.useRef = useRef9;
           exports3.useState = useState14;
-          exports3.useSyncExternalStore = useSyncExternalStore2;
+          exports3.useSyncExternalStore = useSyncExternalStore3;
           exports3.useTransition = useTransition;
           exports3.version = ReactVersion;
           if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ !== "undefined" && typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.registerInternalModuleStop === "function") {
@@ -8068,12 +8068,12 @@
                 }
               }
             }
-            var listeners2 = accumulateTwoPhaseListeners(targetInst, eventType);
-            if (listeners2.length > 0) {
+            var listeners3 = accumulateTwoPhaseListeners(targetInst, eventType);
+            if (listeners3.length > 0) {
               var event = new SyntheticCompositionEvent(eventType, domEventName, null, nativeEvent, nativeEventTarget);
               dispatchQueue.push({
                 event,
-                listeners: listeners2
+                listeners: listeners3
               });
               if (fallbackData) {
                 event.data = fallbackData;
@@ -8144,12 +8144,12 @@
             if (!chars) {
               return null;
             }
-            var listeners2 = accumulateTwoPhaseListeners(targetInst, "onBeforeInput");
-            if (listeners2.length > 0) {
+            var listeners3 = accumulateTwoPhaseListeners(targetInst, "onBeforeInput");
+            if (listeners3.length > 0) {
               var event = new SyntheticInputEvent("onBeforeInput", "beforeinput", null, nativeEvent, nativeEventTarget);
               dispatchQueue.push({
                 event,
-                listeners: listeners2
+                listeners: listeners3
               });
               event.data = chars;
             }
@@ -8203,12 +8203,12 @@
           }
           function createAndAccumulateChangeEvent(dispatchQueue, inst, nativeEvent, target) {
             enqueueStateRestore(target);
-            var listeners2 = accumulateTwoPhaseListeners(inst, "onChange");
-            if (listeners2.length > 0) {
+            var listeners3 = accumulateTwoPhaseListeners(inst, "onChange");
+            if (listeners3.length > 0) {
               var event = new SyntheticEvent("onChange", "change", null, nativeEvent, target);
               dispatchQueue.push({
                 event,
-                listeners: listeners2
+                listeners: listeners3
               });
             }
           }
@@ -8706,12 +8706,12 @@
             var currentSelection = getSelection$1(activeElement$1);
             if (!lastSelection || !shallowEqual8(lastSelection, currentSelection)) {
               lastSelection = currentSelection;
-              var listeners2 = accumulateTwoPhaseListeners(activeElementInst$1, "onSelect");
-              if (listeners2.length > 0) {
+              var listeners3 = accumulateTwoPhaseListeners(activeElementInst$1, "onSelect");
+              if (listeners3.length > 0) {
                 var event = new SyntheticEvent("onSelect", "select", null, nativeEvent, nativeEventTarget);
                 dispatchQueue.push({
                   event,
-                  listeners: listeners2
+                  listeners: listeners3
                 });
                 event.target = activeElement$1;
               }
@@ -8985,8 +8985,8 @@
           function processDispatchQueue(dispatchQueue, eventSystemFlags) {
             var inCapturePhase = (eventSystemFlags & IS_CAPTURE_PHASE) !== 0;
             for (var i3 = 0; i3 < dispatchQueue.length; i3++) {
-              var _dispatchQueue$i = dispatchQueue[i3], event = _dispatchQueue$i.event, listeners2 = _dispatchQueue$i.listeners;
-              processDispatchQueueItemsInOrder(event, listeners2, inCapturePhase);
+              var _dispatchQueue$i = dispatchQueue[i3], event = _dispatchQueue$i.event, listeners3 = _dispatchQueue$i.listeners;
+              processDispatchQueueItemsInOrder(event, listeners3, inCapturePhase);
             }
             rethrowCaughtError();
           }
@@ -9130,7 +9130,7 @@
           function accumulateSinglePhaseListeners(targetFiber, reactName, nativeEventType, inCapturePhase, accumulateTargetOnly, nativeEvent) {
             var captureName = reactName !== null ? reactName + "Capture" : null;
             var reactEventName = inCapturePhase ? captureName : reactName;
-            var listeners2 = [];
+            var listeners3 = [];
             var instance = targetFiber;
             var lastHostComponent = null;
             while (instance !== null) {
@@ -9140,7 +9140,7 @@
                 if (reactEventName !== null) {
                   var listener = getListener(instance, reactEventName);
                   if (listener != null) {
-                    listeners2.push(createDispatchListener(instance, listener, lastHostComponent));
+                    listeners3.push(createDispatchListener(instance, listener, lastHostComponent));
                   }
                 }
               }
@@ -9149,11 +9149,11 @@
               }
               instance = instance.return;
             }
-            return listeners2;
+            return listeners3;
           }
           function accumulateTwoPhaseListeners(targetFiber, reactName) {
             var captureName = reactName + "Capture";
-            var listeners2 = [];
+            var listeners3 = [];
             var instance = targetFiber;
             while (instance !== null) {
               var _instance3 = instance, stateNode = _instance3.stateNode, tag = _instance3.tag;
@@ -9161,16 +9161,16 @@
                 var currentTarget = stateNode;
                 var captureListener = getListener(instance, captureName);
                 if (captureListener != null) {
-                  listeners2.unshift(createDispatchListener(instance, captureListener, currentTarget));
+                  listeners3.unshift(createDispatchListener(instance, captureListener, currentTarget));
                 }
                 var bubbleListener = getListener(instance, reactName);
                 if (bubbleListener != null) {
-                  listeners2.push(createDispatchListener(instance, bubbleListener, currentTarget));
+                  listeners3.push(createDispatchListener(instance, bubbleListener, currentTarget));
                 }
               }
               instance = instance.return;
             }
-            return listeners2;
+            return listeners3;
           }
           function getParent(inst) {
             if (inst === null) {
@@ -9215,7 +9215,7 @@
           }
           function accumulateEnterLeaveListenersForEvent(dispatchQueue, event, target, common, inCapturePhase) {
             var registrationName = event._reactName;
-            var listeners2 = [];
+            var listeners3 = [];
             var instance = target;
             while (instance !== null) {
               if (instance === common) {
@@ -9230,21 +9230,21 @@
                 if (inCapturePhase) {
                   var captureListener = getListener(instance, registrationName);
                   if (captureListener != null) {
-                    listeners2.unshift(createDispatchListener(instance, captureListener, currentTarget));
+                    listeners3.unshift(createDispatchListener(instance, captureListener, currentTarget));
                   }
                 } else if (!inCapturePhase) {
                   var bubbleListener = getListener(instance, registrationName);
                   if (bubbleListener != null) {
-                    listeners2.push(createDispatchListener(instance, bubbleListener, currentTarget));
+                    listeners3.push(createDispatchListener(instance, bubbleListener, currentTarget));
                   }
                 }
               }
               instance = instance.return;
             }
-            if (listeners2.length !== 0) {
+            if (listeners3.length !== 0) {
               dispatchQueue.push({
                 event,
-                listeners: listeners2
+                listeners: listeners3
               });
             }
           }
@@ -34196,10 +34196,10 @@
         }
         return [E4.schemaPath, schPath];
       }
-      function extraErrorProps(cxt, { params, message }, keyValues) {
+      function extraErrorProps(cxt, { params: params2, message }, keyValues) {
         const { keyword, data, schemaValue, it: it3 } = cxt;
         const { opts, propertyName, topSchemaRef, schemaPath } = it3;
-        keyValues.push([E4.keyword, keyword], [E4.params, typeof params == "function" ? params(cxt) : params || (0, codegen_1._)`{}`]);
+        keyValues.push([E4.keyword, keyword], [E4.params, typeof params2 == "function" ? params2(cxt) : params2 || (0, codegen_1._)`{}`]);
         if (opts.messages) {
           keyValues.push([E4.message, typeof message == "function" ? message(cxt) : message]);
         }
@@ -38682,7 +38682,7 @@
       var util_1 = require_util();
       var error = {
         message: "property name must be valid",
-        params: ({ params }) => (0, codegen_1._)`{propertyName: ${params.propertyName}}`
+        params: ({ params: params2 }) => (0, codegen_1._)`{propertyName: ${params2.propertyName}}`
       };
       var def = {
         keyword: "propertyNames",
@@ -38727,7 +38727,7 @@
       var util_1 = require_util();
       var error = {
         message: "must NOT have additional properties",
-        params: ({ params }) => (0, codegen_1._)`{additionalProperty: ${params.additionalProperty}}`
+        params: ({ params: params2 }) => (0, codegen_1._)`{additionalProperty: ${params2.additionalProperty}}`
       };
       var def = {
         keyword: "additionalProperties",
@@ -39011,7 +39011,7 @@
       var util_1 = require_util();
       var error = {
         message: "must match exactly one schema in oneOf",
-        params: ({ params }) => (0, codegen_1._)`{passingSchemas: ${params.passing}}`
+        params: ({ params: params2 }) => (0, codegen_1._)`{passingSchemas: ${params2.passing}}`
       };
       var def = {
         keyword: "oneOf",
@@ -39095,8 +39095,8 @@
       var codegen_1 = require_codegen();
       var util_1 = require_util();
       var error = {
-        message: ({ params }) => (0, codegen_1.str)`must match "${params.ifClause}" schema`,
-        params: ({ params }) => (0, codegen_1._)`{failingKeyword: ${params.ifClause}}`
+        message: ({ params: params2 }) => (0, codegen_1.str)`must match "${params2.ifClause}" schema`,
+        params: ({ params: params2 }) => (0, codegen_1._)`{failingKeyword: ${params2.ifClause}}`
       };
       var def = {
         keyword: "if",
@@ -51525,16 +51525,16 @@ This message will only show in development mode. It won't appear in production. 
       this._gestureKey = gestureKey;
     }
     add(element, device, action, handler, options) {
-      const listeners2 = this._listeners;
+      const listeners3 = this._listeners;
       const type = toDomEventType(device, action);
       const _options = this._gestureKey ? this._ctrl.config[this._gestureKey].eventOptions : {};
       const eventOptions = { ..._options, ...options };
       element.addEventListener(type, handler, eventOptions);
       const remove2 = () => {
         element.removeEventListener(type, handler, eventOptions);
-        listeners2.delete(remove2);
+        listeners3.delete(remove2);
       };
-      listeners2.add(remove2);
+      listeners3.add(remove2);
       return remove2;
     }
     clean() {
@@ -51875,9 +51875,9 @@ Please add \`${key}Action\` when creating your handler.`
         })
       );
     }
-    handlePinch(params) {
-      const { first, last: last3, originX, originY, newScale } = params;
-      if (Number.isNaN(params.newScale)) {
+    handlePinch(params2) {
+      const { first, last: last3, originX, originY, newScale } = params2;
+      if (Number.isNaN(params2.newScale)) {
         return;
       }
       if (first) {
@@ -68441,7 +68441,7 @@ Please add \`${key}Action\` when creating your handler.`
       var activeTask = null;
       var lastValue = null;
       var lastTime = null;
-      var emit2 = function() {
+      var emit3 = function() {
         if (activeTask) {
           activeTask.unsubscribe();
           activeTask = null;
@@ -68458,7 +68458,7 @@ Please add \`${key}Action\` when creating your handler.`
           subscriber.add(activeTask);
           return;
         }
-        emit2();
+        emit3();
       }
       source.subscribe(createOperatorSubscriber(subscriber, function(value) {
         lastValue = value;
@@ -68468,7 +68468,7 @@ Please add \`${key}Action\` when creating your handler.`
           subscriber.add(activeTask);
         }
       }, function() {
-        emit2();
+        emit3();
         subscriber.complete();
       }, void 0, function() {
         lastValue = activeTask = null;
@@ -69448,7 +69448,7 @@ Please add \`${key}Action\` when creating your handler.`
     customStrongEqual(targetTypeJSON) {
       const targetProperties = targetTypeJSON.properties || [];
       const sourcePropertyKeys = Array.from(this.propertyTable.keys());
-      const targetPropertyKeys = targetProperties.map((_target) => _target.key);
+      const targetPropertyKeys = targetProperties.map((_target2) => _target2.key);
       const isKeyStrongEqual = !xor_default(sourcePropertyKeys, targetPropertyKeys).length;
       return isKeyStrongEqual && targetProperties.every((targetProperty) => {
         const sourceProperty = this.propertyTable.get(targetProperty.key);
@@ -69507,8 +69507,8 @@ Please add \`${key}Action\` when creating your handler.`
     return res;
   }
   var BaseExpression = class extends ASTNode {
-    constructor(params, opts) {
-      super(params, opts);
+    constructor(params2, opts) {
+      super(params2, opts);
       this.flags = 4;
       this._refs = [];
       this.refreshRefs$ = new Subject();
@@ -69623,8 +69623,8 @@ Please add \`${key}Action\` when creating your handler.`
     return intersection_default(Array.from(visited), getParentFields(curr)).length > 0;
   }
   var KeyPathExpression = class extends BaseExpression {
-    constructor(params, opts) {
-      super(params, opts);
+    constructor(params2, opts) {
+      super(params2, opts);
       this._keyPath = [];
       this.toDispose.pushAll([
         // Can be used when the variable list changes (when there are additions or deletions).
@@ -69717,8 +69717,8 @@ Please add \`${key}Action\` when creating your handler.`
   };
   KeyPathExpression.kind = "KeyPathExpression";
   var LegacyKeyPathExpression = class extends BaseExpression {
-    constructor(params, opts) {
-      super(params, opts);
+    constructor(params2, opts) {
+      super(params2, opts);
       this._keyPath = [];
       this.toDispose.pushAll([
         // Can be used when the variable list changes (when there are additions or deletions).
@@ -69963,8 +69963,8 @@ Please add \`${key}Action\` when creating your handler.`
     }
   };
   var VariableDeclaration = class extends BaseVariableField {
-    constructor(params) {
-      super(params);
+    constructor(params2) {
+      super(params2);
       this._order = 0;
     }
     /**
@@ -73840,11 +73840,11 @@ Please add \`${key}Action\` when creating your handler.`
     /**
      * 判断是否可以放置节点
      */
-    canDropToNode(params) {
+    canDropToNode(params2) {
       const { canDropToNode } = this.document.options;
-      const { dragNodeType, dropNode } = params;
+      const { dragNodeType, dropNode } = params2;
       if (canDropToNode) {
-        const result = canDropToNode(params);
+        const result = canDropToNode(params2);
         if (result) {
           return {
             allowDrop: true,
@@ -73869,8 +73869,8 @@ Please add \`${key}Action\` when creating your handler.`
     /**
      * 获取拖拽偏移
      */
-    getDragPosOffset(params) {
-      const { event, selectedNodes, startPosition } = params;
+    getDragPosOffset(params2) {
+      const { event, selectedNodes, startPosition } = params2;
       const { finalScale } = this.playgroundConfig;
       const mouseOffset = {
         x: (event.endPos.x - event.startPos.x) / finalScale,
@@ -80459,17 +80459,17 @@ Please add \`${key}Action\` when creating your handler.`
     get edges() {
       return Array.from(this.store.edges.values());
     }
-    create(params, options) {
-      this.container = params.container;
-      this.store = this.createStore(params);
+    create(params2, options) {
+      this.container = params2.container;
+      this.store = this.createStore(params2);
       this.indexMap = this.createIndexMap();
       this.setOptions(options);
       this.init = true;
     }
     /** 创建布局数据 */
-    createStore(params) {
-      const { layoutNodes, layoutEdges } = params;
-      const virtualEdges = this.createVirtualEdges(params);
+    createStore(params2) {
+      const { layoutNodes, layoutEdges } = params2;
+      const virtualEdges = this.createVirtualEdges(params2);
       const store = {
         nodes: /* @__PURE__ */ new Map(),
         edges: /* @__PURE__ */ new Map()
@@ -80479,8 +80479,8 @@ Please add \`${key}Action\` when creating your handler.`
       return store;
     }
     /** 创建虚拟线条数据 */
-    createVirtualEdges(params) {
-      const { layoutNodes, layoutEdges } = params;
+    createVirtualEdges(params2) {
+      const { layoutNodes, layoutEdges } = params2;
       const nodes = layoutNodes.map((layoutNode) => layoutNode.entity);
       const edges = layoutEdges.map((layoutEdge) => layoutEdge.entity);
       const groupNodes = nodes.filter((n2) => n2.flowNodeType === FlowNodeBaseType.GROUP);
@@ -80662,8 +80662,8 @@ Please add \`${key}Action\` when creating your handler.`
         });
       });
     }
-    updateNodePosition(params) {
-      const { layoutNode, step } = params;
+    updateNodePosition(params2) {
+      const { layoutNode, step } = params2;
       const { transform } = layoutNode.entity.transform;
       const centerToTopEdgeOffset = (layoutNode.size.height - layoutNode.padding.top - layoutNode.padding.bottom) / 2;
       const layoutPosition = {
@@ -80880,8 +80880,8 @@ Please add \`${key}Action\` when creating your handler.`
       this._layout = new DagreLayout(this._store);
       this._position = new LayoutPosition(this._store);
     }
-    init(params, options) {
-      this._store.create(params, options);
+    init(params2, options) {
+      this._store.create(params2, options);
     }
     layout() {
       if (!this._store.initialized) {
@@ -81078,9 +81078,9 @@ Please add \`${key}Action\` when creating your handler.`
     return result;
   };
   var StackingComputing = class {
-    compute(params) {
+    compute(params2) {
       this.clearCache();
-      const { root: root2, nodes, context: context2 } = params;
+      const { root: root2, nodes, context: context2 } = params2;
       this.context = context2;
       this.nodeIndexes = this.computeNodeIndexesMap(nodes);
       this.selectedNodeParentSet = this.computeSelectedNodeParentSet(nodes);
@@ -84676,8 +84676,8 @@ Example:
     get center() {
       return this.data?.center;
     }
-    update(params) {
-      this.data = this.calcBezier(params.fromPos, params.toPos);
+    update(params2) {
+      this.data = this.calcBezier(params2.fromPos, params2.toPos);
     }
     calcBezier(fromPos, toPos) {
       const { controls, center } = getBezierControlPoints(
@@ -84710,14 +84710,14 @@ Example:
       };
       return this.data;
     }
-    getPath(params) {
-      const { bbox } = params;
-      const fromPos = toRelative(params.fromPos, bbox);
-      const toPos = toRelative(params.toPos, bbox);
-      const controls = params.controls.map((c4) => toRelative(c4, bbox));
+    getPath(params2) {
+      const { bbox } = params2;
+      const fromPos = toRelative(params2.fromPos, bbox);
+      const toPos = toRelative(params2.toPos, bbox);
+      const controls = params2.controls.map((c4) => toRelative(c4, bbox));
       const shrink = this.entity.uiState.shrink;
-      const renderFromPos = posWithShrink(fromPos, params.fromPos.location, shrink);
-      const renderToPos = posWithShrink(toPos, params.toPos.location, shrink);
+      const renderFromPos = posWithShrink(fromPos, params2.fromPos.location, shrink);
+      const renderToPos = posWithShrink(toPos, params2.toPos.location, shrink);
       const controlPoints = controls.map((s3) => `${s3.x} ${s3.y}`).join(",");
       return `M${renderFromPos.x} ${renderFromPos.y} C ${controlPoints}, ${renderToPos.x} ${renderToPos.y}`;
     }
@@ -84956,8 +84956,8 @@ Example:
     get center() {
       return this.data?.center;
     }
-    update(params) {
-      const { fromPos, toPos } = params;
+    update(params2) {
+      const { fromPos, toPos } = params2;
       const shrink = this.entity.uiState.shrink;
       const source = posWithShrink(fromPos, fromPos.location, shrink);
       const target = posWithShrink(toPos, toPos.location, shrink);
@@ -85028,8 +85028,8 @@ Example:
     get center() {
       return this.data?.center;
     }
-    update(params) {
-      const { fromPos, toPos } = params;
+    update(params2) {
+      const { fromPos, toPos } = params2;
       const shrink = this.entity.uiState.shrink;
       const source = posWithShrink(fromPos, fromPos.location, shrink);
       const target = posWithShrink(toPos, toPos.location, shrink);
@@ -85406,8 +85406,8 @@ Example:
         y: transform.position.y
       };
     }
-    createResetFn(params) {
-      const { nodes, startPositions } = params;
+    createResetFn(params2) {
+      const { nodes, startPositions } = params2;
       return () => {
         nodes.forEach((node2, index2) => {
           const transform = node2.getData(TransformData);
@@ -85418,8 +85418,8 @@ Example:
         });
       };
     }
-    updateHistory(params) {
-      const { nodes, startPositions: oldValue, endPositions: value } = params;
+    updateHistory(params2) {
+      const { nodes, startPositions: oldValue, endPositions: value } = params2;
       const ids = nodes.map((node2) => node2.id);
       this.historyService?.pushOperation(
         {
@@ -85963,25 +85963,25 @@ Example:
   var MinimapDraw;
   ((MinimapDraw2) => {
     const isRectValid = (rect) => rect.width > 0 && rect.height > 0;
-    MinimapDraw2.clear = (params) => {
-      const { canvas, context: context2 } = params;
+    MinimapDraw2.clear = (params2) => {
+      const { canvas, context: context2 } = params2;
       context2.clearRect(0, 0, canvas.width, canvas.height);
     };
-    MinimapDraw2.backgroundColor = (params) => {
-      const { canvas, context: context2, color } = params;
+    MinimapDraw2.backgroundColor = (params2) => {
+      const { canvas, context: context2, color } = params2;
       context2.fillStyle = color;
       context2.fillRect(0, 0, canvas.width, canvas.height);
     };
-    MinimapDraw2.rectangle = (params) => {
-      const { context: context2, rect, color } = params;
+    MinimapDraw2.rectangle = (params2) => {
+      const { context: context2, rect, color } = params2;
       if (!isRectValid(rect)) {
         return;
       }
       context2.fillStyle = color;
       context2.fillRect(rect.x, rect.y, rect.width, rect.height);
     };
-    MinimapDraw2.roundRectangle = (params) => {
-      const { context: context2, rect, color, radius, borderColor, borderDashLength, borderWidth = 0 } = params;
+    MinimapDraw2.roundRectangle = (params2) => {
+      const { context: context2, rect, color, radius, borderColor, borderDashLength, borderWidth = 0 } = params2;
       const { x: x4, y: y3, width: width2, height } = rect;
       if (!isRectValid(rect)) {
         return;
@@ -86014,8 +86014,8 @@ Example:
         context2.setLineDash([]);
       }
     };
-    MinimapDraw2.overlay = (params) => {
-      const { canvas, context: context2, offset, scale, rect, color } = params;
+    MinimapDraw2.overlay = (params2) => {
+      const { canvas, context: context2, offset, scale, rect, color } = params2;
       if (!isRectValid(rect)) {
         return;
       }
@@ -86292,8 +86292,8 @@ Example:
         color: this.style.overlayColor
       });
     }
-    calculateScaleAndOffset(params) {
-      const { canvasRect } = params;
+    calculateScaleAndOffset(params2) {
+      const { canvasRect } = params2;
       const { width: canvasWidth, height: canvasHeight } = this.canvas;
       const scaleX = canvasWidth / canvasRect.width;
       const scaleY = canvasHeight / canvasRect.height;
@@ -86330,8 +86330,8 @@ Example:
       return new Rectangle(scrollX / zoom, scrollY / zoom, width2 / zoom, height / zoom);
     }
     /** 计算画布坐标系下的矩形 */
-    rectOnCanvas(params) {
-      const { rect, scale, offset } = params;
+    rectOnCanvas(params2) {
+      const { rect, scale, offset } = params2;
       return new Rectangle(
         (rect.x + offset.x) * scale,
         (rect.y + offset.y) * scale,
@@ -86339,8 +86339,8 @@ Example:
         rect.height * scale
       );
     }
-    isPointInRect(params) {
-      const { point, rect } = params;
+    isPointInRect(params2) {
+      const { point, rect } = params2;
       return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
     }
     addEventListeners() {
@@ -86565,10 +86565,10 @@ Example:
       this.onSnap = this.snapEmitter.event;
       this._disabled = false;
     }
-    init(params = {}) {
+    init(params2 = {}) {
       this.options = {
         ...SnapDefaultOptions,
-        ...params
+        ...params2
       };
       this.mountListener();
     }
@@ -86593,8 +86593,8 @@ Example:
       this.clear();
     }
     mountListener() {
-      const dragAdjusterDisposer = this.dragService.registerPosAdjuster((params) => {
-        const { selectedNodes: targetNodes, position: position3 } = params;
+      const dragAdjusterDisposer = this.dragService.registerPosAdjuster((params2) => {
+        const { selectedNodes: targetNodes, position: position3 } = params2;
         const isMultiSnapping = this.options.enableMultiSnapping ? false : targetNodes.length !== 1;
         if (this._disabled || !this.options.enableEdgeSnapping || isMultiSnapping) {
           return {
@@ -86623,8 +86623,8 @@ Example:
       });
       this.disposers.push(dragAdjusterDisposer, dragEndDisposer);
     }
-    snapping(params) {
-      const { targetNodes, position: position3 } = params;
+    snapping(params2) {
+      const { targetNodes, position: position3 } = params2;
       const targetBounds = this.getBounds(targetNodes);
       const targetRect = new Rectangle(
         position3.x,
@@ -86664,8 +86664,8 @@ Example:
       });
       return offset;
     }
-    calcSnapOffset(params) {
-      const { snapNodeRects, edgeThreshold, targetRect } = params;
+    calcSnapOffset(params2) {
+      const { snapNodeRects, edgeThreshold, targetRect } = params2;
       const snapLines = this.getSnapLines({
         snapNodeRects
       });
@@ -86711,8 +86711,8 @@ Example:
       };
       return { snapOffset, snapEdgeLines };
     }
-    gridSnapping(params) {
-      const { gridSize, targetNodes } = params;
+    gridSnapping(params2) {
+      const { gridSize, targetNodes } = params2;
       const rect = this.getBounds(targetNodes);
       const snap = (value) => Math.round(value / gridSize) * gridSize;
       const snappedPosition = {
@@ -86743,8 +86743,8 @@ Example:
         alignSpacing: {}
       });
     }
-    getSnapLines(params) {
-      const { snapNodeRects } = params;
+    getSnapLines(params2) {
+      const { snapNodeRects } = params2;
       const horizontalLines = [];
       const verticalLines = [];
       const midHorizontalLines = [];
@@ -86788,8 +86788,8 @@ Example:
         midVertical: midVerticalLines
       };
     }
-    getAvailableNodes(params) {
-      const { targetNodes, targetRect } = params;
+    getAvailableNodes(params2) {
+      const { targetNodes, targetRect } = params2;
       const targetCenter = targetRect.center;
       const targetContainerId = targetNodes[0].parent?.id ?? this.document.root.id;
       const disabledNodeIds = targetNodes.map((n2) => n2.id);
@@ -86807,8 +86807,8 @@ Example:
       const { width: width2, height, scrollX, scrollY, zoom } = this.playgroundConfig.config;
       return new Rectangle(scrollX / zoom, scrollY / zoom, width2 / zoom, height / zoom);
     }
-    getSnapNodeRects(params) {
-      const availableNodes = this.getAvailableNodes(params);
+    getSnapNodeRects(params2) {
+      const availableNodes = this.getAvailableNodes(params2);
       const viewRect = this.viewRect();
       return availableNodes.map((node2) => {
         const snapNodeRect = {
@@ -86831,8 +86831,8 @@ Example:
       }
       return Rectangle.enlarge(nodes.map((n2) => n2.getData(FlowNodeTransformData).bounds));
     }
-    updateNodePositionWithOffset(params) {
-      const { node: node2, offset } = params;
+    updateNodePositionWithOffset(params2) {
+      const { node: node2, offset } = params2;
       const transform = node2.getData(TransformData);
       const positionWithOffset = {
         x: transform.position.x + offset.x,
@@ -86843,8 +86843,8 @@ Example:
       });
       this.document.layout.updateAffectedTransform(node2);
     }
-    calcAlignOffset(params) {
-      const { snapNodeRects, targetRect, alignThreshold } = params;
+    calcAlignOffset(params2) {
+      const { snapNodeRects, targetRect, alignThreshold } = params2;
       const alignRects = this.getAlignRects({
         targetRect,
         snapNodeRects
@@ -86932,8 +86932,8 @@ Example:
       };
       return { alignOffset, alignRects, alignSpacing };
     }
-    calcAlignSpacing(params) {
-      const { targetRect, alignRects } = params;
+    calcAlignSpacing(params2) {
+      const { targetRect, alignRects } = params2;
       const topSpacing = this.getDirectionAlignSpacing({
         rects: alignRects.top,
         isHorizontal: false
@@ -86971,8 +86971,8 @@ Example:
         midVertical: midVerticalSpacing
       };
     }
-    getAlignRects(params) {
-      const { targetRect, snapNodeRects } = params;
+    getAlignRects(params2) {
+      const { targetRect, snapNodeRects } = params2;
       const topVerticalRects = [];
       const bottomVerticalRects = [];
       const leftHorizontalRects = [];
@@ -87015,8 +87015,8 @@ Example:
         right: rightHorizontalRects
       };
     }
-    getMidAlignSpacing(params) {
-      const { rectA, rectB, targetRect, isHorizontal } = params;
+    getMidAlignSpacing(params2) {
+      const { rectA, rectB, targetRect, isHorizontal } = params2;
       if (!rectA || !rectB) {
         return;
       }
@@ -87041,8 +87041,8 @@ Example:
         return (betweenSpacing - targetRect.height) / 2;
       }
     }
-    getDirectionAlignSpacing(params) {
-      const { rects, isHorizontal } = params;
+    getDirectionAlignSpacing(params2) {
+      const { rects, isHorizontal } = params2;
       if (rects.length < 2) {
         return;
       }
@@ -87403,8 +87403,8 @@ Example:
       edgeLines.push(...snappedEdgeLines);
       return edgeLines;
     }
-    directionFullAlign(params) {
-      const { alignRects, targetRect, isVertical } = params;
+    directionFullAlign(params2) {
+      const { alignRects, targetRect, isVertical } = params2;
       let fullAlignIndex = -1;
       for (let i3 = 0; i3 < alignRects.length; i3++) {
         const alignRect = alignRects[i3];
@@ -87453,8 +87453,8 @@ Example:
       });
       return [...topAlignLines, ...bottomAlignLines, ...leftAlignLines, ...rightAlignLines];
     }
-    calcDirectionAlignLines(params) {
-      const { alignRects, targetRect, isVertical, spacing } = params;
+    calcDirectionAlignLines(params2) {
+      const { alignRects, targetRect, isVertical, spacing } = params2;
       const alignLines = [];
       if (!spacing) {
         return alignLines;
@@ -87559,7 +87559,7 @@ Example:
     const box = node2.getData(FlowNodeTransformData).bounds;
     return box;
   };
-  var updateSubSequentNodesPosition = (params) => {
+  var updateSubSequentNodesPosition = (params2) => {
     const {
       node: node2,
       subsequentNodes,
@@ -87569,7 +87569,7 @@ Example:
       offset,
       historyService,
       dragService
-    } = params;
+    } = params2;
     if (!offset || !toPort) {
       return;
     }
@@ -87647,8 +87647,8 @@ Example:
     const EPSILON = 1e-5;
     return b4 - a4 > EPSILON;
   };
-  var subPositionOffset = (params) => {
-    const { node: node2, fromPort, toPort, padding } = params;
+  var subPositionOffset = (params2) => {
+    const { node: node2, fromPort, toPort, padding } = params2;
     const fromBox = getPortBox(fromPort);
     const toBox = getPortBox(toPort);
     const nodeTrans = node2.getData(FlowNodeTransformData);
@@ -87694,8 +87694,8 @@ Example:
       y: offsetY
     };
   };
-  var getSubsequentNodes = (params) => {
-    const { node: node2, linesManager } = params;
+  var getSubsequentNodes = (params2) => {
+    const { node: node2, linesManager } = params2;
     if (isContainer(node2)) {
       return [];
     }
@@ -87723,7 +87723,7 @@ Example:
     const subsequentNodes = brothers.filter((node22) => linkedBrothers.has(node22.id));
     return subsequentNodes;
   };
-  var subNodesAutoOffset = (params) => {
+  var subNodesAutoOffset = (params2) => {
     const {
       node: node2,
       fromPort,
@@ -87736,7 +87736,7 @@ Example:
         x: 100,
         y: 100
       }
-    } = params;
+    } = params2;
     const subOffset = subPositionOffset({
       node: node2,
       fromPort,
@@ -87758,8 +87758,8 @@ Example:
       dragService
     });
   };
-  var getContainerNode = (params) => {
-    const { fromPort, containerNode } = params;
+  var getContainerNode = (params2) => {
+    const { fromPort, containerNode } = params2;
     if (containerNode) {
       return containerNode;
     }
@@ -87770,8 +87770,8 @@ Example:
     }
     return fromContainer;
   };
-  var buildLine = (params) => {
-    const { fromPort, node: node2, toPort, linesManager } = params;
+  var buildLine = (params2) => {
+    const { fromPort, node: node2, toPort, linesManager } = params2;
     const portsData = node2.getData(WorkflowNodePortsData);
     if (!portsData) {
       return;
@@ -87798,8 +87798,8 @@ Example:
       });
     }
   };
-  var adjustNodePosition = (params) => {
-    const { nodeType, position: position3, fromPort, toPort, containerNode, document: document2, dragService } = params;
+  var adjustNodePosition = (params2) => {
+    const { nodeType, position: position3, fromPort, toPort, containerNode, document: document2, dragService } = params2;
     const register = document2.getNodeRegistry(nodeType);
     const size = register?.meta?.size;
     let adjustedPosition = position3;
@@ -87897,10 +87897,10 @@ Example:
     /**
      * 唤起单选面板
      */
-    async singleSelectNodePanel(params) {
+    async singleSelectNodePanel(params2) {
       return new Promise((resolve) => {
         this.callNodePanel({
-          ...params,
+          ...params2,
           enableMultiAdd: false,
           onSelect: async (panelParams) => {
             resolve(panelParams);
@@ -88032,9 +88032,9 @@ Example:
         return /* @__PURE__ */ import_react85.default.createElement(NodePanelRender, { key: taskId, ...renderProps });
       }));
     }
-    async call(params) {
+    async call(params2) {
       const taskId = nanoid2();
-      const { onSelect, onClose, enableMultiAdd = false, panelProps = {} } = params;
+      const { onSelect, onClose, enableMultiAdd = false, panelProps = {} } = params2;
       return new Promise((resolve) => {
         const unmount = () => {
           this.renderList.delete(taskId);
@@ -88045,14 +88045,14 @@ Example:
           unmount();
           onClose();
         };
-        const handleSelect = (params2) => {
-          onSelect(params2);
+        const handleSelect = (params22) => {
+          onSelect(params22);
           if (!enableMultiAdd) {
             unmount();
           }
         };
         const renderProps = {
-          ...params,
+          ...params2,
           panelProps,
           onSelect: handleSelect,
           onClose: handleClose
@@ -88080,6 +88080,42 @@ Example:
       nodePanelService.dispose();
     }
   });
+
+  // src/client/flowgram/branchEdit.ts
+  var _target = null;
+  var listeners = /* @__PURE__ */ new Set();
+  function emit() {
+    for (const fn of listeners) {
+      try {
+        fn();
+      } catch {
+      }
+    }
+  }
+  var branchEditStore = {
+    open(t5) {
+      _target = t5;
+      emit();
+    },
+    close() {
+      if (!_target) return;
+      _target = null;
+      emit();
+    },
+    getSnapshot() {
+      return _target;
+    },
+    subscribe(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    }
+  };
+  function branchKeyText(key) {
+    if (key === "true") return "\u771F";
+    if (key === "false") return "\u5047";
+    if (key === "*") return "\u5176\u4ED6";
+    return key;
+  }
 
   // src/client/util/edge-drag.ts
   function readStoredWidth(key, fallback, min2, max2) {
@@ -88150,9 +88186,9 @@ Example:
 
   // src/client/flowgram/runStatus.ts
   var state = { map: {} };
-  var listeners = /* @__PURE__ */ new Set();
-  function emit() {
-    for (const fn of listeners) {
+  var listeners2 = /* @__PURE__ */ new Set();
+  function emit2() {
+    for (const fn of listeners2) {
       try {
         fn();
       } catch {
@@ -88162,7 +88198,7 @@ Example:
   var runStatusStore = {
     set(map2) {
       state.map = map2 ?? {};
-      emit();
+      emit2();
     },
     get() {
       return state.map;
@@ -88171,8 +88207,8 @@ Example:
       return state.map;
     },
     subscribe(fn) {
-      listeners.add(fn);
-      return () => listeners.delete(fn);
+      listeners2.add(fn);
+      return () => listeners2.delete(fn);
     }
   };
   var _selected = "";
@@ -88199,6 +88235,15 @@ Example:
   };
 
   // src/client/flowgram/nodes.tsx
+  function loopSubtitle(data) {
+    const cap = typeof data.maxIterations === "number" ? ` \xB7 \u4E0A\u9650 ${data.maxIterations}` : "";
+    const over = data.over;
+    if (Array.isArray(over)) return `\u904D\u5386 ${over.length} \u9879${cap}`;
+    if (typeof over === "string" && over.trim()) return `\u904D\u5386 ${over.trim()}`.slice(0, 48) + cap;
+    if (typeof data.count === "number") return `\u5FAA\u73AF ${data.count} \u6B21${cap}`;
+    if (typeof data.while === "string" && data.while.trim()) return `while: ${data.while.trim()}`.slice(0, 48) + cap;
+    return "\u26A0 \u65E0\u5FAA\u73AF\u8FB9\u754C";
+  }
   function pickSubtitle(type, data) {
     switch (type) {
       case "python":
@@ -88215,10 +88260,12 @@ Example:
         return `${data.model || "AI \u5B50\u4EE3\u7406"}`;
       case "if":
         return data.condition ?? "condition";
-      case "switch":
-        return `value=${data.value ?? ""}`;
+      case "switch": {
+        const caseCount = Object.keys(data.cases ?? {}).length;
+        return `value=${data.value ?? ""} \xB7 ${caseCount} \u4E2A\u5206\u652F${caseCount >= 7 ? "\uFF08\u7D27\u51D1\uFF09" : ""}`;
+      }
       case "loop":
-        return `count=${data.count ?? "?"}`;
+        return loopSubtitle(data);
       case "set_var":
         return Object.keys(data.vars ?? {}).join(", ") || "(empty)";
       case "log":
@@ -88245,6 +88292,10 @@ Example:
         return "";
     }
   }
+  var SWITCH_TIGHT_FROM = 7;
+  function switchLayout(caseCount) {
+    return caseCount >= SWITCH_TIGHT_FROM ? { gap: 12, showLabels: false } : { gap: 30, showLabels: true };
+  }
   function NodeCardBody({ type }) {
     const { node: node2, form } = useNodeRender();
     const meta = findMeta(type);
@@ -88257,17 +88308,34 @@ Example:
     const selSelector = () => selectionStore.getSnapshot() === node2.id;
     const isSelected = (0, import_react87.useSyncExternalStore)(selectionStore.subscribe, selSelector, selSelector);
     const statusCls = rs?.status === "success" ? "is-ok" : rs?.status === "failed" ? "is-err" : rs?.status === "skipped" ? "is-skip" : "";
+    const caseKeys = type === "switch" ? Object.keys(values.cases ?? {}) : [];
+    const branchKeys = type === "if" ? (values.portKeys ?? ["true", "false"]).slice(0, 2) : type === "switch" && caseKeys.length ? [...caseKeys, "*"] : [];
+    const { gap, showLabels } = type === "switch" ? switchLayout(caseKeys.length) : { gap: 30, showLabels: true };
+    const branchLabels = showLabels ? branchKeys.map((k5, i3) => (0, import_react86.createElement)(
+      "div",
+      {
+        key: `branch-${k5}`,
+        className: `dsh-wf-fg-branch-label${k5 === "true" ? " is-true" : k5 === "false" ? " is-false" : k5 === "*" ? " is-star" : ""}`,
+        style: { top: `${22 + i3 * gap}px` },
+        title: `${type === "switch" ? "case" : "\u5206\u652F"}\uFF1A${k5 === "*" ? "*\uFF08\u65E0\u5339\u914D\u65F6\u7684\u515C\u5E95\uFF09" : k5}`
+      },
+      k5 === "*" ? "\u5176\u4ED6" : k5 === "true" ? "\u771F" : k5 === "false" ? "\u5047" : k5
+    )) : [];
+    const portMinHeight = branchKeys.length ? 22 + (branchKeys.length - 1) * gap + 24 : void 0;
     return (0, import_react86.createElement)(
       "div",
       {
         className: `dsh-wf-fg-card${statusCls ? " " + statusCls : ""}${isSelected ? " fg-selected" : ""}`,
-        style: { ["--kind"]: meta.color }
+        style: {
+          ["--kind"]: meta.color,
+          ...portMinHeight ? { minHeight: `${portMinHeight}px` } : {}
+        }
       },
       // 运行耗时徽标（右上）
       rs?.durationMs != null ? (0, import_react86.createElement)(
         "span",
-        { className: `dsh-wf-fg-badge${rs.status === "failed" ? " err" : ""}` },
-        `${rs.status === "failed" ? "\u2715" : rs.status === "skipped" ? "\u25CB" : "\u2713"} ${Math.round(rs.durationMs)}ms`
+        { className: `dsh-wf-fg-badge${rs.status === "failed" ? " err" : ""}${type === "loop" && rs.count != null ? " is-loop" : ""}` },
+        `${rs.status === "failed" ? "\u2715" : rs.status === "skipped" ? "\u25CB" : "\u2713"} ${Math.round(rs.durationMs)}ms${type === "loop" && rs.count != null ? ` \xB7 \u5FAA\u73AF ${rs.count} \u6B21` : ""}`
       ) : rs?.status === "skipped" ? (0, import_react86.createElement)("span", { className: "dsh-wf-fg-badge" }, "\u25CB skip") : null,
       (0, import_react86.createElement)(
         "div",
@@ -88280,7 +88348,8 @@ Example:
           (0, import_react86.createElement)("div", { className: "dsh-wf-fg-card-type" }, `${meta.label} \xB7 ${node2.id}`)
         )
       ),
-      (0, import_react86.createElement)("div", { className: "dsh-wf-fg-card-sub" }, sub)
+      (0, import_react86.createElement)("div", { className: "dsh-wf-fg-card-sub", title: sub }, sub),
+      branchLabels.length ? branchLabels : null
     );
   }
   function makeFormMeta(type) {
@@ -88326,13 +88395,14 @@ Example:
             effect: ({ value, context: context2 }) => {
               const { node: node2 } = context2;
               const keys3 = Object.keys(value?.cases ?? {});
+              const { gap } = switchLayout(keys3.length);
               const ports = [{ type: "input" }];
               keys3.forEach((k5, i3) => {
                 ports.push({
                   type: "output",
                   portID: k5,
                   location: "right",
-                  locationConfig: { right: 0, top: 22 + i3 * 30 }
+                  locationConfig: { right: 0, top: 22 + i3 * gap }
                 });
               });
               if (keys3.length) {
@@ -88340,7 +88410,7 @@ Example:
                   type: "output",
                   portID: "*",
                   location: "right",
-                  locationConfig: { right: 0, top: 22 + keys3.length * 30 }
+                  locationConfig: { right: 0, top: 22 + keys3.length * gap }
                 });
               }
               node2.ports.updateAllPorts(ports);
@@ -88525,8 +88595,35 @@ Example:
   function disposeCanvasNode(id3) {
     return !!disposeNodeRef.current && disposeNodeRef.current(id3);
   }
-  function CanvasInteractions() {
+  function CanvasInteractions(props) {
     const ctx = useClientContext();
+    editEdgeKeyRef.current = (p4) => {
+      const nextNodes = props.nodes.map((n2) => {
+        if (!p4.addCase || !p4.key || p4.key === "*" || n2.id !== p4.source) return n2;
+        const cases = { ...n2.data?.cases ?? {} };
+        cases[p4.key] = p4.target;
+        return { ...n2, data: { ...n2.data, cases } };
+      });
+      const nextEdges = props.edges.map((e2) => e2.source === p4.source && e2.target === p4.target ? { ...e2, sourceHandle: p4.key || null } : e2);
+      let applied = false;
+      try {
+        const lm = ctx.container.get(WorkflowLinesManager);
+        const line2 = (lm.getAllLines?.() ?? []).find((l5) => l5.from?.id === p4.source && l5.to?.id === p4.target);
+        const node2 = line2?.from;
+        const port = p4.key ? node2?.ports?.getPortEntityByKey?.("output", p4.key) : void 0;
+        if (line2 && (!p4.key || port)) {
+          line2.updateInfo((info) => {
+            info.fromPort = p4.key || void 0;
+          });
+          applied = true;
+        }
+      } catch {
+        applied = false;
+      }
+      if (applied) lastEmittedSig.current = structSigOf(nextNodes, nextEdges);
+      window.__df_lastBranchEdit = { source: p4.source, target: p4.target, key: p4.key, inPlace: applied, at: Date.now() };
+      props.onChange(nextNodes, nextEdges);
+    };
     (0, import_react88.useEffect)(() => {
       let cfg = null;
       try {
@@ -88642,8 +88739,8 @@ Example:
     );
     return posStyle ? (0, import_react_dom7.createPortal)(inner, document.body) : inner;
   }
-  async function onDragLineEnd(ctx, params) {
-    const { fromPort, toPort, mousePos, line: line2, originLine, event } = params;
+  async function onDragLineEnd(ctx, params2) {
+    const { fromPort, toPort, mousePos, line: line2, originLine, event } = params2;
     if (originLine || !line2 || toPort || !fromPort) return;
     const panelService = ctx.get(WorkflowNodePanelService);
     const result = await panelService.singleSelectNodePanel({
@@ -88693,6 +88790,26 @@ Example:
       if (n2.type === "set_var" && (!d4.vars || typeof d4.vars !== "object" || Array.isArray(d4.vars) || Object.keys(d4.vars).length === 0)) problems.push({ level: "error", nodeId: n2.id, msg: `${n2.id} \u53D8\u91CF\u8868\uFF08vars\uFF09\u4E3A\u7A7A\u2014\u2014\u6CA1\u6709\u8981\u5199\u5165\u7684\u53D8\u91CF` });
       if (n2.type === "subflow" && !String(d4.workflowName ?? "").trim()) problems.push({ level: "error", nodeId: n2.id, msg: `${n2.id} \u5B50\u5DE5\u4F5C\u6D41\u540D\uFF08workflowName\uFF09\u4E3A\u7A7A` });
       if (n2.type === "session_input" && !String(d4.sessionId ?? "").trim()) problems.push({ level: "warn", nodeId: n2.id, msg: `${n2.id} \u672A\u9009\u62E9\u4F1A\u8BDD\u2014\u2014\u8FD0\u884C\u65F6\u4F1A\u62A5\u300Csession not found\u300D` });
+      if (n2.type === "loop") {
+        const hasOver = Array.isArray(d4.over) || typeof d4.over === "string" && d4.over.trim() !== "";
+        const hasCount = typeof d4.count === "number";
+        const hasWhile = typeof d4.while === "string" && d4.while.trim() !== "";
+        if (!hasOver && !hasCount && !hasWhile) {
+          problems.push({ level: "error", nodeId: n2.id, msg: `${n2.id} \u5FAA\u73AF\u8FB9\u754C\u7F3A\u5931\uFF08count / while / over \u81F3\u5C11\u914D\u7F6E\u4E00\u4E2A\uFF09\u2014\u2014\u8FD0\u884C\u65F6\u4F1A\u62A5 LOOP_NO_BOUND` });
+        }
+      }
+    }
+    const byId = new Map(nodes.map((n2) => [n2.id, n2]));
+    for (const e2 of edges) {
+      const src = byId.get(e2.source);
+      const t5 = src?.type;
+      if (t5 !== "if" && t5 !== "switch") continue;
+      if (e2.sourceHandle) continue;
+      problems.push({
+        level: "warn",
+        nodeId: e2.source,
+        msg: `${e2.source} \u2192 ${e2.target} \u8FD9\u6761\u5206\u652F\u7EBF\u6CA1\u8BBE\u5206\u652F\u952E\u2014\u2014\u8FD0\u884C\u65F6\u4F1A\u5F53\u4F5C\u6052\u6FC0\u6D3B\uFF08\u6240\u6709\u5206\u652F\u90FD\u4F1A\u6267\u884C\uFF09\u3002\u70B9\u753B\u5E03\u4E0A\u8BE5\u7EBF\u4E2D\u70B9\u7684\u300C\u672A\u8BBE\u5206\u652F\u300D\u6807\u7B7E\u53EF\u8BBE\u7F6E`
+      });
     }
     return problems;
   }
@@ -88724,6 +88841,158 @@ Example:
   var onSelectRef = { current: null };
   var onChangeRef = { current: null };
   var lastEmittedSig = { current: "" };
+  function branchKeyLabel(key) {
+    return branchKeyText(key);
+  }
+  var graphRef = { current: { nodes: [], edges: [] } };
+  var editEdgeKeyRef = { current: null };
+  function LineBranchLabel(props) {
+    const line2 = props?.line;
+    const key = String(line2?.fromPort?.portID ?? "");
+    const src = String(line2?.from?.id ?? line2?.fromPort?.node?.id ?? "");
+    const dst = String(line2?.to?.id ?? line2?.toPort?.node?.id ?? "");
+    const node2 = graphRef.current.nodes.find((n2) => n2.id === src);
+    const nodeType = String(node2?.type ?? "");
+    if (nodeType === "loop") {
+      return (0, import_react88.createElement)("div", {
+        className: "dsh-wf-fg-line-label is-loop",
+        title: "\u6765\u81EA\u5FAA\u73AF\u8282\u70B9\u7684\u8FDE\u7EBF\uFF1Aloop \u53EA\u4EA7\u51FA\u8FED\u4EE3\u5E8F\u5217\uFF08out.count / out.items\uFF09\uFF0C\u4E0B\u6E38\u8282\u70B9\u53EA\u6267\u884C\u4E00\u6B21\u2014\u2014\u9700\u8981\u91CD\u590D\u6267\u884C\u8BF7\u628A\u5FAA\u73AF\u4F53\u5199\u6210\u5B50\u5DE5\u4F5C\u6D41\u6216\u653E\u8FDB\u5355\u4E2A python/bash \u8282\u70B9"
+      }, "\u5FAA\u73AF");
+    }
+    const isBranchNode = nodeType === "if" || nodeType === "switch";
+    if (!isBranchNode) return null;
+    const openEditor = (e2) => {
+      e2.stopPropagation();
+      e2.preventDefault();
+      const cases = Object.keys((node2?.data ?? {}).cases ?? {});
+      branchEditStore.open({
+        source: src,
+        target: dst,
+        current: key,
+        nodeType,
+        cases,
+        anchor: { x: e2.clientX ?? 0, y: e2.clientY ?? 0 }
+      });
+    };
+    if (!key) {
+      return (0, import_react88.createElement)("div", {
+        className: "dsh-wf-fg-line-label is-warn",
+        title: "\u8FD9\u6761\u7EBF\u6CA1\u8BBE\u5206\u652F\u952E\u2014\u2014\u8FD0\u884C\u65F6\u4F1A\u628A\u5B83\u5F53\u4F5C\u6052\u6FC0\u6D3B\uFF08if/switch \u7684\u6240\u6709\u5206\u652F\u90FD\u4F1A\u6267\u884C\uFF09\u3002\u70B9\u51FB\u8BBE\u7F6E",
+        onClick: openEditor
+      }, "\u672A\u8BBE\u5206\u652F");
+    }
+    const cls = key === "true" ? "is-true" : key === "false" ? "is-false" : key === "*" ? "is-case" : "is-case";
+    return (0, import_react88.createElement)("div", {
+      className: `dsh-wf-fg-line-label ${cls}`,
+      title: `\u5206\u652F\u952E ${key}\uFF08\u70B9\u51FB\u4FEE\u6539\uFF09`,
+      onClick: openEditor
+    }, branchKeyLabel(key));
+  }
+  function branchLineProps(line2, oldProps) {
+    try {
+      if (oldProps?.selected || oldProps?.hovered || line2?.processing || line2?.flowing) return oldProps;
+      const key = String(line2?.fromPort?.portID ?? "");
+      const color = key === "true" ? "#10b981" : key === "false" ? "#f43f5e" : null;
+      return color ? { ...oldProps, color } : oldProps;
+    } catch {
+      return oldProps;
+    }
+  }
+  function BranchKeyEditor() {
+    const target = (0, import_react88.useSyncExternalStore)(
+      branchEditStore.subscribe,
+      branchEditStore.getSnapshot,
+      branchEditStore.getSnapshot
+    );
+    const [custom, setCustom] = (0, import_react88.useState)("");
+    (0, import_react88.useEffect)(() => {
+      setCustom("");
+    }, [target?.source, target?.target, target?.current]);
+    if (!target) return null;
+    const isIf = target.nodeType === "if";
+    const keys3 = isIf ? ["true", "false"] : [...target.cases, "*"];
+    const apply2 = (key, addCase = false) => {
+      if (!editEdgeKeyRef.current) return;
+      editEdgeKeyRef.current({ source: target.source, target: target.target, key, addCase });
+      branchEditStore.close();
+    };
+    const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
+    const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+    const left = Math.max(8, Math.min(target.anchor.x, vw - 300));
+    const top = Math.max(8, Math.min(target.anchor.y + 8, vh - 220));
+    const btn = (key, label, addCase = false) => (0, import_react88.createElement)("button", {
+      key: `k-${key}`,
+      type: "button",
+      className: `dsh-wf-fg-bedit-key${target.current === key ? " is-current" : ""}`,
+      onClick: () => apply2(key, addCase)
+    }, label);
+    return (0, import_react_dom7.createPortal)(
+      (0, import_react88.createElement)(
+        "div",
+        { className: "dsh-wf-fg-bedit-mask", onClick: () => branchEditStore.close() },
+        (0, import_react88.createElement)(
+          "div",
+          {
+            className: "dsh-wf-fg-bedit",
+            style: { left, top },
+            onClick: (e2) => e2.stopPropagation()
+          },
+          (0, import_react88.createElement)(
+            "div",
+            { className: "dsh-wf-fg-bedit-title" },
+            "\u5206\u652F\u952E",
+            (0, import_react88.createElement)("span", { className: "dsh-wf-fg-bedit-node" }, `${target.source} \u2192 ${target.target}`),
+            (0, import_react88.createElement)("button", { className: "dsh-wf-fg-bedit-close", title: "\u5173\u95ED", onClick: () => branchEditStore.close() }, "\u2715")
+          ),
+          (0, import_react88.createElement)(
+            "div",
+            { className: "dsh-wf-fg-bedit-hint" },
+            isIf ? "\u6761\u4EF6\u5206\u652F\u53EA\u6709 true/false \u4E24\u6761\u51FA\u53E3\u2014\u2014\u8FD9\u6761\u7EBF\u8D70\u54EA\u4E00\u6761\uFF1F" : "\u591A\u8DEF\u5206\u652F\uFF1A\u53EF\u9009\u5DF2\u6709 case\uFF0C\u6216\u5728\u4E0B\u9762\u8F93\u5165\u65B0 case \u540D\uFF08\u4F1A\u81EA\u52A8\u5199\u8FDB\u8BE5\u8282\u70B9\u7684\u5206\u652F\u8868\u5E76\u6307\u5411\u672C\u7EBF\u76EE\u6807\uFF09\u3002"
+          ),
+          (0, import_react88.createElement)(
+            "div",
+            { className: "dsh-wf-fg-bedit-keys" },
+            keys3.map((k5) => btn(k5, k5 === "*" ? "* \u5176\u4ED6" : `${branchKeyText(k5)}\uFF08${k5}\uFF09`)),
+            target.current || isIf ? null : btn(target.current, `\u5F53\u524D\uFF1A\u672A\u8BBE\u7F6E`, false)
+          ),
+          !isIf && (0, import_react88.createElement)(
+            "div",
+            { className: "dsh-wf-fg-bedit-custom" },
+            (0, import_react88.createElement)("input", {
+              value: custom,
+              placeholder: "\u65B0 case \u540D\uFF08\u56DE\u8F66\u786E\u8BA4\uFF09",
+              onChange: (e2) => setCustom(e2.target.value),
+              onKeyDown: (e2) => {
+                if (e2.key === "Enter" && custom.trim()) apply2(custom.trim(), true);
+                if (e2.key === "Escape") branchEditStore.close();
+              }
+            }),
+            (0, import_react88.createElement)("button", {
+              type: "button",
+              className: "dsh-wf-fg-bedit-add",
+              disabled: !custom.trim(),
+              onClick: () => {
+                if (custom.trim()) apply2(custom.trim(), true);
+              }
+            }, "\uFF0B \u65B0\u5EFA case")
+          ),
+          (0, import_react88.createElement)(
+            "div",
+            { className: "dsh-wf-fg-bedit-foot" },
+            (0, import_react88.createElement)("button", {
+              type: "button",
+              className: "dsh-wf-fg-bedit-clear",
+              title: "\u6E05\u7A7A\u5206\u652F\u952E\uFF08\u8BE5\u7EBF\u53D8\u56DE\u6052\u6FC0\u6D3B\u2014\u2014if/switch \u7684\u6240\u6709\u5206\u652F\u90FD\u4F1A\u6267\u884C\uFF09",
+              disabled: !target.current,
+              onClick: () => apply2("")
+            }, "\u6E05\u7A7A\u5206\u652F\u952E"),
+            (0, import_react88.createElement)("span", { className: "dsh-wf-fg-bedit-warn" }, "\u672A\u8BBE\u7F6E\u5206\u652F\u952E\u7684\u7EBF = \u6052\u6FC0\u6D3B")
+          )
+        )
+      ),
+      document.body
+    );
+  }
   function buildEditorProps(initialNodes, initialEdges) {
     return {
       background: false,
@@ -88791,7 +89060,9 @@ Example:
           alignCrossWidth: 8
         }),
         // 节点快选面板（自定义 renderer = 深空蓝主题；官方服务负责定位/创建/连线）
-        createFreeNodePanelPlugin({ renderer: NodeQuickPanel })
+        createFreeNodePanelPlugin({ renderer: NodeQuickPanel }),
+        // 连线分支标签 + 分支线配色（覆盖预设里的空实例，见文件头 import 处说明）
+        createFreeLinesPlugin({ renderInsideLine: LineBranchLabel, customLineProps: branchLineProps })
       ]
     };
   }
@@ -88807,6 +89078,18 @@ Example:
       if (sig === lastApplied.current) return;
       lastApplied.current = sig;
       try {
+        const lm = ctx.container.get(WorkflowLinesManager);
+        const want = new Set(props.edges.map((e2) => `${e2.source}|${e2.sourceHandle ?? ""}|${e2.target}`));
+        for (const l5 of lm.getAllLines?.() ?? []) {
+          if (l5?.isDrawing) continue;
+          const k5 = `${l5?.from?.id ?? ""}|${l5?.fromPort?.portID ?? ""}|${l5?.to?.id ?? ""}`;
+          if (!want.has(k5)) {
+            try {
+              l5.dispose();
+            } catch {
+            }
+          }
+        }
         ctx.document.fromJSON(toFG(props.nodes, props.edges));
       } catch (e2) {
         console.warn("[dag-flow] fromJSON failed:", e2);
@@ -89092,6 +89375,7 @@ Example:
     const { nodes, edges, runResults } = props;
     onChangeRef.current = props.onChange;
     onSelectRef.current = props.onSelectNode;
+    graphRef.current = { nodes, edges };
     (0, import_react88.useEffect)(() => {
       runStatusStore.set(runResults ?? {});
     }, [runResults]);
@@ -89110,7 +89394,7 @@ Example:
         editorProps,
         (0, import_react88.createElement)(DefSync, { nodes, edges }),
         (0, import_react88.createElement)(PlaygroundReactRenderer, { className: "dsh-wf-fg-editor" }),
-        (0, import_react88.createElement)(CanvasInteractions),
+        (0, import_react88.createElement)(CanvasInteractions, { nodes, edges, onChange: props.onChange }),
         (0, import_react88.createElement)(NodePalette),
         (0, import_react88.createElement)(Toolbar, {
           problemCount: problems.length,
@@ -89123,6 +89407,7 @@ Example:
           onSelect: (id3) => props.onSelectNode(id3)
         }),
         (0, import_react88.createElement)(Minimap, { rightInset: props.rightInset ?? 12 }),
+        (0, import_react88.createElement)(BranchKeyEditor),
         (0, import_react88.createElement)(StatusBar, {
           nodeCount: nodes.length,
           edgeCount: edges.length,
@@ -89995,10 +90280,17 @@ Example:
       [handleDeleteNode]
     );
     const handleNodeChange = (0, import_react101.useCallback)(
-      (id3, params) => {
+      (id3, params2) => {
+        const patch = {};
+        for (const [k5, v5] of Object.entries(params2)) if (v5 !== null) patch[k5] = v5;
         const next2 = {
           ...def,
-          nodes: def.nodes.map((n2) => n2.id === id3 ? { ...n2, params: { ...n2.params ?? {}, ...params } } : n2)
+          nodes: def.nodes.map((n2) => {
+            if (n2.id !== id3) return n2;
+            const merged = { ...n2.params ?? {}, ...patch };
+            for (const [k5, v5] of Object.entries(params2)) if (v5 === null) delete merged[k5];
+            return { ...n2, params: merged };
+          })
         };
         setDef(next2);
         setDirty(true);
@@ -90095,7 +90387,7 @@ Example:
       if (results) {
         const map2 = {};
         for (const [id3, r5] of Object.entries(results)) {
-          map2[id3] = { status: r5.status ?? "unknown", durationMs: r5.durationMs };
+          map2[id3] = { status: r5.status ?? "unknown", durationMs: r5.durationMs, ...typeof r5.out?.count === "number" ? { count: r5.out.count } : {} };
         }
         setRunResults(map2);
       }
@@ -90995,7 +91287,7 @@ Example:
         edges: p4.rfEdges,
         workflowName: p4.def.name,
         onDelete: () => p4.onDeleteNode(p4.selectedNode.id),
-        onParamsChange: (params) => p4.onNodeChange(p4.selectedNode.id, params),
+        onParamsChange: (params2) => p4.onNodeChange(p4.selectedNode.id, params2),
         onError: p4.selectedNode.onError ?? "stop",
         onNodeError: (onError) => p4.onNodeError(p4.selectedNode.id, onError)
       }) : (0, import_react102.createElement)(
@@ -91092,6 +91384,187 @@ Example:
       }
       onParamsChange({ cases });
     };
+    const loopParam = node2.params ?? {};
+    const loopBound = Array.isArray(loopParam.over) || typeof loopParam.over === "string" ? "over" : typeof loopParam.count === "number" ? "count" : typeof loopParam.while === "string" ? "while" : "none";
+    const loopBody = loopParam.body ?? {};
+    const [wfNames, setWfNames] = (0, import_react101.useState)([]);
+    const [wfLoaded, setWfLoaded] = (0, import_react101.useState)(false);
+    const [bodyRows, setBodyRows] = (0, import_react101.useState)(() => Object.entries(loopBody.inputs ?? {}).map(([k5, v5]) => ({ k: k5, v: typeof v5 === "string" ? v5 : JSON.stringify(v5) })));
+    (0, import_react101.useEffect)(() => {
+      if (node2.type !== "loop" || wfLoaded) return;
+      let cancelled2 = false;
+      (async () => {
+        try {
+          const res = await fetch("/api/dag-flow/workflows", { credentials: "include" });
+          const data = await res.json();
+          const list = data?.workflows ?? data ?? [];
+          if (!cancelled2) setWfNames(list.map((w4) => String(w4?.name ?? "")).filter(Boolean));
+        } catch {
+        } finally {
+          if (!cancelled2) setWfLoaded(true);
+        }
+      })();
+      return () => {
+        cancelled2 = true;
+      };
+    }, [node2.type, wfLoaded]);
+    const writeLoopBody = (workflowName2, rows) => {
+      setBodyRows(rows);
+      if (!workflowName2) {
+        onParamsChange({ body: null });
+        return;
+      }
+      const inputs = {};
+      for (const r5 of rows) {
+        const k5 = r5.k.trim();
+        if (k5) inputs[k5] = r5.v;
+      }
+      onParamsChange({ body: { workflowName: workflowName2, inputs } });
+    };
+    const setLoopBound = (next2) => {
+      const cleared = { count: null, while: null, over: null };
+      if (next2 === "count") onParamsChange({ ...cleared, count: 3 });
+      else if (next2 === "over") onParamsChange({ ...cleared, over: "" });
+      else if (next2 === "while") onParamsChange({ ...cleared, while: "true" });
+      else onParamsChange(cleared);
+    };
+    const loopConfigNodes = () => {
+      const numInput = (key, label, min2, max2, dflt) => (0, import_react102.createElement)("input", {
+        className: "dsh-wf-input",
+        key,
+        type: "number",
+        min: min2,
+        ...max2 ? { max: max2 } : {},
+        placeholder: label,
+        value: typeof loopParam[key] === "number" ? String(loopParam[key]) : "",
+        onChange: (e2) => {
+          const v5 = e2.target.value.trim();
+          if (v5 === "") {
+            onParamsChange({ [key]: null });
+            return;
+          }
+          let n2 = parseInt(v5, 10);
+          if (!Number.isFinite(n2)) return;
+          n2 = Math.max(min2, max2 ? Math.min(max2, n2) : n2);
+          onParamsChange({ [key]: n2 });
+        }
+      });
+      const out = [
+        (0, import_react102.createElement)("label", { className: "dsh-wf-panel-label", key: "loop-label" }, "\u{1F501} \u5FAA\u73AF\u8BBE\u7F6E"),
+        (0, import_react102.createElement)(
+          "div",
+          { className: "dsh-wf-panel-hint", key: "loop-hint" },
+          "loop \u53EA\u4EA7\u51FA\u8FED\u4EE3\u5E8F\u5217\uFF08out.count / out.items\uFF09\uFF0C**\u4E0D\u4F1A\u91CD\u590D\u6267\u884C\u4E0B\u6E38\u8282\u70B9**\uFF1A\u5B83\u7B97\u51FA\u300C\u8DD1\u51E0\u6B21 / \u8DD1\u54EA\u4E9B\u9879\u300D\uFF0C\u7531\u4E0B\u6E38\u8282\u70B9\u81EA\u5DF1\u9010\u9879\u5904\u7406\u3002\u4E09\u79CD\u8FB9\u754C\u540C\u65F6\u53EA\u6309\u4E00\u4E2A\u751F\u6548\uFF0C\u4F18\u5148\u7EA7 over > count > while\u3002"
+        ),
+        (0, import_react102.createElement)(
+          "select",
+          {
+            className: "dsh-wf-input",
+            key: "loop-bound",
+            value: loopBound,
+            onChange: (e2) => setLoopBound(e2.target.value)
+          },
+          (0, import_react102.createElement)("option", { value: "count", key: "b-count" }, "\u56FA\u5B9A\u6B21\u6570 count"),
+          (0, import_react102.createElement)("option", { value: "over", key: "b-over" }, "\u904D\u5386\u6570\u7EC4 over"),
+          (0, import_react102.createElement)("option", { value: "while", key: "b-while" }, "\u6761\u4EF6\u4E3A\u771F while"),
+          (0, import_react102.createElement)("option", { value: "none", key: "b-none" }, "\u26A0 \u4E0D\u8BBE\u8FB9\u754C\uFF08\u8FD0\u884C\u4F1A\u5931\u8D25\uFF09")
+        )
+      ];
+      if (loopBound === "count") out.push(numInput("count", "\u8FED\u4EE3\u6B21\u6570\uFF0C\u5982 3", 0, null, "3"));
+      if (loopBound === "over") out.push((0, import_react102.createElement)("input", {
+        className: "dsh-wf-input",
+        key: "loop-over",
+        placeholder: "{{\u4E0A\u6E38\u8282\u70B9id.out.\u6570\u7EC4\u5B57\u6BB5}} \u6216\u76F4\u63A5\u5199\u6570\u7EC4",
+        value: typeof loopParam.over === "string" ? loopParam.over : Array.isArray(loopParam.over) ? JSON.stringify(loopParam.over) : "",
+        onChange: (e2) => onParamsChange({ over: e2.target.value })
+      }));
+      if (loopBound === "while") out.push((0, import_react102.createElement)("input", {
+        className: "dsh-wf-input",
+        key: "loop-while",
+        placeholder: "\u8868\u8FBE\u5F0F\uFF08\u4E0D\u662F {{}} \u6A21\u677F\uFF09\uFF0C\u5982 true",
+        value: typeof loopParam.while === "string" ? loopParam.while : "",
+        onChange: (e2) => onParamsChange({ while: e2.target.value })
+      }));
+      if (loopBound === "none") out.push((0, import_react102.createElement)("div", { className: "dsh-wf-panel-hint", key: "loop-nobound" }, "\u26A0 \u6CA1\u6709\u8FB9\u754C\u65F6\u8FD0\u884C\u4F1A\u7ACB\u5373\u5931\u8D25\uFF08LOOP_NO_BOUND\uFF09\uFF0C\u753B\u5E03\u95EE\u9898\u9762\u677F\u4E5F\u4F1A\u62A5\u9519\u3002"));
+      const boundBlank = loopBound === "count" && typeof loopParam.count !== "number" || loopBound === "over" && !(Array.isArray(loopParam.over) ? loopParam.over.length > 0 : String(loopParam.over ?? "").trim() !== "") || loopBound === "while" && String(loopParam.while ?? "").trim() === "";
+      if (boundBlank) out.push((0, import_react102.createElement)(
+        "div",
+        { className: "dsh-wf-panel-hint", key: "loop-blank" },
+        "\u26A0 \u8FB9\u754C\u503C\u8FD8\u662F\u7A7A\u7684\u2014\u2014\u5F15\u64CE\u4F1A\u5F53\u4F5C\u6CA1\u6709\u8FB9\u754C\uFF0C\u8FD0\u884C\u62A5 LOOP_NO_BOUND\uFF08\u5361\u7247\u526F\u6807\u9898\u4E5F\u4F1A\u663E\u793A\u300C\u26A0 \u65E0\u5FAA\u73AF\u8FB9\u754C\u300D\uFF09\u3002"
+      ));
+      out.push(numInput("maxIterations", "\u6700\u5927\u8FED\u4EE3\u6B21\u6570\uFF08\u9ED8\u8BA4 1000\uFF0C\u4E0A\u9650 100000\uFF09", 1, 1e5, "1000"));
+      if (loopBound === "while") out.push((0, import_react102.createElement)(
+        "label",
+        { className: "dsh-wf-panel-hint", key: "loop-inf", style: { display: "flex", gap: 6, alignItems: "center" } },
+        (0, import_react102.createElement)("input", {
+          type: "checkbox",
+          checked: loopParam.dangerouslyAllowInfinite === true,
+          onChange: (e2) => onParamsChange({ dangerouslyAllowInfinite: e2.target.checked })
+        }),
+        "while \u5230\u4E0A\u9650\u540E\u7EE7\u7EED\uFF08dangerouslyAllowInfinite\uFF0C\u614E\u7528\uFF09"
+      ));
+      out.push((0, import_react102.createElement)("label", { className: "dsh-wf-panel-label", key: "loop-body-label" }, "\u{1F501} \u5FAA\u73AF\u4F53\uFF08\u53EF\u9009\uFF09"));
+      out.push((0, import_react102.createElement)(
+        "select",
+        {
+          className: "dsh-wf-input",
+          key: "loop-body-sel",
+          value: loopBody.workflowName ?? "",
+          onChange: (e2) => writeLoopBody(e2.target.value, bodyRows)
+        },
+        (0, import_react102.createElement)("option", { value: "", key: "lb-none" }, "\uFF08\u4E0D\u8BBE\uFF1A\u53EA\u4EA7\u51FA\u8FED\u4EE3\u5E8F\u5217 count/items\uFF09"),
+        ...wfNames.map((n2) => (0, import_react102.createElement)("option", { value: n2, key: "lb-" + n2 }, n2)),
+        ...loopBody.workflowName && !wfNames.includes(loopBody.workflowName) ? [(0, import_react102.createElement)("option", { value: loopBody.workflowName, key: "lb-cur" }, `${loopBody.workflowName}\uFF08\u5F53\u524D\u503C\uFF09`)] : []
+      ));
+      if (loopBody.workflowName) {
+        out.push((0, import_react102.createElement)(
+          "div",
+          { className: "dsh-wf-panel-hint", key: "loop-body-hint" },
+          "\u6BCF\u8F6E\u8C03\u7528\u8BE5\u5B50\u5DE5\u4F5C\u6D41\uFF1A\u503C\u91CC\u53EF\u7528 {{vars.loopItem}}\uFF08\u5F53\u8F6E\u7684\u9879\u6216\u8F6E\u6B21\u5E8F\u53F7\uFF09\u4E0E {{vars.loopIndex}}\uFF08\u5E8F\u53F7\uFF09\uFF0C\u4E5F\u53EF\u5F15\u7528\u4E0A\u6E38 {{\u8282\u70B9id.out.x}}\uFF1B\u5B50\u5DE5\u4F5C\u6D41 end \u8282\u70B9\u7684\u8F93\u51FA\u4F1A\u4F9D\u6B21\u6536\u8FDB\u672C\u8282\u70B9\u7684 out.items\uFF0C\u4E0B\u6E38\u5199\u6CD5\u4E0D\u53D8\u3002"
+        ));
+        bodyRows.forEach((row, i3) => out.push((0, import_react102.createElement)(
+          "div",
+          { key: "loop-body-row-" + i3, style: { display: "flex", gap: 6, marginBottom: 6 } },
+          (0, import_react102.createElement)("input", {
+            className: "dsh-wf-input",
+            placeholder: "\u8F93\u5165\u540D\uFF08\u5B50\u5DE5\u4F5C\u6D41 inputs.x\uFF09",
+            value: row.k,
+            style: { flex: "0 0 42%" },
+            onChange: (e2) => writeLoopBody(loopBody.workflowName, bodyRows.map((r5, j4) => j4 === i3 ? { ...r5, k: e2.target.value } : r5))
+          }),
+          (0, import_react102.createElement)("input", {
+            className: "dsh-wf-input",
+            placeholder: "\u503C\uFF0C\u5982 {{vars.loopItem}}",
+            value: row.v,
+            style: { flex: 1 },
+            onChange: (e2) => writeLoopBody(loopBody.workflowName, bodyRows.map((r5, j4) => j4 === i3 ? { ...r5, v: e2.target.value } : r5))
+          }),
+          (0, import_react102.createElement)("button", {
+            className: "dsh-wf-btn",
+            title: "\u5220\u9664\u8BE5\u8F93\u5165",
+            onClick: () => writeLoopBody(loopBody.workflowName, bodyRows.filter((_5, j4) => j4 !== i3))
+          }, "\u2715")
+        )));
+        out.push((0, import_react102.createElement)("button", {
+          className: "dsh-wf-inputs-add",
+          key: "loop-body-add",
+          title: "\u6DFB\u52A0\u8F93\u5165\u6620\u5C04",
+          onClick: () => setBodyRows((rs) => [...rs, { k: "", v: "" }])
+        }, "+"));
+        out.push((0, import_react102.createElement)(
+          "select",
+          {
+            className: "dsh-wf-input",
+            key: "loop-iter-err",
+            value: String(loopParam.onIterationError ?? "stop"),
+            onChange: (e2) => onParamsChange({ onIterationError: e2.target.value })
+          },
+          (0, import_react102.createElement)("option", { value: "stop", key: "ie-stop" }, "\u67D0\u8F6E\u5931\u8D25 \u2192 \u6574\u8282\u70B9\u5931\u8D25\uFF08\u5DF2\u5B8C\u6210\u8F6E\u6B21\u4FDD\u7559\u5728 items\uFF09"),
+          (0, import_react102.createElement)("option", { value: "continue", key: "ie-cont" }, "\u67D0\u8F6E\u5931\u8D25 \u2192 \u5199\u5360\u4F4D\u5E76\u7EE7\u7EED\u8DD1")
+        ));
+      }
+      return (0, import_react102.createElement)("div", { className: "dsh-wf-panel-row" }, ...out);
+    };
     const runSingleNode = async () => {
       if (node2.type === "subagent" && !String(node2.params?.model ?? "").trim()) {
         setTestResult({ error: "\u8BF7\u5148\u5728\u4E0A\u65B9\u300C\u9009\u62E9\u6A21\u578B\u300D\u4E2D\u9009\u62E9\u6267\u884C\u6A21\u578B\uFF08\u6A21\u578B\u6765\u81EA dsh \u81EA\u52A8\u53D1\u73B0\uFF09\uFF0C\u518D\u8BD5\u8DD1\u3002" });
@@ -91147,6 +91620,20 @@ Example:
       setSelectedModel(val);
       onParamsChange({ model: val });
     };
+    const modelLabelOf = (m4) => m4.label || m4.model || m4.name || m4.id;
+    const modelLabelCount = /* @__PURE__ */ new Map();
+    for (const m4 of models) modelLabelCount.set(modelLabelOf(m4), (modelLabelCount.get(modelLabelOf(m4)) ?? 0) + 1);
+    const modelDisambig = (m4) => (modelLabelCount.get(modelLabelOf(m4)) ?? 0) > 1 ? m4.providerLabel || m4.name || "" : "";
+    const orderedModels = (() => {
+      if (!selectedModel) return models;
+      const hit = models.find((m4) => m4.id === selectedModel);
+      if (!hit) return models;
+      return [hit, ...models.filter((m4) => m4.id !== selectedModel)];
+    })();
+    (0, import_react101.useEffect)(() => {
+      const fromDef = typeof node2.params?.model === "string" ? node2.params.model : "";
+      setSelectedModel((cur) => cur === fromDef ? cur : fromDef);
+    }, [node2.id, node2.params?.model]);
     return (0, import_react102.createElement)(
       "div",
       null,
@@ -91229,6 +91716,8 @@ Example:
           )
         )
       ),
+      // ★ loop 循环设置（P2，2026-10-03 用户拍板）
+      node2.type === "loop" && loopConfigNodes(),
       // ★ switch 分支设置（2026-10-02 用户需求「根据不同条件分成多个分支」）：
       //   每个 case 键在画布上生成一个输出口（外加 * 兜底口）——从对应口拖线到目标节点，
       //   边的 when 自动=case 键，执行器按 value 匹配激活对应分支、其余跳过。
@@ -91352,12 +91841,22 @@ Example:
             style: !selectedModel ? { borderColor: "var(--wf-warn, #fbbf24)" } : void 0
           },
           (0, import_react102.createElement)("option", { value: "", disabled: true }, models.length === 0 ? "\uFF08dsh \u672A\u914D\u7F6E\u53EF\u7528\u6A21\u578B\uFF0C\u8BF7\u5148\u5728 dsh \u6DFB\u52A0\uFF09" : "\u2B07 \u8BF7\u9009\u62E9\u6267\u884C\u6A21\u578B"),
-          models.map((m4) => (0, import_react102.createElement)(
+          ...selectedModel && !models.some((m4) => m4.id === selectedModel) ? [(0, import_react102.createElement)("option", { key: "stale-model", value: selectedModel }, `\u2713 \u26A0 ${selectedModel}\uFF08\u5F53\u524D\u503C\uFF0Cdsh \u5F53\u524D\u672A\u63D0\u4F9B\uFF09`)] : [],
+          orderedModels.map((m4) => (0, import_react102.createElement)(
             "option",
             { key: m4.id, value: m4.id },
-            `\u2699\uFE0F dsh \xB7 ${m4.name}${m4.hasImage ? " \xB7 \u{1F4F7} \u56FE\u7247" : ""}`
+            // ★ 显示「模型显示名」（用户 2026-10-03：不用内部 id，不容易分辨）；重名才补提供方名消歧
+            // ★ 已选中项打「✓」前缀（用户 2026-10-03：「点开下拉选项的已经选中的下拉选项就有一个选中的状态
+            //   标记它……如果没有已经选择的下拉选，点开下拉选项的时候，就没有选中状态」）——原生 <option>
+            //   不能设背景色/图标，只能用文案前缀；未选任何模型时（selectedModel===''）任何一项都不带 ✓。
+            `${m4.id === selectedModel ? "\u2713 " : ""}\u2699\uFE0F ${modelLabelOf(m4)}${modelDisambig(m4) ? `\uFF08${modelDisambig(m4)}\uFF09` : ""}${m4.hasImage ? " \xB7 \u{1F4F7} \u56FE\u7247" : ""}`
           ))
         )
+      ),
+      node2.type === "subagent" && selectedModel && !models.some((m4) => m4.id === selectedModel) && (0, import_react102.createElement)(
+        "div",
+        { className: "dsh-wf-panel-hint" },
+        models.length === 0 ? `\u26A0 \u5F53\u524D\u4FDD\u5B58\u7684\u6A21\u578B\u300C${selectedModel}\u300D\u4E0D\u5728 dsh \u5F53\u524D\u5217\u8868\u91CC\uFF08\u672C\u6B21\u6CA1\u53D6\u5230\u6A21\u578B\u5217\u8868\uFF09\u2014\u2014\u8FD0\u884C\u65F6\u4ECD\u6309\u8FD9\u4E2A id \u6267\u884C\u3002` : `\u26A0 \u5F53\u524D\u4FDD\u5B58\u7684\u6A21\u578B\u300C${selectedModel}\u300D\u4E0D\u5728 dsh \u5F53\u524D\u53EF\u7528\u5217\u8868\u91CC\u2014\u2014\u8FD0\u884C\u65F6\u4ECD\u6309\u8FD9\u4E2A id \u6267\u884C\uFF08\u53EF\u80FD\u5931\u8D25\uFF09\u3002\u8BF7\u4ECE\u4E0A\u9762\u91CD\u65B0\u9009\u4E00\u4E2A\u5B9E\u9645\u53EF\u7528\u7684\u6A21\u578B\u3002`
       ),
       node2.type === "subagent" && !selectedModel && (0, import_react102.createElement)(
         "div",
@@ -91368,6 +91867,12 @@ Example:
         "div",
         { className: "dsh-wf-panel-hint" },
         "\u6A21\u578B\u81EA\u52A8\u53D1\u73B0\u81EA dsh \u914D\u7F6E\uFF08settings.yaml\uFF09\uFF0C\u5BC6\u94A5\u7531 dsh \u7EDF\u4E00\u7BA1\u7406\uFF0C\u65E0\u9700\u5728\u6B64\u5F55\u5165\u3002\u5FC5\u987B\u9009\u62E9\u6267\u884C\u6A21\u578B\uFF08\u5FC5\u9009\uFF09\uFF1Bprompt \u7559\u7A7A\uFF08\u6216\u4E0A\u6E38\u8F93\u51FA\u4E3A\u7A7A\uFF09\u65F6\u672C\u8282\u70B9\u4E0D\u6267\u884C\uFF0C\u6D41\u7A0B\u5728\u6B64\u4E2D\u65AD\u3002"
+      ),
+      // ★ 保底不丢 id（用户 2026-10-03：下拉显示模型显示名，不用 id；但对照 JSON/排查时要能看到真实 id）
+      node2.type === "subagent" && selectedModel && (0, import_react102.createElement)(
+        "div",
+        { className: "dsh-wf-panel-hint" },
+        `\u6267\u884C id\uFF1A${selectedModel}\uFF08\u4E0B\u62C9\u91CC\u663E\u793A\u7684\u662F\u6A21\u578B\u663E\u793A\u540D\uFF0C\u8FD0\u884C\u65F6\u6309\u8FD9\u4E2A id \u8C03\u7528\uFF09`
       ),
       node2.type === "subagent" && selectedModel && (() => {
         const m4 = models.find((x4) => x4.id === selectedModel);
@@ -91834,8 +92339,105 @@ Example:
   window.__df_openPicker = () => openWorkflowPicker((def) => {
     window.__df_picked = def;
   });
-  var wfName = new URLSearchParams(location.search).get("name") ?? "\u6D4B\u8BD5\u5DE5\u4F5C\u6D41";
-  var initialDef = {
+  var params = new URLSearchParams(location.search);
+  var wfName = params.get("name") ?? "\u6D4B\u8BD5\u5DE5\u4F5C\u6D41";
+  var branchDef = {
+    name: wfName,
+    version: 1,
+    nodes: [
+      { id: "start", type: "start", params: {} },
+      { id: "if_1", type: "if", label: "\u6761\u4EF6\uFF1A\u6709\u7ED3\u679C\uFF1F", params: { condition: "web_search1.count > 0", portKeys: ["true", "false"] } },
+      { id: "log_t", type: "log", label: "\u771F\u5206\u652F\u5904\u7406", params: { level: "info", message: "has-result" } },
+      { id: "log_f", type: "log", label: "\u5047\u5206\u652F\u5904\u7406", params: { level: "warn", message: "no-result" } },
+      { id: "sw_1", type: "switch", label: "\u6A21\u5F0F\u5206\u652F", params: { value: "prep_vars.mode", cases: { quick: "log_t", full: "log_f" } } },
+      { id: "end", type: "end", params: {} }
+    ],
+    edges: [
+      { from: "start", to: "if_1" },
+      { from: "if_1", to: "log_t", when: "true" },
+      { from: "if_1", to: "log_f", when: "false" },
+      { from: "log_t", to: "sw_1" },
+      { from: "sw_1", to: "log_t", when: "quick" },
+      { from: "sw_1", to: "log_f", when: "full" },
+      { from: "log_f", to: "end" },
+      // ★ 故意留一条没有 when 的分支线：验证「未设分支」琥珀警示 + 问题面板告警（方案 C 的兜底）
+      { from: "if_1", to: "end" }
+    ],
+    layout: {
+      start: { x: 40, y: 80 },
+      if_1: { x: 300, y: 80 },
+      log_t: { x: 600, y: 20 },
+      log_f: { x: 600, y: 180 },
+      sw_1: { x: 300, y: 300 },
+      end: { x: 880, y: 100 }
+    }
+  };
+  var loopDef = {
+    name: wfName,
+    version: 1,
+    nodes: [
+      { id: "start", type: "start", params: {} },
+      { id: "loop_count", type: "loop", label: "\u5FAA\u73AF\uFF1A\u56FA\u5B9A\u6B21\u6570", params: { count: 3, maxIterations: 100 } },
+      { id: "loop_over", type: "loop", label: "\u5FAA\u73AF\uFF1A\u904D\u5386\u6570\u7EC4", params: { over: "{{web_search1.out.results}}", maxIterations: 50 } },
+      { id: "loop_while", type: "loop", label: "\u5FAA\u73AF\uFF1A\u6761\u4EF6", params: { while: "true" } },
+      { id: "loop_none", type: "loop", label: "\u5FAA\u73AF\uFF1A\u65E0\u8FB9\u754C", params: {} },
+      { id: "log_t", type: "log", label: "\u4E0B\u6E38\u5904\u7406", params: { level: "info", message: "done" } },
+      { id: "end", type: "end", params: {} }
+    ],
+    edges: [
+      { from: "start", to: "loop_count" },
+      { from: "start", to: "loop_over" },
+      { from: "start", to: "loop_while" },
+      { from: "start", to: "loop_none" },
+      { from: "loop_count", to: "log_t" },
+      { from: "loop_over", to: "log_t" },
+      { from: "loop_while", to: "log_t" },
+      { from: "loop_none", to: "log_t" },
+      { from: "log_t", to: "end" }
+    ],
+    layout: {
+      start: { x: 40, y: 300 },
+      loop_count: { x: 300, y: 40 },
+      loop_over: { x: 300, y: 200 },
+      loop_while: { x: 300, y: 360 },
+      loop_none: { x: 300, y: 520 },
+      log_t: { x: 680, y: 300 },
+      end: { x: 940, y: 300 }
+    }
+  };
+  var manyDef = {
+    name: wfName,
+    version: 1,
+    nodes: [
+      { id: "start", type: "start", params: {} },
+      {
+        id: "sw_many",
+        type: "switch",
+        label: "\u5206\u652F\u5F88\u591A",
+        params: { value: "prep.mode", cases: Object.fromEntries(Array.from({ length: 8 }, (_5, i3) => [`case${i3 + 1}`, "log_t"])) }
+      },
+      { id: "log_t", type: "log", label: "\u7EC8\u70B9", params: { level: "info", message: "end" } },
+      { id: "end", type: "end", params: {} }
+    ],
+    edges: [
+      { from: "start", to: "sw_many" },
+      ...Array.from({ length: 8 }, (_5, i3) => ({ from: "sw_many", to: "log_t", when: `case${i3 + 1}` })),
+      { from: "log_t", to: "end" }
+    ],
+    layout: { start: { x: 40, y: 240 }, sw_many: { x: 320, y: 40 }, log_t: { x: 700, y: 320 }, end: { x: 940, y: 320 } }
+  };
+  var staleDef = {
+    name: wfName,
+    version: 1,
+    nodes: [
+      { id: "start", type: "start", params: {} },
+      { id: "ai_stale", type: "subagent", label: "AI\uFF1A\u65E7\u6A21\u578B\u5FEB\u7167", params: { model: "custom-model:glm-5.3-flash", prompt: "\u5199\u4E00\u6BB5\u8BDD" } },
+      { id: "end", type: "end", params: {} }
+    ],
+    edges: [{ from: "start", to: "ai_stale" }, { from: "ai_stale", to: "end" }],
+    layout: { start: { x: 60, y: 180 }, ai_stale: { x: 340, y: 140 }, end: { x: 700, y: 180 } }
+  };
+  var initialDef = params.has("stale") ? staleDef : params.has("many") ? manyDef : params.has("loop") ? loopDef : params.has("branch") ? branchDef : {
     name: wfName,
     version: 1,
     nodes: [

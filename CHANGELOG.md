@@ -32,6 +32,17 @@
 - dataflow 数组路径遍历拒绝数组 → 支持数组下标；yaml-lite 嵌套列表解析丢数据 → 惰性对象转数组
 - README 重写对齐现状；移除 pnpm 遗留与 vitest 时代测试文件
 
+### 变更（2026-10-03）
+- **AI 节点模型下拉显示「模型显示名」**（用户原话：「ai子代理节点里面的选择模型，最好是改成下拉选显示名称改成模型显示名称，不用模型id，不容易分辨，代码里面可以用模型id确定调用的模型」）：`/models` 新增 `label`（宿主 `llm.listModels` 的 name，如 `deepseek-flash` → `DeepSeek-V41-Flash`）与 `providerLabel`（提供方显示名）；下拉 option 文案改为显示名、**同名时才补提供方名消歧**、宿主未提供显示名时回退 model id；**option 的 value 仍是模型 id**（存值/执行零变化），下拉下方细字始终给出「执行 id」便于对照 JSON。`id`/`name`/`model` 字段保持不变（向后兼容）。锁定：`test/host-llm.test.mjs` G1–G5 + CDP `model-select`（显示名/不出现内部 id/同名消歧/无显示名回退/徽标仍在/value 仍是 id/空列表分支）。
+- **显示名收口到错误消息与 settings 源**（同一诉求的延续）：①`checkModelModality` 的 `MODEL_MODALITY_MISMATCH` 消息改用 `modelLabel ?? providerName ?? model`（此前印内部串 `llm:deepseek-official:deepseek-flash`），docs/ERROR_REFERENCE.md 同步；②settings 直读源（`buildLlmCandidates`）补 `providerLabel = provider 键名`（如 `custom-model`），并把 `models[].name` 在**与 id 不同**时才当 `modelLabel` 带上（name===id 不带 → UI 老实回退 model id）——修掉「同名消歧时回退内部串 `custom-model:doubao-seed-2.1-pro`」的难看文案。锁定：`llm-config` J1–J5、`host-llm` H1–H4。
+- **模型列表去重 + 下拉「重进即定位已选模型」**（用户 2026-10-03 拍板 + 反馈）：①`listAllEndpoints` 去重键由 `providerName` 改为**去掉 `llm:` 前缀后的 `provider:model`**——host 发现的 `llm:<p>:<m>` 与 settings 直读的 `<p>:<m>` 是同一批模型的两种来源，保留 host 那条（带显示名 + host 路由）；真机实测 56 → **39 条**（去掉 17 条重复）。**故意不按 model 单独去重**：`custom-model` 与 `custom-model-vision` 是同一模型的两条不同路由（后者多「自动识图」），按 model 去重只剩 18 条且会误删能力。②下拉把**已选中的那条挪到列表最前**（紧跟占位项，只调顺序、不复制、不改 value）→ 重进下拉直接定位；③同一节点被换掉 def 时用 effect 把下拉 value 同步回 def。锁定：`host-llm` G6–G8（去重）、CDP `model-select` ③ 段（重进后 value 仍是所选 / 已选项在最前 / def 存值仍是 id）+ ④ 段（清空选择后任何项都不带 ✓，重复重进一致）。
+- **下拉给「已选中模型」加选中态标记**（用户 2026-10-03 补充口径：「点开下拉选项的已经选中的下拉选项就有一个选中的状态标记它……如果没有已经选择的下拉选，点开下拉选项的时候，就没有选中状态，都可以选」）：原生 `<option>` 不能设背景色/图标，故用文案前缀 **`✓ `** 标在**当前已选那一条**（含「存值不在当前列表」的 `✓ ⚠ …（当前值）` 那条）；未选任何模型时任何一项都不带 ✓。它同时出现在展开列表与收起显示里（原生 select 两者共用同一文案——若只想要展开态才标，需要换自定义下拉，另议）。锁定：CDP `model-select` ①/③/④ 段（同一时刻只有一条带 ✓ / 未选中的都不带 / 清空后 0 条带 ✓）。
+
+### 修复（2026-10-03 分支/循环/AI 三修）
+- **switch 多 case 共用一个目标节点被误跳过**：`quick→log_mode` 与新增的 `image→log_mode` 并存时，未激活的那条边把 `log_mode` 塞进 skipped，表现为「AI 汇总成功但不写运行日志」。改为先收集「激活目标」再判定跳过（有任意一条激活入边即执行）。回归锁：`test/loop.test.mjs` H1–H6（已实测旧逻辑 H1/H5 必挂、H2/H6 仍绿）
+- **AI 节点空输出报成功**：宿主 LLM 契约用错（`messages[].content` 传字符串、忽略对象形 `finish.reason`）→ 静默「成功但无结果」。改为 `content: [{type:'text'}]` + 按 `reason.kind` / `failure.{code,message,status}` 判定；零 chunk 或空文本 → `SUBAGENT_EMPTY_OUTPUT`（宿主真机 deepseek-flash 已跑通）
+- **loop 循环体 = 子工作流（方案 A，用户拍板「能复用就复用」）**：`params.body = {workflowName, inputs}`，逐轮注入 `{{vars.loopItem}}` / `{{vars.loopIndex}}`，子流程 `end` 输出收进 `loop.out.items[i]`；`onIterationError: stop|continue`；循环体不存在 → `WORKFLOW_NOT_FOUND`，某轮失败 → `LOOP_BODY_FAILED`
+
 ---
 
 ## v0.1（历史）

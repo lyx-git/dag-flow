@@ -21,6 +21,7 @@ import { saveAsset, downloadAsset } from '../adapter/assets.js';
 import { runWebSearch, runWebFetch } from '../adapter/search.js';
 import { humanizeFetchError } from '../adapter/fetch-errors.js';
 import { waitForManual } from '../executor/awaiting.js';
+import { resolveParams } from '../executor/dataflow.js';
 
 // ---------- helpers ----------
 function startedEnded(): { startedAt: string; t0: number } {
@@ -385,10 +386,18 @@ const switchDef: NodeDefinition<SwitchParams> = {
 };
 
 // ---------- 10. loop ----------
-interface LoopParams { count?: number; while?: string; over?: JsonValue[]; maxIterations?: number; dangerouslyAllowInfinite?: boolean; dangerouslyAllowDestructive?: boolean }
-// 防无限嵌套：loop 节点内部不再"递归调用自身 run"（旧实现 def.run 会无限递归爆炸），
-// 而是跑一个可观测的"内部脚本"——这里用 log 语义占位 + 显式上限。
-// 真正的子循环语义应在 v0.4+ 通过子工作流节点实现；当前 loop 只做迭代计数 + 条件求值。
+/** 循环体规格（2026-10-03 用户拍板方案 A：子工作流当循环体） */
+interface LoopBodySpec { workflowName?: string; inputs?: Record<string, JsonValue> }
+interface LoopParams {
+  count?: number; while?: string; over?: JsonValue[]; maxIterations?: number;
+  dangerouslyAllowInfinite?: boolean; dangerouslyAllowDestructive?: boolean;
+  body?: LoopBodySpec;
+  /** 某轮循环体失败时的策略：stop（默认，整节点失败但保留已完成轮次）/ continue（该轮写占位继续跑） */
+  onIterationError?: 'stop' | 'continue';
+}
+// 防无限嵌套：loop 节点内部不再"递归调用自身 run"（旧实现 def.run 会无限递归爆炸）。
+// ★ 2026-10-03：支持 body=子工作流当循环体——只扩本节点 run、复用 subflow 的调用机制，
+//   不动 topoSort/DAG、不需要画布回边。每轮结果依次进 out.items，下游写法与无 body 时完全一致。
 async function runLoop(p: LoopParams, ctx: Context): Promise<NodeResult> {
   const { startedAt, t0 } = startedEnded();
   const maxIter = Math.min(p.maxIterations ?? 1_000, 100_000);
@@ -415,7 +424,49 @@ async function runLoop(p: LoopParams, ctx: Context): Promise<NodeResult> {
   } else {
     return { ...makeResult('failed', { error: { code: 'LOOP_NO_BOUND', message: '缺少循环边界——count / while / over 至少配置一个' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
   }
-  return finish(t0, startedAt, { out: { count: iterations.length, items: iterations } });
+
+  const body = p.body;
+  // 无循环体：保持原语义——只产出迭代序列 {count, items}
+  if (!body?.workflowName) return finish(t0, startedAt, { out: { count: iterations.length, items: iterations } });
+
+  // —— 循环体：逐轮调用子工作流（方案 A）——
+  const depth = (ctx as Context & { _depth?: number })._depth ?? 0;
+  if (depth >= MAX_SUBFLOW_DEPTH) {
+    return { ...makeResult('failed', { error: { code: 'SUBFLOW_DEPTH', message: `子工作流嵌套超过 ${MAX_SUBFLOW_DEPTH} 层上限` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
+  }
+  const { createStorage } = await import('../adapter/storage.js');
+  const { createLogger } = await import('../adapter/logger.js');
+  const { runWorkflow } = await import('../executor/run.js');
+  const sub = await createStorage().readWorkflow(String(body.workflowName));
+  if (!sub) {
+    return { ...makeResult('failed', { error: { code: 'WORKFLOW_NOT_FOUND', message: `循环体子工作流不存在: ${body.workflowName}（先在工作流面板保存，或检查名称）` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
+  }
+  const myId = String((ctx as Context & { currentNodeId?: string }).currentNodeId ?? 'loop');
+  const outputs: JsonValue[] = [];
+  for (let i = 0; i < iterations.length; i++) {
+    if (ctx.signal?.aborted) {
+      return { ...makeResult('failed', { error: { code: 'RUN_CANCELLED', message: '运行已由用户取消' } }), out: { count: outputs.length, items: outputs }, durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() } as NodeResult;
+    }
+    // 当轮上下文：注入 {{vars.loopItem}} / {{vars.loopIndex}}，供 body.inputs 引用（也可引用上游 {{节点id.out.x}}）
+    const iterCtx = { ...ctx, vars: { ...(ctx.vars ?? {}), loopItem: iterations[i] as JsonValue, loopIndex: i } } as Context;
+    let inputs: Record<string, JsonValue>;
+    try {
+      inputs = resolveParams((body.inputs ?? {}) as Record<string, JsonValue>, iterCtx, myId);
+    } catch (e) {
+      return { ...makeResult('failed', { error: { code: 'DATAFLOW_REF', message: `循环体第 ${i + 1} 轮输入解析失败: ${(e as Error).message}` } }), out: { count: outputs.length, items: outputs }, durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() } as NodeResult;
+    }
+    const { summary } = await runWorkflow(sub, { logger: createLogger(), cwd: process.cwd(), inputs, _depth: depth + 1, signal: ctx.signal });
+    const endIds = sub.nodes.filter((n) => n.type === 'end').map((n) => n.id);
+    const endOut = (endIds.map((id) => summary.results[id]?.out).find((v) => v != null) ?? null) as JsonValue;
+    if (summary.status !== 'success' && p.onIterationError !== 'continue') {
+      // 默认 stop：整节点失败，但把已完成轮次留在 out.items 里便于排查
+      return { ...makeResult('failed', { error: { code: 'LOOP_BODY_FAILED', message: `第 ${i + 1}/${iterations.length} 轮循环体「${sub.name}」以 ${summary.status} 结束——已完成 ${outputs.length} 轮，结果保留在 out.items 里（要跳过失败轮请设 onIterationError: "continue"）` } }), out: { count: outputs.length, items: outputs }, durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() } as NodeResult;
+    }
+    outputs.push(summary.status === 'success'
+      ? endOut
+      : ({ error: { code: 'SUBFLOW_FAILED', message: `第 ${i + 1} 轮失败` }, output: endOut } as JsonValue));
+  }
+  return finish(t0, startedAt, { out: { count: outputs.length, items: outputs } });
 }
 const loopDef: NodeDefinition<LoopParams> = {
   type: 'loop',
@@ -427,6 +478,13 @@ const loopDef: NodeDefinition<LoopParams> = {
       over: { type: 'array' },
       maxIterations: { type: 'integer', minimum: 1, maximum: 100_000 },
       dangerouslyAllowInfinite: { type: 'boolean' },
+      // ★ 循环体（方案 A）：每轮调用该子工作流；inputs 里用 {{vars.loopItem}} / {{vars.loopIndex}}
+      body: {
+        type: 'object', additionalProperties: false,
+        properties: { workflowName: { type: 'string', minLength: 1 }, inputs: { type: 'object', additionalProperties: true } },
+        required: ['workflowName'],
+      },
+      onIterationError: { enum: ['stop', 'continue'] },
     },
     anyOf: [{ required: ['count'] }, { required: ['while'] }, { required: ['over'] }],
   },

@@ -240,9 +240,20 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   // 节点参数修改
   const handleNodeChange = useCallback(
     (id: string, params: Record<string, unknown>) => {
+      // ★ 参数补丁语义修正（2026-10-03，P2 循环设置暴露）：null = 删除该键。
+      //   旧实现是浅合并 `{...n.params, ...params}`，于是 {count: null} 会在 def 里留下 "count": null——
+      //   节点 schema 里 count 是 integer、over 是 array，落盘后是脏数据。codePath 清空等既有调用点
+      //   本来就按「清掉这个键」的意图传 null，所以这里统一成 delete 才是各方真正的期望。
+      const patch: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(params)) if (v !== null) patch[k] = v;
       const next: WorkflowDef = {
         ...def,
-        nodes: def.nodes.map((n) => (n.id === id ? { ...n, params: { ...(n.params ?? {}), ...params } } : n)),
+        nodes: def.nodes.map((n) => {
+          if (n.id !== id) return n;
+          const merged: Record<string, unknown> = { ...(n.params ?? {}), ...patch };
+          for (const [k, v] of Object.entries(params)) if (v === null) delete merged[k];
+          return { ...n, params: merged as typeof n.params };
+        }),
       };
       setDef(next);
       setDirty(true);
@@ -268,7 +279,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   //   样式由 ensurePickerStyles 注入，过去只有点开 📂 时才注入——停靠模式刷新后直接点 ▶，
   //   失败弹窗因缺样式渲染成面板底部的裸块。挂载即注入（幂等），全部弹窗不再依赖打开顺序）
   useEffect(() => { try { ensurePickerStyles(); } catch { /* 忽略 */ } }, []);
-  const [runResults, setRunResults] = useState<Record<string, { status: string; durationMs?: number }>>({});
+  const [runResults, setRunResults] = useState<Record<string, { status: string; durationMs?: number; count?: number }>>({});
   const [running, setRunning] = useState(false);
   const runAbortRef = useRef<AbortController | null>(null);
   // ★ 人工确认（2026-10-03 用户拍板方案 A）：manual 节点挂起 → 头部 ⏸ 徽标 + 确认弹窗
@@ -343,11 +354,12 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   const applyRunSummary = useCallback((data: any): void => {
     setRunResult({ status: data?.ok ? 'success' : 'failed', summary: data?.summary });
     if (!data?.ok) setRunDlgOpen(true); // 失败 → 弹窗展示详情（成功仍用头部 ✓ 小徽标）
-    const results = data?.summary?.results as Record<string, { status?: string; durationMs?: number }> | undefined;
+    const results = data?.summary?.results as Record<string, { status?: string; durationMs?: number; out?: { count?: number } }> | undefined;
     if (results) {
-      const map: Record<string, { status: string; durationMs?: number }> = {};
+      const map: Record<string, { status: string; durationMs?: number; count?: number }> = {};
       for (const [id, r] of Object.entries(results)) {
-        map[id] = { status: r.status ?? 'unknown', durationMs: r.durationMs };
+        // ★ P3（2026-10-03）：loop 节点的实际迭代次数取自 out.count，带进画布徽标
+        map[id] = { status: r.status ?? 'unknown', durationMs: r.durationMs, ...(typeof r.out?.count === 'number' ? { count: r.out.count } : {}) };
       }
       setRunResults(map);
     }
@@ -1093,7 +1105,7 @@ function renderBody(p: {
   rfEdges: RFEdge[];
   selectedNode: import('./types').ClientNode | null | undefined;
   ctx: MountContext;
-  runResults?: Record<string, { status: string; durationMs?: number }>;
+  runResults?: Record<string, { status: string; durationMs?: number; count?: number }>;
   onDefChange: (d: WorkflowDef) => void;
   onRFChange: (nodes: RFNode[], edges: RFEdge[]) => void;
   onSelectNode: (id: string | null) => void;
@@ -1247,7 +1259,7 @@ function NodeInspector({ node, defNodes = [], edges = [], workflowName = '', onD
   onNodeError?: (onError: 'stop' | 'continue' | { goto: string }) => void;
 }) {
   const meta = findMeta(node.type);
-  const [models, setModels] = useState<{ id: string; name: string; kind: string; input?: string[]; hasImage?: boolean }[]>([]);
+  const [models, setModels] = useState<{ id: string; name: string; kind: string; label?: string; providerLabel?: string; model?: string; input?: string[]; hasImage?: boolean }[]>([]);
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>(
     typeof node.params?.model === 'string' ? node.params.model : '',
@@ -1304,6 +1316,148 @@ function NodeInspector({ node, defNodes = [], edges = [], workflowName = '', onD
     for (const r of rows) { const k = r.k.trim(); if (k) cases[k] = r.v; }
     onParamsChange({ cases });
   };
+  // ★ loop 循环设置（P2，2026-10-03 用户拍板）：把引擎的「over > count > while」优先级在 UI 上显式化。
+  //   此前 loop 参数只能在 JSON 视图里改——用户反馈「loop 不会用」的根因之一。
+  const loopParam = (node.params ?? {}) as Record<string, unknown>;
+  // ★ 边界类型按「键是否存在」推导（不是按值非空）：用户刚切到「遍历数组」时值还空着，
+  //   若按值推导会立刻打回「不设边界」——下拉自己跳回去、输入框根本不出现（本轮踩到）。
+  //   引擎侧仍按值判定（空串等于没有边界），这点由卡片副标题与下方空值提示如实告知。
+  const loopBound: string = Array.isArray(loopParam.over) || typeof loopParam.over === 'string'
+    ? 'over'
+    : typeof loopParam.count === 'number' ? 'count'
+      : typeof loopParam.while === 'string' ? 'while'
+        : 'none';
+  // ★ 循环体 = 子工作流（2026-10-03 用户拍板方案 A）：选一个已保存工作流当循环体，
+  //   每轮把 {{vars.loopItem}} / {{vars.loopIndex}} 映射进它的 inputs；子工作流 end 输出依次进 out.items。
+  const loopBody = ((loopParam.body ?? {}) as { workflowName?: string; inputs?: Record<string, unknown> });
+  const [wfNames, setWfNames] = useState<string[]>([]);
+  const [wfLoaded, setWfLoaded] = useState(false);
+  const [bodyRows, setBodyRows] = useState<{ k: string; v: string }[]>(() =>
+    Object.entries(loopBody.inputs ?? {}).map(([k, v]) => ({ k, v: typeof v === 'string' ? v : JSON.stringify(v) })));
+  useEffect(() => {
+    if (node.type !== 'loop' || wfLoaded) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/dag-flow/workflows', { credentials: 'include' });
+        const data = await res.json();
+        const list = (data?.workflows ?? data ?? []) as { name?: string }[];
+        if (!cancelled) setWfNames(list.map((w) => String(w?.name ?? '')).filter(Boolean));
+      } catch { /* 列表拿不到 → 只留「不设」选项 */ } finally { if (!cancelled) setWfLoaded(true); }
+    })();
+    return () => { cancelled = true; };
+  }, [node.type, wfLoaded]);
+  const writeLoopBody = (workflowName: string, rows: { k: string; v: string }[]): void => {
+    setBodyRows(rows);
+    if (!workflowName) { onParamsChange({ body: null }); return; }
+    const inputs: Record<string, string> = {};
+    for (const r of rows) { const k = r.k.trim(); if (k) inputs[k] = r.v; }
+    onParamsChange({ body: { workflowName, inputs } });
+  };
+  const setLoopBound = (next: string): void => {
+    const cleared = { count: null, while: null, over: null };
+    if (next === 'count') onParamsChange({ ...cleared, count: 3 });
+    else if (next === 'over') onParamsChange({ ...cleared, over: '' });
+    else if (next === 'while') onParamsChange({ ...cleared, while: 'true' });
+    else onParamsChange(cleared);
+  };
+  const loopConfigNodes = (): React.ReactNode => {
+    const numInput = (key: string, label: string, min: number, max: number | null, dflt: string): React.ReactNode => createElement('input', {
+      className: 'dsh-wf-input', key, type: 'number', min, ...(max ? { max } : {}), placeholder: label,
+      value: typeof loopParam[key] === 'number' ? String(loopParam[key]) : '',
+      onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+        const v = e.target.value.trim();
+        if (v === '') { onParamsChange({ [key]: null }); return; }
+        let n = parseInt(v, 10);
+        if (!Number.isFinite(n)) return;
+        n = Math.max(min, max ? Math.min(max, n) : n);
+        onParamsChange({ [key]: n });
+      },
+    });
+    const out: React.ReactNode[] = [
+      createElement('label', { className: 'dsh-wf-panel-label', key: 'loop-label' }, '🔁 循环设置'),
+      createElement('div', { className: 'dsh-wf-panel-hint', key: 'loop-hint' },
+        'loop 只产出迭代序列（out.count / out.items），**不会重复执行下游节点**：它算出「跑几次 / 跑哪些项」，由下游节点自己逐项处理。三种边界同时只按一个生效，优先级 over > count > while。'),
+      createElement('select', {
+        className: 'dsh-wf-input', key: 'loop-bound', value: loopBound,
+        onChange: (e: React.ChangeEvent<HTMLSelectElement>) => setLoopBound(e.target.value),
+      },
+        createElement('option', { value: 'count', key: 'b-count' }, '固定次数 count'),
+        createElement('option', { value: 'over', key: 'b-over' }, '遍历数组 over'),
+        createElement('option', { value: 'while', key: 'b-while' }, '条件为真 while'),
+        createElement('option', { value: 'none', key: 'b-none' }, '⚠ 不设边界（运行会失败）'),
+      ),
+    ];
+    if (loopBound === 'count') out.push(numInput('count', '迭代次数，如 3', 0, null, '3'));
+    if (loopBound === 'over') out.push(createElement('input', {
+      className: 'dsh-wf-input', key: 'loop-over', placeholder: '{{上游节点id.out.数组字段}} 或直接写数组',
+      value: typeof loopParam.over === 'string' ? loopParam.over : Array.isArray(loopParam.over) ? JSON.stringify(loopParam.over) : '',
+      onChange: (e: React.ChangeEvent<HTMLInputElement>) => onParamsChange({ over: e.target.value }),
+    }));
+    if (loopBound === 'while') out.push(createElement('input', {
+      className: 'dsh-wf-input', key: 'loop-while', placeholder: '表达式（不是 {{}} 模板），如 true',
+      value: typeof loopParam.while === 'string' ? loopParam.while : '',
+      onChange: (e: React.ChangeEvent<HTMLInputElement>) => onParamsChange({ while: e.target.value }),
+    }));
+    if (loopBound === 'none') out.push(createElement('div', { className: 'dsh-wf-panel-hint', key: 'loop-nobound' }, '⚠ 没有边界时运行会立即失败（LOOP_NO_BOUND），画布问题面板也会报错。'));
+    // 选了边界类型但值还空着 → 引擎视作「没有边界」（会 LOOP_NO_BOUND 失败），面板明说
+    const boundBlank = (loopBound === 'count' && typeof loopParam.count !== 'number')
+      || (loopBound === 'over' && !(Array.isArray(loopParam.over) ? loopParam.over.length > 0 : String(loopParam.over ?? '').trim() !== ''))
+      || (loopBound === 'while' && String(loopParam.while ?? '').trim() === '');
+    if (boundBlank) out.push(createElement('div', { className: 'dsh-wf-panel-hint', key: 'loop-blank' },
+      '⚠ 边界值还是空的——引擎会当作没有边界，运行报 LOOP_NO_BOUND（卡片副标题也会显示「⚠ 无循环边界」）。'));
+    out.push(numInput('maxIterations', '最大迭代次数（默认 1000，上限 100000）', 1, 100000, '1000'));
+    if (loopBound === 'while') out.push(createElement('label', { className: 'dsh-wf-panel-hint', key: 'loop-inf', style: { display: 'flex', gap: 6, alignItems: 'center' } },
+      createElement('input', {
+        type: 'checkbox', checked: loopParam.dangerouslyAllowInfinite === true,
+        onChange: (e: React.ChangeEvent<HTMLInputElement>) => onParamsChange({ dangerouslyAllowInfinite: e.target.checked }),
+      }),
+      'while 到上限后继续（dangerouslyAllowInfinite，慎用）',
+    ));
+    // —— 循环体：子工作流（方案 A）——
+    out.push(createElement('label', { className: 'dsh-wf-panel-label', key: 'loop-body-label' }, '🔁 循环体（可选）'));
+    out.push(createElement('select', {
+      className: 'dsh-wf-input', key: 'loop-body-sel', value: loopBody.workflowName ?? '',
+      onChange: (e: React.ChangeEvent<HTMLSelectElement>) => writeLoopBody(e.target.value, bodyRows),
+    },
+      createElement('option', { value: '', key: 'lb-none' }, '（不设：只产出迭代序列 count/items）'),
+      ...wfNames.map((n) => createElement('option', { value: n, key: 'lb-' + n }, n)),
+      ...(loopBody.workflowName && !wfNames.includes(loopBody.workflowName)
+        ? [createElement('option', { value: loopBody.workflowName, key: 'lb-cur' }, `${loopBody.workflowName}（当前值）`)] : []),
+    ));
+    if (loopBody.workflowName) {
+      out.push(createElement('div', { className: 'dsh-wf-panel-hint', key: 'loop-body-hint' },
+        '每轮调用该子工作流：值里可用 {{vars.loopItem}}（当轮的项或轮次序号）与 {{vars.loopIndex}}（序号），也可引用上游 {{节点id.out.x}}；子工作流 end 节点的输出会依次收进本节点的 out.items，下游写法不变。'));
+      bodyRows.forEach((row, i) => out.push(createElement('div', { key: 'loop-body-row-' + i, style: { display: 'flex', gap: 6, marginBottom: 6 } },
+        createElement('input', {
+          className: 'dsh-wf-input', placeholder: '输入名（子工作流 inputs.x）', value: row.k, style: { flex: '0 0 42%' },
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) => writeLoopBody(loopBody.workflowName as string, bodyRows.map((r, j) => (j === i ? { ...r, k: e.target.value } : r))),
+        }),
+        createElement('input', {
+          className: 'dsh-wf-input', placeholder: '值，如 {{vars.loopItem}}', value: row.v, style: { flex: 1 },
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) => writeLoopBody(loopBody.workflowName as string, bodyRows.map((r, j) => (j === i ? { ...r, v: e.target.value } : r))),
+        }),
+        createElement('button', {
+          className: 'dsh-wf-btn', title: '删除该输入',
+          onClick: () => writeLoopBody(loopBody.workflowName as string, bodyRows.filter((_, j) => j !== i)),
+        }, '✕'),
+      )));
+      out.push(createElement('button', {
+        className: 'dsh-wf-inputs-add', key: 'loop-body-add', title: '添加输入映射',
+        onClick: () => setBodyRows((rs) => [...rs, { k: '', v: '' }]),
+      }, '+'));
+      out.push(createElement('select', {
+        className: 'dsh-wf-input', key: 'loop-iter-err', value: String(loopParam.onIterationError ?? 'stop'),
+        onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onParamsChange({ onIterationError: e.target.value }),
+      },
+        createElement('option', { value: 'stop', key: 'ie-stop' }, '某轮失败 → 整节点失败（已完成轮次保留在 items）'),
+        createElement('option', { value: 'continue', key: 'ie-cont' }, '某轮失败 → 写占位并继续跑'),
+      ));
+    }
+    // ★ 必须包一层 dsh-wf-panel-row：面板的每块设置都是一行（switch 分支设置同款），
+    //   否则元素直接挂在面板根上——样式错位，且任何按 .dsh-wf-panel-row 定位的断言/测试都找不到它
+    return createElement('div', { className: 'dsh-wf-panel-row' }, ...out);
+  };
   const runSingleNode = async () => {
     // AI 节点必须选模型：未选 → 不执行，给出引导
     if (node.type === 'subagent' && !String(node.params?.model ?? '').trim()) {
@@ -1356,6 +1510,35 @@ function NodeInspector({ node, defNodes = [], edges = [], workflowName = '', onD
     setSelectedModel(val);
     onParamsChange({ model: val });
   };
+
+  // ★ 模型下拉的显示名（2026-10-03 用户要求「显示模型显示名称，不用 id」）：
+  //   label = 宿主给的显示名（DeepSeek-V41-Flash）；宿主没给时回退 model id（settings 直读源）
+  //   → 最后才回退旧的内部串 name（llm:provider:model），保证任何来源都不会显示成一串内部 id。
+  //   存值/执行永远是 id（option 的 value），label 只影响 option 文案。
+  const modelLabelOf = (m: { id: string; name?: string; label?: string; model?: string }) => m.label || m.model || m.name || m.id;
+  const modelLabelCount = new Map<string, number>();
+  for (const m of models) modelLabelCount.set(modelLabelOf(m), (modelLabelCount.get(modelLabelOf(m)) ?? 0) + 1);
+  /** 重名时补提供方显示名（不是 id）用于消歧 */
+  const modelDisambig = (m: { id: string; name?: string; label?: string; model?: string; providerLabel?: string }) =>
+    (modelLabelCount.get(modelLabelOf(m)) ?? 0) > 1 ? (m.providerLabel || m.name || '') : '';
+
+  // ★ 「重进下拉直接定位到已选模型」（2026-10-03 用户需求）：把已选中的那条挪到列表最前（紧跟占位项），
+  //   原生 select 展开时就在最上面，不用翻 60 条；其余保持原顺序。**只调顺序，不复制、不改 value**。
+  const orderedModels = (() => {
+    if (!selectedModel) return models;
+    const hit = models.find((m) => m.id === selectedModel);
+    if (!hit) return models;
+    return [hit, ...models.filter((m) => m.id !== selectedModel)];
+  })();
+
+  // ★ 外部换掉了 def 里的模型时把下拉同步过去（换工作流 / 撤销 / 别处编辑）：
+  //   NodeInspector 按 node.id 加了 key，切节点会重挂载；但**同一个节点被换掉 def** 时组件不重挂载，
+  //   初始 useState 不再生效 → 下拉会停在旧值。这里按 prop 变化同步（cur === fromDef 时不动，避免
+  //   把用户刚选、正在往 def 回写的值打回去）。
+  useEffect(() => {
+    const fromDef = typeof node.params?.model === 'string' ? node.params.model : '';
+    setSelectedModel((cur) => (cur === fromDef ? cur : fromDef));
+  }, [node.id, node.params?.model]);
 
   return createElement(
     'div',
@@ -1419,6 +1602,8 @@ function NodeInspector({ node, defNodes = [], edges = [], workflowName = '', onD
         ),
       ),
     ),
+    // ★ loop 循环设置（P2，2026-10-03 用户拍板）
+    node.type === 'loop' && loopConfigNodes(),
     // ★ switch 分支设置（2026-10-02 用户需求「根据不同条件分成多个分支」）：
     //   每个 case 键在画布上生成一个输出口（外加 * 兜底口）——从对应口拖线到目标节点，
     //   边的 when 自动=case 键，执行器按 value 匹配激活对应分支、其余跳过。
@@ -1511,10 +1696,24 @@ function NodeInspector({ node, defNodes = [], edges = [], workflowName = '', onD
         style: !selectedModel ? { borderColor: 'var(--wf-warn, #fbbf24)' } : undefined,
       },
         createElement('option', { value: '', disabled: true }, models.length === 0 ? '（dsh 未配置可用模型，请先在 dsh 添加）' : '⬇ 请选择执行模型'),
-        models.map((m) => createElement('option', { key: m.id, value: m.id },
-          `⚙️ dsh · ${m.name}${m.hasImage ? ' · 📷 图片' : ''}`,
+        // ★ 存值不在当前列表里（旧工作流留下的快照 id、或 dsh 已下架该模型）→ **显式列出来**。
+        //   否则 controlled select 匹配不到任何 option，界面显示"请选择执行模型"，而工作流里仍是旧 id
+        //   → 看起来没选模型、实际按旧 id 执行（2026-10-03 用户问「模型不是实时获取的吗」时发现的缺口）。
+        ...(selectedModel && !models.some((m) => m.id === selectedModel)
+          ? [createElement('option', { key: 'stale-model', value: selectedModel }, `✓ ⚠ ${selectedModel}（当前值，dsh 当前未提供）`)] : []),
+        orderedModels.map((m) => createElement('option', { key: m.id, value: m.id },
+          // ★ 显示「模型显示名」（用户 2026-10-03：不用内部 id，不容易分辨）；重名才补提供方名消歧
+          // ★ 已选中项打「✓」前缀（用户 2026-10-03：「点开下拉选项的已经选中的下拉选项就有一个选中的状态
+          //   标记它……如果没有已经选择的下拉选，点开下拉选项的时候，就没有选中状态」）——原生 <option>
+          //   不能设背景色/图标，只能用文案前缀；未选任何模型时（selectedModel===''）任何一项都不带 ✓。
+          `${m.id === selectedModel ? '✓ ' : ''}⚙️ ${modelLabelOf(m)}${modelDisambig(m) ? `（${modelDisambig(m)}）` : ''}${m.hasImage ? ' · 📷 图片' : ''}`,
         )),
       ),
+    ),
+    node.type === 'subagent' && selectedModel && !models.some((m) => m.id === selectedModel) && createElement('div', { className: 'dsh-wf-panel-hint' },
+      models.length === 0
+        ? `⚠ 当前保存的模型「${selectedModel}」不在 dsh 当前列表里（本次没取到模型列表）——运行时仍按这个 id 执行。`
+        : `⚠ 当前保存的模型「${selectedModel}」不在 dsh 当前可用列表里——运行时仍按这个 id 执行（可能失败）。请从上面重新选一个实际可用的模型。`,
     ),
     node.type === 'subagent' && !selectedModel && createElement('div', { className: 'dsh-wf-panel-hint' },
       models.length === 0
@@ -1523,6 +1722,10 @@ function NodeInspector({ node, defNodes = [], edges = [], workflowName = '', onD
     ),
     node.type === 'subagent' && createElement('div', { className: 'dsh-wf-panel-hint' },
       '模型自动发现自 dsh 配置（settings.yaml），密钥由 dsh 统一管理，无需在此录入。必须选择执行模型（必选）；prompt 留空（或上游输出为空）时本节点不执行，流程在此中断。',
+    ),
+    // ★ 保底不丢 id（用户 2026-10-03：下拉显示模型显示名，不用 id；但对照 JSON/排查时要能看到真实 id）
+    node.type === 'subagent' && selectedModel && createElement('div', { className: 'dsh-wf-panel-hint' },
+      `执行 id：${selectedModel}（下拉里显示的是模型显示名，运行时按这个 id 调用）`,
     ),
     node.type === 'subagent' && selectedModel && (() => {
       const m = models.find((x) => x.id === selectedModel);

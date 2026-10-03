@@ -21,6 +21,10 @@ const TESTS = [
   ['file-save-click', () => import('./test-file-save-click.mjs')],
   ['line-drop-panel', () => import('./test-line-drop-panel.mjs')],
   ['manual-confirm', () => import('./test-manual-confirm.mjs')],
+  ['branch-labels', () => import('./test-branch-labels.mjs')],
+  ['loop-visible', () => import('./test-loop-visible.mjs')],
+  ['switch-many', () => import('./test-switch-many.mjs')],
+  ['model-select', () => import('./test-model-select.mjs')],
 ];
 
 // —— fixture 服务器 ——

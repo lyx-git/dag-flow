@@ -70,7 +70,9 @@ const target = (r) => r.body?.summary?.results?.target;
 {
   const r = await runNode('manual', { prompt: '请确认参数' });
   const out = target(r)?.out;
-  t('3. manual → awaitingUser 结构', target(r)?.status === 'success' && out?.awaitingUser === true && out?.prompt === '请确认参数', JSON.stringify(out));
+  // ★ 2026-10-03 更新：manual 已从 v0.1 空壳改为「真暂停 + 恢复」。/run-node 是非交互路径（不传 interactive），
+  //   按契约自动通过并留痕 autoPassed=true；交互式挂起/恢复由 test/manual-await.test.mjs（20 断言）覆盖。
+  t('3. manual 非交互自动通过（autoPassed=true + confirmed）', target(r)?.status === 'success' && out?.autoPassed === true && out?.confirmed === true && out?.prompt === '请确认参数', JSON.stringify(out));
 }
 // 4. http（真实 GET 本地 mock）
 {
@@ -110,6 +112,31 @@ const target = (r) => r.body?.summary?.results?.target;
   t('7b. subagent prompt 留空 → 中断（SUBAGENT_EMPTY_PROMPT，秒返不调 LLM）', tg?.status === 'failed' && tg?.error?.code === 'SUBAGENT_EMPTY_PROMPT' && tg?.durationMs < 50, JSON.stringify(tg)?.slice(0, 160));
   const r2 = await runNode('subagent', { prompt: '   ', model: 'nonexistent-model-xyz', timeoutMs: 3000 });
   t('7c. subagent prompt 纯空白 → 同样中断', r2.body?.summary?.results?.target?.error?.code === 'SUBAGENT_EMPTY_PROMPT');
+}
+// 7d. subagent 空输出（2026-10-03 用户报「AI 节点成功但正文为空」）：
+//     mock LLM 返回 200 + 纯空白 content → 节点绝不许报 success（否则下游/落盘静默拿到空内容）
+{
+  const emptySrv = http.createServer((_req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '   ' } }], output: [] }));
+  });
+  await new Promise((ok) => emptySrv.listen(0, '127.0.0.1', ok));
+  const emptyPort = emptySrv.address().port;
+  const saved = { b: process.env.DAG_FLOW_LLM_BASEURL, k: process.env.DAG_FLOW_LLM_KEY, m: process.env.DAG_FLOW_LLM_MODEL };
+  process.env.DAG_FLOW_LLM_BASEURL = `http://127.0.0.1:${emptyPort}/v1`;
+  process.env.DAG_FLOW_LLM_KEY = 'sk-mock-empty';
+  process.env.DAG_FLOW_LLM_MODEL = 'mock-empty-out';
+  try {
+    const r = await runNode('subagent', { prompt: '空输出探针', model: 'mock-empty-out', timeoutMs: 5000 });
+    const tg = target(r);
+    t('7d. subagent 空输出 → 绝不 success（SUBAGENT_EMPTY_OUTPUT）', tg?.status === 'failed' && tg?.error?.code === 'SUBAGENT_EMPTY_OUTPUT', JSON.stringify(tg)?.slice(0, 200));
+    t('7d-2. 错误消息说明不再按成功处理', /不再按成功处理/.test(String(tg?.error?.message ?? '')), String(tg?.error?.message ?? '').slice(0, 120));
+  } finally {
+    emptySrv.close();
+    if (saved.b === undefined) delete process.env.DAG_FLOW_LLM_BASEURL; else process.env.DAG_FLOW_LLM_BASEURL = saved.b;
+    if (saved.k === undefined) delete process.env.DAG_FLOW_LLM_KEY; else process.env.DAG_FLOW_LLM_KEY = saved.k;
+    if (saved.m === undefined) delete process.env.DAG_FLOW_LLM_MODEL; else process.env.DAG_FLOW_LLM_MODEL = saved.m;
+  }
 }
 // 8. session_input（读取真实 ~/.dsh/sessions；无匹配会话也须结构完整）
 {

@@ -143,6 +143,13 @@
   color: var(--wf-danger, #f87171);
 }
 
+/* loop 节点运行徽标（P3）：文案带「· 循环 N 次」时用紫色区分（与循环连线标记同色系） */
+.dsh-wf-fg-badge.is-loop {
+  background: color-mix(in srgb, #a78bfa 20%, var(--wf-panel, #101a2b));
+  border-color: color-mix(in srgb, #a78bfa 55%, transparent);
+  color: #c4b5fd;
+}
+
 /* ===== 左侧节点面板 ===== */
 .dsh-wf-fg-palette {
   position: absolute;
@@ -501,6 +508,128 @@
 /* ===== 节点拖拽光标 ===== */
 .dsh-wf-fg-node-host { cursor: grab; }
 .dsh-wf-fg-node-host:active { cursor: grabbing; }
+
+/* ===== 分支键显形（2026-10-03 用户需求 B）+ 就地编辑（方案 C）===== */
+/* 连线中点的分支标签：容器是该线「包围盒 + padding」的绝对定位盒，故 50%/50% 即线中点。
+   方案 C 起标签可点（cursor:pointer）——只占标签自身这点热区，线的其余部分照常交互 */
+.dsh-wf-fg-line-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+  z-index: 3;
+  font-family: ui-monospace, Consolas, monospace;
+  background: var(--wf-panel, #101a2b);
+  border: 1px solid var(--wf-border-strong, #2a3a56);
+  color: var(--wf-muted, #8b9bb3);
+}
+.dsh-wf-fg-line-label:hover { border-color: var(--wf-accent, #4f8cff); color: var(--wf-text, #e6edf7); }
+.dsh-wf-fg-line-label.is-true { color: #10b981; border-color: color-mix(in srgb, #10b981 45%, transparent); }
+.dsh-wf-fg-line-label.is-false { color: #f43f5e; border-color: color-mix(in srgb, #f43f5e 45%, transparent); }
+.dsh-wf-fg-line-label.is-case { color: var(--wf-accent, #4f8cff); border-color: color-mix(in srgb, var(--wf-accent, #4f8cff) 45%, transparent); }
+/* 循环节点的出边标记（P3，2026-10-03）：明示这条线来自 loop——下游只执行一次（loop 只产出迭代序列） */
+.dsh-wf-fg-line-label.is-loop {
+  color: #a78bfa;
+  border-color: color-mix(in srgb, #a78bfa 45%, transparent);
+  cursor: default;
+}
+.dsh-wf-fg-line-label.is-loop:hover { border-color: color-mix(in srgb, #a78bfa 70%, transparent); color: #c4b5fd; }
+/* 未设分支键：琥珀警示（这类线运行时恒激活 = 所有分支都会跑） */
+.dsh-wf-fg-line-label.is-warn {
+  color: #f59e0b;
+  border-color: color-mix(in srgb, #f59e0b 55%, transparent);
+  border-style: dashed;
+  animation: dsh-wf-branch-warn 2.2s ease-in-out infinite;
+}
+@keyframes dsh-wf-branch-warn {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+  50% { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18); }
+}
+
+/* 分支键就地编辑器（Portal 到 body，锚点 = 点击处的屏幕坐标） */
+.dsh-wf-fg-bedit-mask { position: fixed; inset: 0; z-index: 10020; }
+.dsh-wf-fg-bedit {
+  position: fixed;
+  width: 288px;
+  padding: 10px 12px 11px;
+  border-radius: 10px;
+  background: var(--wf-panel, #101a2b);
+  border: 1px solid var(--wf-border-strong, #2a3a56);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  color: var(--wf-text, #e6edf7);
+}
+.dsh-wf-fg-bedit-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+.dsh-wf-fg-bedit-node {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10.5px; font-weight: 400; color: var(--wf-muted, #8b9bb3);
+  font-family: ui-monospace, Consolas, monospace;
+}
+.dsh-wf-fg-bedit-close {
+  flex: none; width: 22px; height: 22px; border-radius: 6px; border: none; background: transparent;
+  color: var(--wf-muted, #8b9bb3); cursor: pointer; font-size: 12px; line-height: 1;
+}
+.dsh-wf-fg-bedit-close:hover { background: color-mix(in srgb, var(--wf-accent, #4f8cff) 16%, transparent); color: var(--wf-text, #e6edf7); }
+.dsh-wf-fg-bedit-hint { margin: 6px 0 9px; font-size: 10.5px; line-height: 1.6; color: var(--wf-muted, #8b9bb3); }
+.dsh-wf-fg-bedit-keys { display: flex; flex-wrap: wrap; gap: 6px; }
+.dsh-wf-fg-bedit-key {
+  padding: 4px 9px; border-radius: 7px; cursor: pointer; font-size: 11px;
+  font-family: ui-monospace, Consolas, monospace;
+  background: var(--wf-panel2, #162135);
+  border: 1px solid var(--wf-border-strong, #2a3a56);
+  color: var(--wf-text, #e6edf7);
+}
+.dsh-wf-fg-bedit-key:hover { border-color: var(--wf-accent, #4f8cff); color: var(--wf-accent, #4f8cff); }
+.dsh-wf-fg-bedit-key.is-current { border-color: var(--wf-accent, #4f8cff); color: var(--wf-accent, #4f8cff); background: color-mix(in srgb, var(--wf-accent, #4f8cff) 14%, transparent); }
+.dsh-wf-fg-bedit-custom { display: flex; gap: 6px; margin-top: 9px; }
+.dsh-wf-fg-bedit-custom input {
+  flex: 1; min-width: 0; padding: 6px 9px; border-radius: 7px; font-size: 11.5px;
+  font-family: ui-monospace, Consolas, monospace; outline: none;
+  background: var(--wf-bg, #0b1120); border: 1px solid var(--wf-border, #22304a);
+  color: var(--wf-text, #e6edf7);
+}
+.dsh-wf-fg-bedit-custom input:focus { border-color: var(--wf-accent, #4f8cff); }
+.dsh-wf-fg-bedit-add {
+  flex: none; padding: 6px 10px; border-radius: 7px; cursor: pointer; font-size: 11.5px;
+  background: var(--wf-accent, #4f8cff); border: none; color: #fff; font-weight: 600;
+}
+.dsh-wf-fg-bedit-add:disabled { opacity: 0.45; cursor: not-allowed; }
+.dsh-wf-fg-bedit-foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--wf-border, #22304a); }
+.dsh-wf-fg-bedit-clear {
+  padding: 4px 9px; border-radius: 7px; cursor: pointer; font-size: 11px;
+  background: transparent; border: 1px solid var(--wf-border-strong, #2a3a56); color: var(--wf-muted, #8b9bb3);
+}
+.dsh-wf-fg-bedit-clear:hover:not(:disabled) { border-color: var(--wf-danger, #f87171); color: var(--wf-danger, #f87171); }
+.dsh-wf-fg-bedit-clear:disabled { opacity: 0.4; cursor: not-allowed; }
+.dsh-wf-fg-bedit-warn { flex: 1; text-align: right; font-size: 9.5px; color: var(--wf-muted, #8b9bb3); opacity: 0.8; }
+
+/* 节点卡上的分支端口标签：与端口同高（top 由 JS 按 22 + i*30 计算），贴卡片右内侧 */
+.dsh-wf-fg-branch-label {
+  position: absolute;
+  right: 10px;
+  transform: translateY(-50%);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+  font-family: ui-monospace, Consolas, monospace;
+  background: color-mix(in srgb, var(--wf-panel, #101a2b) 82%, transparent);
+  color: var(--wf-muted, #8b9bb3);
+  opacity: 0.92;
+}
+.dsh-wf-fg-branch-label.is-true { color: #10b981; }
+.dsh-wf-fg-branch-label.is-false { color: #f43f5e; }
+.dsh-wf-fg-branch-label.is-star { color: var(--wf-accent, #4f8cff); }
 
 /* ===== 面板八向拖拽调大小（2026-10-01 夜）——把手全在盒内（palette overflow:hidden 会裁剪外伸部分） =====
    2026-10-02 用户反馈「不要这种线」：与右面板同款删除 hover/active 高亮条，边缘光标语义保留。 */

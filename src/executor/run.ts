@@ -159,7 +159,12 @@ export async function runWorkflow(defInput: unknown, opts: RunOptions): Promise<
       // 数据传递：解析 params 中的 {{nodeId.out}} 模板引用为上游实际输出
       let resolved: Record<string, JsonValue> = node.params ?? {};
       try {
-        resolved = resolveParams(node.params ?? {}, ctx, node.id);
+        // ★ loop 的 body.inputs 必须延迟到每轮迭代时再解析（里面会引用 {{vars.loopItem}}/{{vars.loopIndex}}，
+        //   运行前解析必然 DATAFLOW_REF）——这里把 body 原样透传，由 runLoop 自己逐轮 resolveParams。
+        const { body: rawBody, ...restParams } = (node.params ?? {}) as Record<string, JsonValue> & { body?: JsonValue };
+        resolved = node.type === 'loop' && rawBody !== undefined
+          ? ({ ...resolveParams(restParams, ctx, node.id), body: rawBody } as Record<string, JsonValue>)
+          : resolveParams(node.params ?? {}, ctx, node.id);
       } catch (e) {
         if (e instanceof DataflowError) {
           return makeResult('failed', { error: { code: 'DATAFLOW_REF', message: e.message } });
@@ -376,7 +381,11 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
         // 数据传递：解析 params 中的 {{nodeId.out}} 模板引用
         let resolved: Record<string, JsonValue> = node.params ?? {};
         try {
-          resolved = resolveParams(node.params ?? {}, ctx, id);
+          // ★ 同 legacy 路径：loop 的 body 延迟到每轮迭代解析（见上）
+          const { body: rawBody, ...restParams } = (node.params ?? {}) as Record<string, JsonValue> & { body?: JsonValue };
+          resolved = node.type === 'loop' && rawBody !== undefined
+            ? ({ ...resolveParams(restParams, ctx, id), body: rawBody } as Record<string, JsonValue>)
+            : resolveParams(node.params ?? {}, ctx, id);
         } catch (e) {
           if (e instanceof DataflowError) {
             return makeResult('failed', { error: { code: 'DATAFLOW_REF', message: e.message } });
@@ -407,6 +416,12 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
       const truthy = Boolean(outVal);
       const matched = String((outVal as JsonValue & { matched?: string })?.matched ?? '');
       const hasExact = edges.some((e) => e.when === matched);
+      // ★ 一个目标只要**有任意一条**激活入边就不该被跳过（2026-10-03 修）：
+      //   旧实现逐条未激活边就 `skipped.add(e.to)`，于是 switch 的多个 case 指向同一节点时
+      //   （如 quick→log_mode 且 image→log_mode）——激活的那条 + 未激活的另一条 → 目标被错误跳过。
+      //   演示工作流补 image case 后 log_mode 被跳过即此因。现在先收集「激活目标」再决定跳过。
+      const activated = new Set<string>();
+      const deactivated: string[] = [];
       for (const e of edges) {
         let active = true;
         if (isIf) {
@@ -417,8 +432,9 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
           else if (e.when === '*') active = !hasExact;
           else active = false;
         }
-        if (!active) skipped.add(e.to);
+        if (active) activated.add(String(e.to)); else deactivated.push(String(e.to));
       }
+      for (const t of deactivated) if (!activated.has(t)) skipped.add(t);
     }
 
     // ★ 解构必须带 id（2026-10-02 真机 500「id is not defined」根因：此循环此前只解构

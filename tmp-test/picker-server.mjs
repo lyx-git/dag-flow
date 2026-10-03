@@ -18,6 +18,8 @@ const versions = new Map();                  // name -> [{ ts, workflow }] 新�
 const MANUAL_STUB_PROMPT = '请核对【技术简报】正文与配图是否符合要求。';
 let stubRunId = 0;
 const awaitingRuns = new Map();              // runId -> { name, nodeId }
+// /models stub 的返回模式（2026-10-03 模型显示名回归锁）：'empty'（默认，= 老行为 404 → 空列表）| 'name'
+let modelsMode = 'empty';
 const STATIC = new Set(['/picker-replica.html', '/picker-test.js', '/grab-test.html', '/grab-test.js', '/grab-test.css', '/dom-debug.html', '/cdp-host.html']);
 
 const seedNodes = (n) => 2 + (SEED.indexOf(n) % 7);
@@ -38,6 +40,32 @@ createServer((req, res) => {
     res.setHeader('content-type', u.pathname.endsWith('.html') ? 'text/html; charset=utf-8'
       : u.pathname.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8');
     res.end(readFileSync(join(root, u.pathname.slice(1))));
+    return;
+  }
+  // /api/dag-flow/models stub —— 默认返回空列表（= 老行为：没 stub 时 fetch 404 → 客户端 models=[]），
+  // 由测试用 POST /__models-mode 切换成 'name' 模式，返回带 label（模型显示名）的条目。
+  if (u.pathname === '/api/dag-flow/models') {
+    if (modelsMode !== 'name') { json({ models: [] }); return; }
+    json({
+      models: [
+        // ① 显示名与内部 id 完全不同（断言「下拉里出现显示名、不出现 llm: 内部串」）
+        { id: 'dsh:llm:probe-provider:probe-flash', name: 'llm:probe-provider:probe-flash', model: 'probe-flash', label: 'Probe-V41-Flash', providerLabel: '探针提供方', kind: 'dsh', input: ['text', 'image'], hasImage: true },
+        // ② 与 ① 同显示名 → 必须补提供方名消歧
+        { id: 'dsh:llm:other-provider:probe-flash', name: 'llm:other-provider:probe-flash', model: 'probe-flash', label: 'Probe-V41-Flash', providerLabel: '另一家', kind: 'dsh', input: ['text'], hasImage: false },
+        // ③ 宿主没给显示名（settings 直读源）→ 回退 model id，不得显示成 llm:provider:model
+        { id: 'dsh:custom-model:glm-x', name: 'custom-model:glm-x', model: 'glm-x', kind: 'dsh', input: ['text'], hasImage: false },
+      ],
+    });
+    return;
+  }
+  // 测试控制口：设置 /models 的返回模式（'empty' 默认 | 'name'）
+  if (u.pathname === '/__models-mode' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      try { const j = JSON.parse(body || '{}'); modelsMode = j.mode === 'name' ? 'name' : 'empty'; json({ ok: true, mode: modelsMode }); }
+      catch { res.writeHead(400); res.end('bad json'); }
+    });
     return;
   }
   if (u.pathname === '/api/dag-flow/workflows') {
@@ -89,7 +117,12 @@ createServer((req, res) => {
         const { def } = JSON.parse(body);
         if (!def) { json({ error: '缺少 def（工作流定义）' }, 400); return; }
         const results = {};
-        for (const n of (def.nodes ?? [])) results[n.id] = { status: 'success', durationMs: 1 };
+        for (const n of (def.nodes ?? [])) {
+          // loop 节点带 out.count（P3 徽标「· 循环 N 次」断言用；7 = 刻意哨兵值，与夹具里配的 3/50 无关）
+          results[n.id] = n.type === 'loop'
+            ? { status: 'success', durationMs: 1, out: { count: 7, items: [] } }
+            : { status: 'success', durationMs: 1 };
+        }
         const manual = (def.nodes ?? []).find((n) => n.type === 'manual');
         if (manual) {
           const runId = `run-stub-manual-${++stubRunId}`;

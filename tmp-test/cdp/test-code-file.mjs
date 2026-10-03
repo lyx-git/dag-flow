@@ -51,7 +51,7 @@ export async function run({ cdp, evaluate, waitFor, ok, eq }) {
   await waitFor(cdp, `window.__df_def?.nodes?.find((n) => n.type === 'python')?.params?.codePath === 'scripts/hello.py'`, { timeout: 5000 });
   ok(true, 'codePath 已写入节点 params');
 
-  // ③ 清空输入 → codePath 置 null（onParamsChange 是 merge 语义，null=清除；执行器读 falsy 时忽略文件）
+  // ③ 清空输入 → codePath 键被删除（2026-10-03 起 null=删键语义；执行器读 falsy 时忽略文件引用）
   await evaluate(cdp, `
     (() => {
       const label = [...document.querySelectorAll('.dsh-wf-panel-label')].find((l) => l.textContent.includes('代码文件'));
@@ -61,8 +61,8 @@ export async function run({ cdp, evaluate, waitFor, ok, eq }) {
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })(); true;
   `);
-  await waitFor(cdp, `(window.__df_def?.nodes?.find((n) => n.type === 'python')?.params ?? {}).codePath === null`, { timeout: 5000 });
-  ok(true, '清空输入后 codePath 置 null（执行器读 falsy 忽略文件引用）');
+  await waitFor(cdp, `!(window.__df_def?.nodes?.find((n) => n.type === 'python')?.params ?? {}).hasOwnProperty('codePath')`, { timeout: 5000 });
+  ok(true, '清空输入后 codePath 键被删除（null=删键，不再落 "codePath": null 脏数据）');
 
   // ④ 点「📝 编辑代码」→ 弹窗出现
   await evaluate(cdp, `

@@ -6,6 +6,54 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261003-model-label-top：模型下拉「重进就定位到已选模型」+「已选项带选中标记」（用户 2026-10-03 反馈：
+//   重进下拉选没有自动定位到已选择的模型；补充口径：点开下拉时已选中的那条要有一个选中状态标记它，
+//   没有已选模型时则任何项都不带标记）——①已选中的那条**挪到列表最前**（紧跟占位项），原生 select 展开即在
+//   最上面，不用翻几十条；只调顺序、不复制、不改 value；②当前已选那条的文案前加 **`✓ `**（含「存值不在当前
+//   列表」的 `✓ ⚠ …（当前值）` 那条）——原生 option 不能设背景/图标，只能用文案前缀，且它在展开列表与收起
+//   显示里都会出现；未选任何模型时（selectedModel===''）任何一项都不带 ✓；③同一个节点被换掉 def 时（换工作流/
+//   撤销/别处编辑）用一个 effect 把下拉 value 同步回 def（组件按 node.id 加了 key，切节点会重挂载，换 def 不会）。
+// v20261003-model-label：AI 节点模型下拉显示**显示名**（用户 2026-10-03 原话：「ai子代理节点里面的选择模型，
+//   最好是改成下拉选显示名称改成模型显示名称，不用模型id，不容易分辨，代码里面可以用模型id确定调用的模型」）。
+//   option 文案 = 宿主 llm listModels 给的显示名（deepseek-flash → DeepSeek-V41-Flash），同名时补 provider
+//   显示名消歧，宿主没给显示名时回退 model id；**option 的 value 仍是 id**（存值/执行不变），下拉下方细字
+//   始终给出「执行 id」便于对照 JSON。旧工作流存了列表里没有的 id 时仍按原样显式列出（行为不变）。
+// v20261003-loop-body：循环体 = 子工作流（用户拍板方案 A：能复用就复用，不自研）——loop 节点新增
+//   `body:{workflowName, inputs}`，每轮按 `{{vars.loopItem}}`（当轮的项/轮次序号）与 `{{vars.loopIndex}}`
+//   解析 inputs 后调用该子工作流，**子工作流 end 节点的输出依次收进 `loop.out.items`**——下游写法与无 body 时
+//   完全一致（`{{loop1.out.items}}` / `{{loop1.out.items.0.field}}` / `{{loop1.out.count}}`）。
+//   `onIterationError:'continue'` 时失败轮写占位继续跑，默认 stop 则整节点失败但已完成轮次保留在 items 便于排查。
+//   引擎侧：run.ts 对 loop 的 body **延迟解析**（body.inputs 里引用了每轮才存在的 loopItem/loopIndex，
+//   运行前解析必 DATAFLOW_REF）；面板侧：右侧「🔁 循环设置」新增循环体下拉 + 输入映射 + 失败策略。
+//   实现只扩 loop 的 run、复用 subflow 调用机制，不动 topoSort/DAG、不需要画布回边。
+// v20261003-switch-compact：switch 分支过多把节点撑大、把流程拉散（用户 2026-10-03 反馈）——自适应紧凑
+//   （用户拍板 A+A+）：case ≥ 7 时端口行距 30→12px、**卡内标签隐藏**（每条连线中点本来就有分支键标签，
+//   信息不丢）、副标题显示「N 个分支」。端口是连线锚点不能隐藏，所以只压行距与卡内标签。
+//   实测 20 个 case：卡片 646px → 286px（-56%），8 case 夹具 286→142px；≤6 个 case 行为完全不变（行距 30）。
+// v20261003-loop-visible：loop 循环可见化（用户拍板 P1+P2+P3）——loop 此前在画布上「存在感缺失」
+//   （卡片副标题只认 count，配了 over/while 就显示错的 `count=?`；出边与普通线无差别；参数只能去 JSON 改）。
+//   P1 卡片副标题按**实际生效边界**显示（引擎优先级 over > count > while）：`循环 3 次` / `遍历 5 项` /
+//      `遍历 {{上游.out.数组}}` / `while: 表达式` / `⚠ 无循环边界`，并带上 `· 上限 N`；count/while/over 全缺
+//      时问题面板同时报 error（运行必 LOOP_NO_BOUND）。
+//   P2 右侧面板新增「🔁 循环设置」区（对齐 switch「🔀 分支设置」）：边界类型下拉 + 对应输入框 + 最大迭代
+//      次数 + while 的 dangerouslyAllowInfinite 开关；切换类型时清掉其余两种边界（避免"以为生效其实没生效"）。
+//   P3 画布循环标记：loop 出边中点挂紫色「循环」小标（明示下游只执行一次），运行后节点徽标追加
+//      `· 循环 N 次`（取自 out.count，落 runStatusStore 的 count 字段）。
+// v20261003-branch-fix：修「switch 在线上改分支键：切不回原 case、切换很慢」——根因是改键走
+//   DefSync 整文档 fromJSON 重建，而 FlowGram 对被替换掉的线回收不完整：每次编辑都在画布上留一条
+//   带旧分支键的幽灵线（实测 8→9→10），看着像"没切过去"，线越积越多还越来越慢。修法：
+//   ①改键主路径改为**就地改线**（line.updateInfo → rebindLinePorts + fireChange，官方拖线重连内部走它），
+//     并把新 sig 标记为「画布自己产生的变更」让 DefSync 跳过重建 → def 1-6ms、画布标签 3-60ms、无残留；
+//   ②DefSync 重建前先 dispose「不在目标边集合里」的现存线——兜住新建 case 等仍走重建的路径，
+//     也顺带修掉历史上任何结构变更残留的幽灵线。
+// v20261003-branch-edit：分支键就地编辑（方案 C）+ 微调——连线中点的分支标签可点击，在锚点处
+//   弹出小面板直接选/改/清空分支键（switch 输入新 case 名会同时写进节点 params.cases 并指向本线目标）；
+//   if/switch 的出边若没有分支键 → 琥珀虚线「未设分支」告警 + 问题面板同时列出（执行器对这种线按恒激活，
+//   即所有分支都会跑）；标签文案改口语「真/假/其他」（原始键名放 title）；switch 卡随分支数自动增高。
+// v20261003-branch-labels：分支条件在画布上显形（用户需求 B）——连线中点显示分支键标签
+//   （if: true/false，switch: case 名，'*' → 其他）+ true 绿 / false 红描边（走 free-lines-plugin
+//   的 renderInsideLine / customLineProps，singleton 覆盖预设空实例）；节点卡右侧给每个输出
+//   端口加同高标签（top = 22 + i*30，与 formMeta 的 locationConfig 对齐）。
 // v20261003-picker-path：「打开/新建工作流」下拉里，每个工作流名称后置灰显示它的落盘路径
 //   （GET /workflows 每项新增 path 字段；路径跟随目录分隔符、单行省略、完整值放 title；
 //    复制出的新行也按 storage.dir 推算路径）。
@@ -354,7 +402,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261003-picker-path · apply OK');
+    console.log('[dag-flow] client v20261003-model-label-top · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }
