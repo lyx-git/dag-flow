@@ -1,0 +1,29 @@
+﻿
+✓ close-btn  232ms
+✓ deselect-flash  690ms
+✓ panel-resize  290ms
+✓ minimap  260ms
+✓ versions  2932ms
+✓ picker-copy  425ms
+✓ inputs  156ms
+✓ palette-drag  640ms
+✓ run-button  650ms
+✓ inspector-switch  525ms
+✓ code-file  285ms
+✓ switch-cases  279ms
+✓ delete-button  250ms
+✓ file-save-click  256ms
+✓ line-drop-panel  4238ms
+✓ manual-confirm  1242ms
+✓ branch-labels  649ms
+✓ loop-visible  381ms
+✓ switch-many  451ms
+✓ model-select  3406ms
+✓ loop-jump  1005ms
+✓ switch-chips  8075ms
+✓ var-refs  1185ms
+✓ node-result-tip  1611ms
+✓ live-status  5135ms
+✓ view-controls  4445ms
+
+全部 26 项通过

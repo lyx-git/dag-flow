@@ -204,7 +204,32 @@ const varsDef: any = {
   },
 };
 
-const initialDef: any = params.has('vars') ? varsDef : params.has('jump') ? jumpDef : params.has('chips') ? chipsDef : params.has('stale') ? staleDef : params.has('many') ? manyDef : params.has('loop') ? loopDef : params.has('branch') ? branchDef : {
+/** ?big=1：大图夹具（2026-10-03 画布缩放用例）—— 14 节点铺开在 ~2600×1500 世界坐标上，
+ *  在 1374×800 视口里 fit 只有 ~0.45 → 用来验证「进画布默认不会小到看不清（≥75%）」
+ *  与「⤢ 适应画布有 50% 缩放下限」两条 clamp。 */
+const bigDef: any = {
+  name: wfName,
+  version: 1,
+  nodes: [
+    { id: 'start', type: 'start', params: {} },
+    ...Array.from({ length: 12 }, (_, i) => ({
+      id: `step${i + 1}`, type: 'log', label: `步骤${i + 1}`, params: { level: 'info', message: `s${i + 1}` },
+    })),
+    { id: 'end', type: 'end', params: {} },
+  ],
+  edges: [
+    { from: 'start', to: 'step1' },
+    ...Array.from({ length: 11 }, (_, i) => ({ from: `step${i + 1}`, to: `step${i + 2}` })),
+    { from: 'step12', to: 'end' },
+  ],
+  layout: {
+    start: { x: 60, y: 700 },
+    ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`step${i + 1}`, { x: 320 + (i % 4) * 700, y: 100 + Math.floor(i / 4) * 520 }])),
+    end: { x: 3120, y: 620 },
+  },
+};
+
+const initialDef: any = params.has('big') ? bigDef : params.has('vars') ? varsDef : params.has('jump') ? jumpDef : params.has('chips') ? chipsDef : params.has('stale') ? staleDef : params.has('many') ? manyDef : params.has('loop') ? loopDef : params.has('branch') ? branchDef : {
   name: wfName,
   version: 1,
   nodes: [

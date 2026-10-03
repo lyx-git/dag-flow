@@ -457,6 +457,25 @@
   text-align: center;
 }
 
+/* ★ 百分比读数现在是个按钮（点它一键回 100%；2026-10-03 用户要求「最好可以一键放大缩小」）：
+   清掉浏览器默认按钮外观，与工具条其它按钮同一视觉语言 */
+button.dsh-wf-fg-zoom {
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+button.dsh-wf-fg-zoom:hover {
+  background: var(--wf-panel3h, #1d3150);
+  border-color: var(--wf-border2, #29405f);
+  color: var(--wf-text, #dce7f8);
+}
+
 /* ===== minimap（2026-10-01 夜：right 由内联注入避让右面板 + 最小化 + 八向缩放） ===== */
 .dsh-wf-fg-minimap {
   position: absolute;

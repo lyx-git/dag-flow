@@ -6,6 +6,18 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261003-view-zoom：画布视图控件（用户 2026-10-03 原话：「适应画布的按钮现在没啥用，现在刚进工作流画布的时候，
+//   画布上的节点太小了，无法看清，最好可以一键放大缩小，方便修改」）——根因：onAllLayersRendered 里**每次渲染都
+//   fitView**，大图被硬塞进视口（~30%），节点看不清；而且「适应画布」按钮与这个自动行为重复，所以"没啥用"。
+//   ①进画布只设一次初始视图：自适应但夹在 [75%,100%]，**取景保持原样 = 整图内容居中**，此后不再自动改视图
+//     （用户自己缩放/拖动后不会被抢回去）；
+//   ②「⤢ 适应画布」只由点击触发，缩放下限 50%（大图仍能一键看全貌）；
+//   ③「−/＋」按档位一键放大缩小（25/50/75/100/125/150/200%），百分比读数可点 = 「1:1」= 一键回 100%；
+//     缩放围绕**当前视口中心**，视觉上不跳。
+//   ★ 2026-10-03 用户指示「70%挡位改为75%」：可读下限与档位表一起改（否则进画布那一刻的缩放不在档位上）。
+//   ★ 踩坑（真机回归）：初版把居中目标写成起始节点（nodeBounds(start)），等于把整张图往右推——右半边被插件
+//     自己的右侧检查器面板（.dsh-wf-right，absolute 浮层）盖住，端口点 elementFromPoint 命中面板，连拖线都
+//     起不来（CDP switch-chips 3/3 挂）。改为整图内容居中后恢复。
 // v20261003-switch-chips：switch 分支键改「横排 chips」（用户 2026-10-03 反馈：截图里 quick/full/video/image/
 //   其他 五个键在卡内**逐行竖着堆**，「很别扭，也会遮挡」→ 原型三选一后拍板 A）。三档策略（端口位置与连线
 //   行为一律不变，全部出自同一个 `switchLayout()`）：
@@ -449,7 +461,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261003-midrun-out · apply OK');
+    console.log('[dag-flow] client v20261003-zoom75 · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

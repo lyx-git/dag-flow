@@ -32,6 +32,8 @@ const TESTS = [
   ['node-result-tip', () => import('./test-node-result-tip.mjs')],
   // ★ 2026-10-03：运行过程态（待运行/运行中/依次点亮 + 动态运行按钮 + 红色取消）
   ['live-status', () => import('./test-live-status.mjs')],
+  // ★ 2026-10-03：画布视图控件（进画布默认 75% 看得清 / 适应画布 50% 下限 / 一键放大缩小 / 不被重渲染重置）
+  ['view-controls', () => import('./test-view-controls.mjs')],
 ];
 
 // —— fixture 服务器 ——

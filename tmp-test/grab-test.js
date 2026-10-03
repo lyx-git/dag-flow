@@ -70577,22 +70577,22 @@ Please add \`${key}Action\` when creating your handler.`
       const midHorizontalLines = [];
       const midVerticalLines = [];
       snapNodeRects.forEach((snapNodeRect) => {
-        const nodeBounds = snapNodeRect.rect;
-        const nodeCenter = nodeBounds.center;
+        const nodeBounds2 = snapNodeRect.rect;
+        const nodeCenter = nodeBounds2.center;
         const top = {
-          y: nodeBounds.top,
+          y: nodeBounds2.top,
           sourceNodeId: snapNodeRect.id
         };
         const bottom = {
-          y: nodeBounds.bottom,
+          y: nodeBounds2.bottom,
           sourceNodeId: snapNodeRect.id
         };
         const left = {
-          x: nodeBounds.left,
+          x: nodeBounds2.left,
           sourceNodeId: snapNodeRect.id
         };
         const right = {
-          x: nodeBounds.right,
+          x: nodeBounds2.right,
           sourceNodeId: snapNodeRect.id
         };
         const midHorizontal = {
@@ -72557,6 +72557,27 @@ Please add \`${key}Action\` when creating your handler.`
     registry("log", { defaultPorts: [{ type: "input" }] })
   ];
 
+  // src/client/viewZoom.ts
+  var READABLE_MIN_ZOOM = 0.75;
+  var FIT_MIN_ZOOM = 0.5;
+  var ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
+  var clamp2 = (v5, lo, hi) => Math.min(hi, Math.max(lo, v5));
+  function pickInitialZoom(fitZoom) {
+    if (!Number.isFinite(fitZoom) || fitZoom <= 0) return READABLE_MIN_ZOOM;
+    return clamp2(fitZoom, READABLE_MIN_ZOOM, 1);
+  }
+  function fitZoomClamped(raw) {
+    if (!Number.isFinite(raw) || raw <= 0) return READABLE_MIN_ZOOM;
+    return clamp2(raw, FIT_MIN_ZOOM, 1);
+  }
+  function nextZoomStep(current, dir) {
+    const eps = 1e-3;
+    const cur = Number.isFinite(current) && current > 0 ? current : 1;
+    if (dir > 0) return ZOOM_STEPS.find((z3) => z3 > cur + eps) ?? ZOOM_STEPS[ZOOM_STEPS.length - 1];
+    for (let i3 = ZOOM_STEPS.length - 1; i3 >= 0; i3--) if (ZOOM_STEPS[i3] < cur - eps) return ZOOM_STEPS[i3];
+    return ZOOM_STEPS[0];
+  }
+
   // src/client/flowgram/FlowGramCanvas.tsx
   function stripRunStatus(data) {
     if (!data || typeof data !== "object") return data;
@@ -73148,7 +73169,74 @@ Please add \`${key}Action\` when creating your handler.`
     } catch {
     }
   }
+  function readCfg(ctx) {
+    try {
+      return ctx.get(PlaygroundConfigEntity);
+    } catch {
+      return null;
+    }
+  }
+  function nodeBounds(node2) {
+    if (!node2) return null;
+    try {
+      const t5 = node2.transform?.transform;
+      const b4 = t5?.bounds;
+      if (b4 && Number.isFinite(b4.x) && Number.isFinite(b4.y) && b4.width > 0) {
+        return { x: b4.x, y: b4.y, width: b4.width, height: b4.height || 80 };
+      }
+      const p4 = t5?.position;
+      if (p4 && Number.isFinite(p4.x) && Number.isFinite(p4.y)) return { x: p4.x, y: p4.y, width: 240, height: 80 };
+    } catch {
+    }
+    return null;
+  }
+  function worldBounds(ctx) {
+    try {
+      const doc = ctx.get(WorkflowDocument);
+      const all = doc?.getAllNodes?.() ?? [];
+      let x1 = Infinity, y1 = Infinity, x22 = -Infinity, y22 = -Infinity;
+      for (const n2 of all) {
+        const b4 = nodeBounds(n2);
+        if (!b4) continue;
+        x1 = Math.min(x1, b4.x);
+        y1 = Math.min(y1, b4.y);
+        x22 = Math.max(x22, b4.x + b4.width);
+        y22 = Math.max(y22, b4.y + b4.height);
+      }
+      if (!Number.isFinite(x1) || !Number.isFinite(x22)) return null;
+      return { x: x1, y: y1, width: Math.max(1, x22 - x1), height: Math.max(1, y22 - y1) };
+    } catch {
+      return null;
+    }
+  }
+  function viewportOf(cfg) {
+    return { W: cfg?.config?.width ?? 900, H: cfg?.config?.height ?? 600 };
+  }
+  function centerOn(cfg, box, zoom) {
+    if (!cfg) return false;
+    const cx = box ? box.x + box.width / 2 : 0;
+    const cy = box ? box.y + box.height / 2 : 0;
+    try {
+      if (typeof cfg.scrollToView === "function") {
+        cfg.scrollToView({ bounds: box ?? { x: cx, y: cy, width: 0, height: 0 }, zoom, easing: false, scrollToCenter: true });
+        return true;
+      }
+      const { W: W4, H: H4 } = viewportOf(cfg);
+      cfg.updateConfig({ zoom, scrollX: cx * zoom - W4 / 2, scrollY: cy * zoom - H4 / 2 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  function rawFitZoom(ctx) {
+    const cfg = readCfg(ctx);
+    const box = worldBounds(ctx);
+    if (!box) return NaN;
+    const { W: W4, H: H4 } = viewportOf(cfg);
+    return Math.min((W4 - 60) / box.width, (H4 - 60) / box.height);
+  }
   function buildEditorProps(initialNodes, initialEdges) {
+    let didInitView = false;
     return {
       background: false,
       readonly: false,
@@ -73182,10 +73270,29 @@ Please add \`${key}Action\` when creating your handler.`
         }
       },
       onAllLayersRendered: (ctx) => {
-        try {
-          ctx.document.fitView(false);
-        } catch {
-        }
+        if (didInitView) return;
+        const apply2 = (tryNo) => {
+          const cfg = readCfg(ctx);
+          const W4 = cfg?.config?.width ?? 0;
+          if (!W4 && tryNo < 8) {
+            window.setTimeout(() => apply2(tryNo + 1), 40);
+            return;
+          }
+          didInitView = true;
+          try {
+            const doc = ctx.get(WorkflowDocument);
+            const all = doc?.getAllNodes?.() ?? [];
+            const start = all.find((n2) => String(n2?.id) === "start") ?? all.find((n2) => String(n2?.id ?? "").startsWith("start"));
+            const raw = rawFitZoom(ctx);
+            const zoom = pickInitialZoom(raw);
+            const box = worldBounds(ctx) ?? nodeBounds(start);
+            const applied = centerOn(cfg, box, zoom);
+            window.__df_initialView = { zoom, rawFit: Number.isFinite(raw) ? Number(raw.toFixed(4)) : null, startId: start?.id ?? null, box, applied, tryNo, at: Date.now() };
+          } catch (e2) {
+            console.warn("[dag-flow] \u521D\u59CB\u89C6\u56FE\u8BBE\u7F6E\u5931\u8D25:", e2);
+          }
+        };
+        apply2(0);
       },
       plugins: () => [
         createMinimapPlugin({
@@ -73267,6 +73374,40 @@ Please add \`${key}Action\` when creating your handler.`
     }, [ctx]);
     const btn = (label, title, onClick, disabled, primary) => (0, import_react88.createElement)("button", { key: label + title, className: `dsh-wf-fg-tb${primary ? " primary" : ""}`, title, onClick, disabled }, label);
     const problemCount = props.problemCount ?? 0;
+    const zoomPct = Math.round((tools.zoom ?? 1) * 100);
+    const zoomNow = () => {
+      const cfg = readCfg(ctx);
+      return cfg?.zoom ?? tools.zoom ?? 1;
+    };
+    const zoomTo = (z3) => {
+      const cfg = readCfg(ctx);
+      try {
+        if (cfg?.scrollToView) {
+          const c4 = cfg.config ?? {};
+          const scale = cfg.zoom || 1;
+          const cx = ((c4.scrollX ?? 0) + (c4.width ?? 900) / 2) / scale;
+          const cy = ((c4.scrollY ?? 0) + (c4.height ?? 600) / 2) / scale;
+          cfg.scrollToView({ position: { x: cx, y: cy }, zoom: z3, easing: false, scrollToCenter: true });
+        } else {
+          cfg?.updateConfig?.({ zoom: z3 });
+        }
+        window.__df_lastZoom = { zoom: z3, applied: true, by: "toolbar", at: Date.now() };
+      } catch {
+        window.__df_lastZoom = { zoom: z3, applied: false, by: "toolbar", at: Date.now() };
+      }
+    };
+    const fitCanvas = () => {
+      const raw = rawFitZoom(ctx);
+      const z3 = fitZoomClamped(raw);
+      const box = worldBounds(ctx);
+      if (!centerOn(readCfg(ctx), box, z3)) {
+        try {
+          tools.fitView();
+        } catch {
+        }
+      }
+      window.__df_lastFit = { zoom: z3, rawFit: Number.isFinite(raw) ? Number(raw.toFixed(4)) : null, box, at: Date.now() };
+    };
     return (0, import_react88.createElement)(
       "div",
       { className: "dsh-wf-fg-toolbar" },
@@ -73274,11 +73415,18 @@ Please add \`${key}Action\` when creating your handler.`
       btn("\u21B7", "\u91CD\u505A", () => ctx.history.redo(), !canRedo),
       (0, import_react88.createElement)("span", { key: "s1", className: "dsh-wf-fg-tb-sep" }),
       btn("\u2728 \u6574\u7406", "\u81EA\u52A8\u5E03\u5C40\uFF08Dagre \u5206\u5C42\uFF09", () => tools.autoLayout()),
-      btn("\u2922", "\u9002\u5E94\u753B\u5E03", () => tools.fitView()),
+      btn("\u2922", `\u9002\u5E94\u753B\u5E03\uFF08\u5168\u56FE\u53EF\u89C1\uFF0C\u7F29\u653E\u4E0B\u9650 ${Math.round(FIT_MIN_ZOOM * 100)}%\uFF09`, fitCanvas),
       (0, import_react88.createElement)("span", { key: "s2", className: "dsh-wf-fg-tb-sep" }),
-      btn("\u2212", "\u7F29\u5C0F", () => tools.zoomout()),
-      (0, import_react88.createElement)("span", { key: "zoom", className: "dsh-wf-fg-zoom" }, `${Math.floor((tools.zoom ?? 1) * 100)}%`),
-      btn("\uFF0B", "\u653E\u5927", () => tools.zoomin()),
+      // 一键放大缩小：− / 百分比（点它回 100%）/ ＋ / 1:1
+      btn("\u2212", `\u7F29\u5C0F\uFF08\u4E0B\u4E00\u6863\uFF1A${Math.round(nextZoomStep(zoomNow(), -1) * 100)}%\uFF09`, () => zoomTo(nextZoomStep(zoomNow(), -1))),
+      (0, import_react88.createElement)("button", {
+        key: "zoom",
+        className: "dsh-wf-fg-zoom",
+        title: `\u5F53\u524D ${zoomPct}% \u2014\u2014 \u70B9\u51FB\u56DE\u5230 100%\uFF081:1 \u5B9E\u9645\u5927\u5C0F\uFF09`,
+        onClick: () => zoomTo(1)
+      }, `${zoomPct}%`),
+      btn("\uFF0B", `\u653E\u5927\uFF08\u4E0B\u4E00\u6863\uFF1A${Math.round(nextZoomStep(zoomNow(), 1) * 100)}%\uFF09`, () => zoomTo(nextZoomStep(zoomNow(), 1))),
+      btn("1:1", "\u4E00\u952E\u56DE\u5230 100%\uFF08\u5B9E\u9645\u5927\u5C0F\uFF0C\u6539\u53C2\u6570\u65F6\u6700\u5E38\u7528\uFF09", () => zoomTo(1)),
       (0, import_react88.createElement)("span", { key: "s3", className: "dsh-wf-fg-tb-sep" }),
       btn(`\u26A0 \u95EE\u9898${problemCount ? `(${problemCount})` : ""}`, "\u95EE\u9898\u9762\u677F\uFF08\u6821\u9A8C/\u5B64\u7ACB\u8282\u70B9\uFF09", () => props.onToggleProblems?.(), false, false)
     );
@@ -77032,7 +77180,31 @@ Please add \`${key}Action\` when creating your handler.`
       end: { x: 800, y: 300 }
     }
   };
-  var initialDef = params.has("vars") ? varsDef : params.has("jump") ? jumpDef : params.has("chips") ? chipsDef : params.has("stale") ? staleDef : params.has("many") ? manyDef : params.has("loop") ? loopDef : params.has("branch") ? branchDef : {
+  var bigDef = {
+    name: wfName,
+    version: 1,
+    nodes: [
+      { id: "start", type: "start", params: {} },
+      ...Array.from({ length: 12 }, (_4, i3) => ({
+        id: `step${i3 + 1}`,
+        type: "log",
+        label: `\u6B65\u9AA4${i3 + 1}`,
+        params: { level: "info", message: `s${i3 + 1}` }
+      })),
+      { id: "end", type: "end", params: {} }
+    ],
+    edges: [
+      { from: "start", to: "step1" },
+      ...Array.from({ length: 11 }, (_4, i3) => ({ from: `step${i3 + 1}`, to: `step${i3 + 2}` })),
+      { from: "step12", to: "end" }
+    ],
+    layout: {
+      start: { x: 60, y: 700 },
+      ...Object.fromEntries(Array.from({ length: 12 }, (_4, i3) => [`step${i3 + 1}`, { x: 320 + i3 % 4 * 700, y: 100 + Math.floor(i3 / 4) * 520 }])),
+      end: { x: 3120, y: 620 }
+    }
+  };
+  var initialDef = params.has("big") ? bigDef : params.has("vars") ? varsDef : params.has("jump") ? jumpDef : params.has("chips") ? chipsDef : params.has("stale") ? staleDef : params.has("many") ? manyDef : params.has("loop") ? loopDef : params.has("branch") ? branchDef : {
     name: wfName,
     version: 1,
     nodes: [

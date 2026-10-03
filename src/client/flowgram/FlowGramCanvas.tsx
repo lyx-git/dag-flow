@@ -40,6 +40,8 @@ import { branchEditStore, branchKeyText, type BranchEditTarget } from './branchE
 import type { RFNode, RFEdge } from '../util/flowDef';
 import { startResize8, readStoredJSON, saveJSON, readStoredWidth, clampNum, type PaletteGeom } from '../util/edge-drag';
 import { DSH_NODE_REGISTRIES, SWITCH_NO_CASE } from './nodes';
+// ★ 画布缩放策略（进画布默认缩放 / 适应画布夹取 / 一键放大缩小档位）——纯函数，离线可测
+import { FIT_MIN_ZOOM, nextZoomStep, pickInitialZoom, fitZoomClamped } from '../viewZoom';
 import { runStatusStore, selectionStore } from './runStatus';
 import { switchCaseStore } from './switchCaseStore';
 
@@ -715,7 +717,90 @@ function adoptChipCaseForNewLines(ctx: any): void {
   } catch { /* 归属失败不阻断主流程（线仍在，只是留着「未设分支」） */ }
 }
 
+// ================= 画布视图（进画布默认缩放 / 适应画布 / 一键放大缩小） =================
+// 需求（2026-10-03 用户原话）：「适应画布的按钮现在没啥用，现在刚进工作流画布的时候，画布上的节点太小了，
+//   无法看清，最好可以一键放大缩小，方便修改」。
+// 根因：onAllLayersRendered 里**每次渲染都 fitView** —— 23 节点的图被硬塞进视口（~0.3），节点看不清，
+//   而且「适应画布」按钮和这个自动行为重复，所以"没啥用"。
+// 现在：①进画布只设一次**看得清**的初始视图（自适应但夹在 [75%, 100%]，**取景保持原样 = 整图内容居中**）；
+//      ②「⤢ 适应画布」只由点击触发，且夹在 [50%, 100%]；③「＋/−」按档位一键放大缩小（…50%→75%→100%…），
+//      「1:1」一键回 100%。
+// ★ 2026-10-03 修正：初版把居中目标写成起始节点(nodeBounds(start))，等于把整张图往右推——右半边被插件自己的
+//   右侧检查器面板(.dsh-wf-right, absolute 浮层)盖住，端口点 elementFromPoint 命中面板，连拖线都起不来。
+//   改为与「适应画布」同源：整图内容居中，**只改缩放、不改取景**。
+
+/** 取画布配置实体（拿不到返回 null，调用方静默降级，不影响画布功能） */
+function readCfg(ctx: any): any {
+  try { return ctx.get(PlaygroundConfigEntity); } catch { return null; }
+}
+
+type WorldBox = { x: number; y: number; width: number; height: number };
+
+/** 单节点世界坐标包围盒（量不到尺寸就按卡片尺寸估） */
+function nodeBounds(node: any): WorldBox | null {
+  if (!node) return null;
+  try {
+    const t = node.transform?.transform;
+    const b = t?.bounds;
+    if (b && Number.isFinite(b.x) && Number.isFinite(b.y) && b.width > 0) {
+      return { x: b.x, y: b.y, width: b.width, height: b.height || 80 };
+    }
+    const p = t?.position;
+    if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) return { x: p.x, y: p.y, width: 240, height: 80 };
+  } catch { /* 忽略 */ }
+  return null;
+}
+
+/** 全部节点的世界坐标包围盒；一个都拿不到返回 null */
+function worldBounds(ctx: any): WorldBox | null {
+  try {
+    const doc = ctx.get(WorkflowDocument);
+    const all: any[] = doc?.getAllNodes?.() ?? [];
+    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+    for (const n of all) {
+      const b = nodeBounds(n);
+      if (!b) continue;
+      x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y);
+      x2 = Math.max(x2, b.x + b.width); y2 = Math.max(y2, b.y + b.height);
+    }
+    if (!Number.isFinite(x1) || !Number.isFinite(x2)) return null;
+    return { x: x1, y: y1, width: Math.max(1, x2 - x1), height: Math.max(1, y2 - y1) };
+  } catch { return null; }
+}
+
+/** 视口尺寸（拿不到给保守默认值） */
+function viewportOf(cfg: any): { W: number; H: number } {
+  return { W: cfg?.config?.width ?? 900, H: cfg?.config?.height ?? 600 };
+}
+
+/** 把视口对准某块世界坐标区域并居中（zoom 由调用方给定） */
+function centerOn(cfg: any, box: WorldBox | null, zoom: number): boolean {
+  if (!cfg) return false;
+  const cx = box ? box.x + box.width / 2 : 0;
+  const cy = box ? box.y + box.height / 2 : 0;
+  try {
+    if (typeof cfg.scrollToView === 'function') {
+      cfg.scrollToView({ bounds: box ?? { x: cx, y: cy, width: 0, height: 0 }, zoom, easing: false, scrollToCenter: true });
+      return true;
+    }
+    const { W, H } = viewportOf(cfg);
+    cfg.updateConfig({ zoom, scrollX: cx * zoom - W / 2, scrollY: cy * zoom - H / 2 });
+    return true;
+  } catch { return false; }
+}
+
+/** 「内容全部装进视口」所需缩放（原始值，未夹取） */
+function rawFitZoom(ctx: any): number {
+  const cfg = readCfg(ctx);
+  const box = worldBounds(ctx);
+  if (!box) return NaN;
+  const { W, H } = viewportOf(cfg);
+  return Math.min((W - 60) / box.width, (H - 60) / box.height);
+}
+
 function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
+  // 初始视图只设一次（buildEditorProps 由 useMemo([]) 调用，生命周期与画布一致）
+  let didInitView = false;
   return {
     background: false,
     readonly: false,
@@ -750,7 +835,31 @@ function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
       }
     },
     onAllLayersRendered: (ctx: any) => {
-      try { ctx.document.fitView(false); } catch { /* 忽略 */ }
+      // 首次渲染：设一次**看得清**的初始视图（自适应但夹在 [75%,100%]）；
+      // 之后**不再自动改视图** —— 用户自己缩放/拖动后不会被抢回去（这正是「适应画布」按钮以前没用的原因）。
+      if (didInitView) return;
+      const apply = (tryNo: number): void => {
+        const cfg = readCfg(ctx);
+        const W = cfg?.config?.width ?? 0;
+        if (!W && tryNo < 8) { window.setTimeout(() => apply(tryNo + 1), 40); return; }   // 视口尺寸可能晚一帧就绪
+        didInitView = true;
+        try {
+          const doc = ctx.get(WorkflowDocument);
+          const all: any[] = doc?.getAllNodes?.() ?? [];
+          const start = all.find((n: any) => String(n?.id) === 'start')
+            ?? all.find((n: any) => String(n?.id ?? '').startsWith('start'));
+          const raw = rawFitZoom(ctx);
+          const zoom = pickInitialZoom(raw);
+          // 居中目标 = 整图内容（与「适应画布」同源，取景与原行为一致）；取不到内容才退回起始节点
+          const box = worldBounds(ctx) ?? nodeBounds(start);
+          const applied = centerOn(cfg, box, zoom);
+          // 诊断钩子（CDP 验证用）
+          (window as any).__df_initialView = { zoom, rawFit: Number.isFinite(raw) ? Number(raw.toFixed(4)) : null, startId: start?.id ?? null, box, applied, tryNo, at: Date.now() };
+        } catch (e) {
+          console.warn('[dag-flow] 初始视图设置失败:', e);
+        }
+      };
+      apply(0);
     },
     plugins: () => [
       createMinimapPlugin({
@@ -835,6 +944,40 @@ function Toolbar(props: { problemCount?: number; showProblems?: boolean; onToggl
   const btn = (label: string, title: string, onClick: () => void, disabled?: boolean, primary?: boolean) =>
     createElement('button', { key: label + title, className: `dsh-wf-fg-tb${primary ? ' primary' : ''}`, title, onClick, disabled }, label);
   const problemCount = props.problemCount ?? 0;
+  const zoomPct = Math.round((tools.zoom ?? 1) * 100);
+  /** 当前缩放：优先读画布配置实体（比 hook 里的 state 更即时） */
+  const zoomNow = (): number => {
+    const cfg = readCfg(ctx);
+    return cfg?.zoom ?? tools.zoom ?? 1;
+  };
+  /** ★ 一键缩放（2026-10-03 用户要求「最好可以一键放大缩小，方便修改」）：
+   *  ＋/− 按**档位**跳（25/50/70/100/125/150/200%）；「1:1」/点百分比一键回 100%；
+   *  缩放围绕**当前视口中心**（scrollToView + scrollToCenter），视觉上不跳。
+   *  注意：usePlaygroundTools() 里只有 zoomin/zoomout（没有 updateZoom），所以走配置实体。 */
+  const zoomTo = (z: number): void => {
+    const cfg = readCfg(ctx);
+    try {
+      if (cfg?.scrollToView) {
+        const c = cfg.config ?? {};
+        const scale = cfg.zoom || 1;
+        const cx = ((c.scrollX ?? 0) + (c.width ?? 900) / 2) / scale;   // 当前视口中心对应的世界坐标
+        const cy = ((c.scrollY ?? 0) + (c.height ?? 600) / 2) / scale;
+        cfg.scrollToView({ position: { x: cx, y: cy }, zoom: z, easing: false, scrollToCenter: true });
+      } else {
+        cfg?.updateConfig?.({ zoom: z });
+      }
+      (window as any).__df_lastZoom = { zoom: z, applied: true, by: 'toolbar', at: Date.now() };
+    } catch {
+      (window as any).__df_lastZoom = { zoom: z, applied: false, by: 'toolbar', at: Date.now() };
+    }
+  };
+  const fitCanvas = (): void => {
+    const raw = rawFitZoom(ctx);
+    const z = fitZoomClamped(raw);
+    const box = worldBounds(ctx);
+    if (!centerOn(readCfg(ctx), box, z)) { try { tools.fitView(); } catch { /* 忽略 */ } }
+    (window as any).__df_lastFit = { zoom: z, rawFit: Number.isFinite(raw) ? Number(raw.toFixed(4)) : null, box, at: Date.now() };
+  };
   return createElement(
     'div',
     { className: 'dsh-wf-fg-toolbar' },
@@ -842,11 +985,18 @@ function Toolbar(props: { problemCount?: number; showProblems?: boolean; onToggl
     btn('↷', '重做', () => ctx.history.redo(), !canRedo),
     createElement('span', { key: 's1', className: 'dsh-wf-fg-tb-sep' }),
     btn('✨ 整理', '自动布局（Dagre 分层）', () => tools.autoLayout()),
-    btn('⤢', '适应画布', () => tools.fitView()),
+    btn('⤢', `适应画布（全图可见，缩放下限 ${Math.round(FIT_MIN_ZOOM * 100)}%）`, fitCanvas),
     createElement('span', { key: 's2', className: 'dsh-wf-fg-tb-sep' }),
-    btn('−', '缩小', () => tools.zoomout()),
-    createElement('span', { key: 'zoom', className: 'dsh-wf-fg-zoom' }, `${Math.floor((tools.zoom ?? 1) * 100)}%`),
-    btn('＋', '放大', () => tools.zoomin()),
+    // 一键放大缩小：− / 百分比（点它回 100%）/ ＋ / 1:1
+    btn('−', `缩小（下一档：${Math.round(nextZoomStep(zoomNow(), -1) * 100)}%）`, () => zoomTo(nextZoomStep(zoomNow(), -1))),
+    createElement('button', {
+      key: 'zoom',
+      className: 'dsh-wf-fg-zoom',
+      title: `当前 ${zoomPct}% —— 点击回到 100%（1:1 实际大小）`,
+      onClick: () => zoomTo(1),
+    }, `${zoomPct}%`),
+    btn('＋', `放大（下一档：${Math.round(nextZoomStep(zoomNow(), 1) * 100)}%）`, () => zoomTo(nextZoomStep(zoomNow(), 1))),
+    btn('1:1', '一键回到 100%（实际大小，改参数时最常用）', () => zoomTo(1)),
     createElement('span', { key: 's3', className: 'dsh-wf-fg-tb-sep' }),
     btn(`⚠ 问题${problemCount ? `(${problemCount})` : ''}`, '问题面板（校验/孤立节点）', () => props.onToggleProblems?.(), false, false),
   );

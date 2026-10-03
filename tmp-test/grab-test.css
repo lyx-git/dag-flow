@@ -2376,6 +2376,25 @@
   min-width: 40px;
   text-align: center;
 }
+button.dsh-wf-fg-zoom {
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease,
+    color 0.14s ease;
+}
+button.dsh-wf-fg-zoom:hover {
+  background: var(--wf-panel3h, #1d3150);
+  border-color: var(--wf-border2, #29405f);
+  color: var(--wf-text, #dce7f8);
+}
 .dsh-wf-fg-minimap {
   position: absolute;
   right: 12px;
