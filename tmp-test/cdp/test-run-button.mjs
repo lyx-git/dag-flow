@@ -3,6 +3,7 @@
 // 发出且 body 含完整 def；③runResult 显示成功（✓ + 摘要）；④按钮回到可点状态；
 // ⑤fixture stub 返回 failed 场景 → runResult 显示 ✗（负路径：错误可见，不会静默没反应）。
 // fixture 服务器 /run stub 返回结构对齐 adapter/api.ts 真实路由（{ok, summary:{status,results}}）。
+import { confirmSelfcheck } from './driver.mjs';
 export async function run({ cdp, evaluate, waitFor, ok, eq, sleep }) {
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-fg-palette-item')`, { timeout: 15000 });
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-fg-card')`, { timeout: 15000 });
@@ -63,6 +64,7 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, sleep }) {
       btn.click(); // 再跑一次，确认可重复运行且结果刷新
     })(); true;
   `);
+  await confirmSelfcheck(cdp);   // ★ 越过运行前自检的人工确认（点运行 → 自检 → 确认 → 才真跑）
   await sleep(500);
   ok(await evaluate(cdp, `!!document.querySelector('.dsh-wf-run-result')`), '重复运行结果正常刷新');
 }

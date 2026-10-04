@@ -49,9 +49,24 @@ const awaitingRuns = new Map();              // runId -> { name, nodeId }
 //   /run/status?name=<工作流名> 返回逐节点进度（对齐 host ActiveRun 的 results + running）。
 let runMode = 'fast';
 let slowRun = null;                          // { name, ids, stage }
+let hostRun = null;                          // { name, ids, stage } —— 宿主侧（定时）触发的运行模拟
 const SLOW_STEP_MS = 500;
 // /models stub 的返回模式（2026-10-03 模型显示名回归锁）：'empty'（默认，= 老行为 404 → 空列表）| 'name'
 let modelsMode = 'empty';
+// ===== ⏰ 定时任务弹窗 stub 状态（2026-10-04 CDP 用例 test-schedule-dialog）=====
+// 内存态、跨请求保持；测试用**唯一工作流名**隔离，所以不需要持久化。
+// schedLog = 诊断口（GET /__sched-log）：按发生顺序记下每次 save/delete/run 的要点（cron/enabled/id），
+// 供用例断言「本地非法 cron 根本没发请求」「开关保存的值正确」。
+let schedItems = [];
+const schedLog = [];
+/** ★ 运行日志 stub（2026-10-04，CDP 用）：最近一次 POST /run 的逐节点日志，GET /run/log 返回它 */
+let lastRunLog = null;
+// ★ 自检控制口（2026-10-04 轮 1/2，CDP 用）：POST /__selfcheck-block { on, delayMs?, payload? }
+//   设置后：`/api/dag-flow/selfcheck` 返回该 payload（可延迟 delayMs 毫秒，用于断言「自检中…」状态），
+//   且 errorCount>0 时 `/api/dag-flow/run` 返回 409 { blocked:true, selfcheck }（不带 skipSelfcheck 时）。
+let selfcheckPayload = null;
+let selfcheckDelayMs = 0;
+const SCHED_TICK_MS = 20000;
 const STATIC = new Set(['/picker-replica.html', '/picker-test.js', '/grab-test.html', '/grab-test.js', '/grab-test.css', '/dom-debug.html', '/cdp-host.html']);
 
 const seedNodes = (n) => 2 + (SEED.indexOf(n) % 7);
@@ -100,6 +115,47 @@ createServer((req, res) => {
     });
     return;
   }
+  // ★ 自检控制口（2026-10-04 轮 1/2，CDP 用）：POST /__selfcheck-block { on, delayMs?, payload? }
+  if (u.pathname === '/__selfcheck-block' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      try {
+        const p = JSON.parse(body || '{}');
+        selfcheckDelayMs = Number(p.delayMs ?? 0) || 0;
+        selfcheckPayload = p.on
+          ? (p.payload ?? {
+            ok: false, errorCount: 2, warnCount: 0, stats: { nodes: 2, edges: 1 },
+            items: [
+              { level: 'error', code: 'REF_UNKNOWN', nodeId: 'end', message: '节点「结束」的参数里引用了不存在的节点 "ghost"（{{ghost.out…}}）', fix: '把引用改成实际存在的上游节点：选中该节点，右侧面板「🔗 上游变量」里点一下就复制到正确引用。' },
+              { level: 'error', code: 'CYCLE', message: '工作流存在环路：a → b → a', fix: '断开环上的那条回边；要"失败后重试"请用 loop 节点的「循环体=子工作流」。' },
+            ],
+          })
+          : null;
+        json({ ok: true, on: !!selfcheckPayload, delayMs: selfcheckDelayMs });
+      } catch { res.writeHead(400); res.end('bad json'); }
+    });
+    return;
+  }
+  // ★ 运行前自检 stub（2026-10-04 轮 2）：只自检不执行；默认返回"通过"
+  if (u.pathname === '/api/dag-flow/selfcheck' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      let def = {};
+      try { def = JSON.parse(body || '{}').def ?? {}; } catch { /* */ }
+      const pass = {
+        ok: true, errorCount: 0, warnCount: 0, items: [],
+        stats: { nodes: (def.nodes ?? []).length, edges: (def.edges ?? []).length },
+      };
+      const out = selfcheckPayload
+        ? { ...selfcheckPayload, stats: selfcheckPayload.stats ?? pass.stats }
+        : pass;
+      if (selfcheckDelayMs > 0) setTimeout(() => json(out), selfcheckDelayMs);
+      else json(out);
+    });
+    return;
+  }
   // 测试控制口：设置 /models 的返回模式（'empty' 默认 | 'name'）
   if (u.pathname === '/__models-mode' && req.method === 'POST') {
     let body = '';
@@ -107,6 +163,106 @@ createServer((req, res) => {
     req.on('end', () => {
       try { const j = JSON.parse(body || '{}'); modelsMode = j.mode === 'name' ? 'name' : 'empty'; json({ ok: true, mode: modelsMode }); }
       catch { res.writeHead(400); res.end('bad json'); }
+    });
+    return;
+  }
+  // 测试控制口：定时任务请求日志（按发生顺序；断言「本地非法 cron 没发请求」用）
+  if (u.pathname === '/__sched-log') { json({ log: schedLog }); return; }
+  // 测试控制口：模拟「宿主侧（定时）触发的运行」——POST {name, ids, stage}；stage 到位数即结束（completed）。
+  //   客户端没点过 ▶，所以能不能在画布上看到状态，全靠后台监视器轮询 /run/status?name=。
+  if (u.pathname === '/__host-run' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      try {
+        const j = JSON.parse(body || '{}');
+        if (j.clear) { hostRun = null; json({ ok: true, cleared: true }); return; }
+        hostRun = {
+          name: String(j.name ?? ''),
+          ids: Array.isArray(j.ids) ? j.ids.map(String) : [],
+          stage: Number(j.stage ?? 0) || 0,
+          // 逐节点自定义 out（用于模拟「manual 节点在非交互运行里自动通过」等形状）
+          outs: (j.outs && typeof j.outs === 'object') ? j.outs : {},
+        };
+        json({ ok: true, hostRun });
+      } catch { res.writeHead(400); res.end('bad json'); }
+    });
+    return;
+  }
+  // 测试控制口：把 nextRunAt 固定成给定值。★真实产品的 nextRunAt 由宿主 cron.ts 计算，夹具这里只是占位
+  //   （默认 now+20s）；截图/断言需要「像真的一样」的下次时间时用它，例如把 cron.ts 算出来的周一 09:00 灌进来。
+  if (u.pathname === '/__sched-preset' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      try {
+        const j = JSON.parse(body || '{}');
+        schedItems = schedItems.map((it) => ({ ...it, nextRunAt: j.nextRunAt ?? it.nextRunAt }));
+        json({ ok: true, items: schedItems });
+      } catch { res.writeHead(400); res.end('bad json'); }
+    });
+    return;
+  }
+  // ===== 定时任务 stub（2026-10-04：⏰ 定时任务弹窗 CDP 用例）=====
+  // 列表：支持 ?workflow= 过滤；每条带 nextRunAt（未来时间即可），有 lastRun 时原样带出。
+  if (u.pathname === '/api/dag-flow/schedules') {
+    const workflow = u.searchParams.get('workflow') ?? '';
+    json({
+      items: schedItems
+        .filter((it) => !workflow || it.workflow === workflow)
+        .map((it) => ({ ...it, nextRunAt: it.nextRunAt ?? new Date(Date.now() + SCHED_TICK_MS).toISOString() })),
+      dir: '<stub>/.dag-flow/schedules.json',
+      scheduler: { running: true, lastTickAt: new Date().toISOString(), ticks: 3, tickMs: SCHED_TICK_MS },
+    });
+    return;
+  }
+  // 保存（新增/更新一条）：body 带 id → 更新；不带 → 新建（sch_ + 4 位随机）。请求**先**记进诊断口。
+  if (u.pathname === '/api/dag-flow/schedules/save' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      try {
+        const b = JSON.parse(body || '{}');
+        schedLog.push({ op: 'save', id: b.id ?? null, workflow: b.workflow ?? null, cron: b.cron ?? null, enabled: b.enabled });
+        const idx = b.id ? schedItems.findIndex((it) => it.id === b.id) : -1;
+        const base = idx >= 0 ? schedItems[idx] : { id: 'sch_' + Math.random().toString(36).slice(2, 6), createdAt: new Date().toISOString() };
+        const next = {
+          ...base, workflow: b.workflow, cron: String(b.cron ?? ''), enabled: b.enabled !== false,
+          inputs: b.inputs, nextRunAt: new Date(Date.now() + SCHED_TICK_MS).toISOString(),
+        };
+        if (idx >= 0) schedItems[idx] = next; else schedItems.push(next);
+        json({ ok: true, item: next });
+      } catch { res.writeHead(400); res.end('bad json'); }
+    });
+    return;
+  }
+  // 删除：按 id 删；找不到也算成功（用例只断言「列表里没了 + log 里有 delete」）
+  if (u.pathname === '/api/dag-flow/schedules/delete' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      try {
+        const { id } = JSON.parse(body || '{}');
+        schedLog.push({ op: 'delete', id: id ?? null });
+        schedItems = schedItems.filter((it) => it.id !== id);
+        json({ ok: true });
+      } catch { res.writeHead(400); res.end('bad json'); }
+    });
+    return;
+  }
+  // 立即运行一次：把该条 lastRun 置成一次成功运行（4100ms → 面板「✓ 成功（4.1s）」）
+  if (u.pathname === '/api/dag-flow/schedules/run' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      try {
+        const { id } = JSON.parse(body || '{}');
+        schedLog.push({ op: 'run', id: id ?? null });
+        const it = schedItems.find((x) => x.id === id);
+        if (!it) { json({ error: '该定时项不存在' }, 404); return; }
+        it.lastRun = { at: new Date().toISOString(), status: 'success', durationMs: 4100, runId: 'run-stub-sched' };
+        json({ ok: true, item: it });
+      } catch { res.writeHead(400); res.end('bad json'); }
     });
     return;
   }
@@ -149,6 +305,19 @@ createServer((req, res) => {
     });
     return;
   }
+  // ★ 运行日志 stub（2026-10-04 CDP 用）：按工作流名返回最近一次的逐节点日志
+  if (u.pathname === '/api/dag-flow/run/log') {
+    const byName = u.searchParams.get('name') ?? '';
+    const onlyNode = u.searchParams.get('node') ?? '';
+    if (!lastRunLog || (byName && lastRunLog.name !== byName)) { json({ error: '查无运行日志——先运行一次这个工作流' }, 404); return; }
+    let entries = lastRunLog.entries;
+    if (onlyNode) entries = entries.filter((e) => e.id === onlyNode);
+    json({
+      ok: true, runId: lastRunLog.runId, workflowName: lastRunLog.name, runStatus: 'completed',
+      live: false, finishedAt: Date.now(), nodeCount: entries.length, entries,
+    });
+    return;
+  }
   // /api/dag-flow/run stub —— 验证运行按钮链路（POST {def} → {ok, summary}，结构对齐 adapter/api.ts）
   // ★ 2026-10-03：def 里含 manual 节点 → 返回 202 awaiting（对齐 host 的真实「人工确认挂起」语义）
   if (u.pathname === '/api/dag-flow/run' && req.method === 'POST') {
@@ -156,8 +325,14 @@ createServer((req, res) => {
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
       try {
-        const { def } = JSON.parse(body);
+        const { def, skipSelfcheck } = JSON.parse(body);
         if (!def) { json({ error: '缺少 def（工作流定义）' }, 400); return; }
+        // ★ 运行前自检拦截（2026-10-04 轮 1/2，CDP 用）：控制口设了"有问题"的 payload 时，
+        //   不带 skipSelfcheck 的 /run 返回 409 { blocked, selfcheck }（模拟宿主 /run 里那道兜底自检）。
+        if (selfcheckPayload && Number(selfcheckPayload.errorCount ?? 0) > 0 && !skipSelfcheck) {
+          json({ blocked: true, selfcheck: selfcheckPayload }, 409);
+          return;
+        }
         const results = {};
         for (const n of (def.nodes ?? [])) {
           results[n.id] = { status: 'success', durationMs: 1, out: stubOut(n) };
@@ -189,6 +364,17 @@ createServer((req, res) => {
           return;
         }
         json({ ok: true, summary: { status: 'success', totalDurationMs: 5, results } });
+        // ★ 运行日志 stub（2026-10-04 CDP 用）：每个节点造一条「原始参数（含 {{}}）→ 实际入参 → 引用上游 → 出参」
+        lastRunLog = {
+          name: def.name, runId: 'run-stub-log',
+          entries: (def.nodes ?? []).map((n, i) => ({
+            id: n.id, type: n.type, status: 'success', durationMs: 11 + i,
+            rawParams: { code: 'print("{{start.out}}")', level: 'info' },
+            params: { code: 'print("ok")', level: 'info' },
+            refs: i === 0 ? { nodeRefs: [], varsUsed: [], inputsUsed: [] } : { nodeRefs: ['start'], varsUsed: ['loopIndex'], inputsUsed: [] },
+            out: stubOut(n),
+          })),
+        };
       } catch { res.writeHead(400); res.end('bad json'); }
     });
     return;
@@ -202,8 +388,25 @@ createServer((req, res) => {
   // /run/status：等待中 → awaiting；已被 DELETE 取消 → completed(failed)
   if (u.pathname === '/api/dag-flow/run/status') {
     const runId = u.searchParams.get('runId') ?? '';
-    // ★ 慢速运行：按工作流名回报「逐节点进度 + 正在执行的节点」（对齐 host 的 results/running）
     const byName = u.searchParams.get('name') ?? '';
+    // ★ 宿主侧（定时）触发的运行模拟（2026-10-03 用户反馈「定时任务执行，工作流的状态不会变化」）：
+    //   由 POST /__host-run 控制，客户端**没点过 ▶** 也能在这里查到运行态 —— 正是后台监视器要覆盖的场景。
+    if (hostRun && byName && hostRun.name === byName) {
+      const results = {};
+      for (let i = 0; i < hostRun.stage && i < hostRun.ids.length; i++) {
+        const id = hostRun.ids[i];
+        results[id] = { status: 'success', durationMs: 12, out: (hostRun.outs ?? {})[id] ?? `HOST-RUN-${id}` };
+      }
+      const done = hostRun.stage >= hostRun.ids.length;
+      json({
+        runId: 'run-stub-host', workflowName: hostRun.name, origin: 'schedule',
+        status: done ? 'completed' : 'running',
+        results,
+        running: done ? [] : [hostRun.ids[hostRun.stage]],
+      });
+      return;
+    }
+    // ★ 慢速运行：按工作流名回报「逐节点进度 + 正在执行的节点」（对齐 host 的 results/running）
     if (slowRun && byName && slowRun.name === byName) {
       const results = {};
       for (let i = 0; i < slowRun.stage && i < slowRun.ids.length; i++) {

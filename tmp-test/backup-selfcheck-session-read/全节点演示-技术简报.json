@@ -1,0 +1,545 @@
+{
+  "name": "全节点演示-技术简报",
+  "version": 1,
+  "description": "【全节点演示】覆盖 20 种节点的可跑测试工作流：并行双臂+合流、HTTP 探测、网页搜索/抓取、会话输入、人工确认、AI 汇总（subagent）、if 条件保存、switch 模式路由（quick 默认；full=图片生成、video=视频生成，改 value 才会真正执行以免烧钱；image 与 quick 同路，只记日志不生成媒体）、循环（loop_demo=固定 3 次；loop_over=遍历 web_search1 的搜索结果数组，个数由真实结果条数决定）、子工作流、文件保存。配套子工作流「子工作流-文字整理」需同时存在。AI 节点模型默认 dsh:deepseek-flash，可在面板中改选。",
+  "inputs": {
+    "topic": "DeepSeek V4",
+    "reportTitle": "技术简报（全节点演示）",
+    "maxItems": 5
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "params": {},
+      "next": "prep_vars",
+      "label": "开始"
+    },
+    {
+      "id": "prep_vars",
+      "type": "set_var",
+      "params": {
+        "vars": {
+          "mode": "quick",
+          "topic": "{{inputs.topic}}",
+          "runNote": "全节点演示运行"
+        }
+      },
+      "next": [
+        "py_prep",
+        "bash_scan",
+        "http_probe",
+        "web_search1",
+        "session_read",
+        "loop_demo"
+      ],
+      "label": "初始化演示变量"
+    },
+    {
+      "id": "py_prep",
+      "type": "python",
+      "params": {
+        "code": "# -*- coding: utf-8 -*-\nimport json, datetime, platform\nnow = datetime.datetime.now()\nskeleton = {\n    \"generatedAt\": now.strftime(\"%Y-%m-%d %H:%M:%S\"),\n    \"python\": platform.python_version(),\n    \"sections\": [\"网络连通性\", \"搜索摘要\", \"会话上下文\", \"AI 总结\"],\n}\nprint(json.dumps(skeleton, ensure_ascii=False, indent=2))"
+      },
+      "next": "merge_ab",
+      "label": "Python：生成时间戳与骨架"
+    },
+    {
+      "id": "bash_scan",
+      "type": "bash",
+      "params": {
+        "code": "echo \"扫描目录: $(pwd)\"\n# 纯内建写法（不依赖外部命令，任何 POSIX sh 都能跑）：glob 逐项计数+列前5项\ncount=0\nfor f in * ; do\n  [ -e \"$f\" ] || continue\n  count=$((count+1))\n  [ \"$count\" -le 5 ] && echo \"$f\"\ndone\necho \"顶层条目数: $count\""
+      },
+      "next": "merge_ab",
+      "label": "Bash：扫描工作区"
+    },
+    {
+      "id": "merge_ab",
+      "type": "merge",
+      "params": {
+        "keys": [
+          "python骨架",
+          "bash扫描"
+        ]
+      },
+      "next": [
+        "manual_ok",
+        "subflow_call"
+      ],
+      "label": "合流：脚本双臂"
+    },
+    {
+      "id": "http_probe",
+      "type": "http",
+      "params": {
+        "method": "GET",
+        "url": "https://www.baidu.com",
+        "timeoutMs": 15000,
+        "_label": "HTTP：连通性探测"
+      },
+      "next": "log_http",
+      "label": "HTTP：连通性探测"
+    },
+    {
+      "id": "log_http",
+      "type": "log",
+      "params": {
+        "level": "info",
+        "message": "HTTP 探测完成，状态码={{http_probe.out.status}}（200=连通正常）"
+      },
+      "next": "end_final",
+      "label": "日志：记录 HTTP 状态"
+    },
+    {
+      "id": "web_search1",
+      "type": "web_search",
+      "params": {
+        "query": "{{inputs.topic}} 最新进展",
+        "provider": "auto",
+        "count": 5
+      },
+      "next": [
+        "web_fetch1",
+        "loop_over"
+      ],
+      "label": "网页搜索：主题资讯"
+    },
+    {
+      "id": "web_fetch1",
+      "type": "web_fetch",
+      "params": {
+        "url": "https://www.baidu.com",
+        "maxChars": 4000
+      },
+      "next": "end_final",
+      "label": "网页抓取：样例正文"
+    },
+    {
+      "id": "session_read",
+      "type": "session_input",
+      "params": {
+        "sessionId": "session-bcffb1e5-9703-47cc-9a7c-91041c58b76b",
+        "limit": 3
+      },
+      "next": "end_final",
+      "onError": "continue",
+      "label": "会话输入：最近对话"
+    },
+    {
+      "id": "loop_demo",
+      "type": "loop",
+      "params": {
+        "maxIterations": 100,
+        "count": 0,
+        "body": {
+          "workflowName": "子工作流-文字整理",
+          "inputs": {}
+        },
+        "_label": "循环：3 次迭代演示"
+      },
+      "next": "end_final",
+      "label": "循环：3 次迭代演示"
+    },
+    {
+      "id": "loop_over",
+      "type": "loop",
+      "params": {
+        "over": "{{web_search1.out.results}}",
+        "maxIterations": 50
+      },
+      "next": "end_final",
+      "label": "循环：遍历搜索结果逐项"
+    },
+    {
+      "id": "manual_ok",
+      "type": "manual",
+      "params": {
+        "prompt": "双臂脚本已合流。确认后 AI 将汇总 {{web_search1.out.count}} 条搜索结果生成简报（模式={{prep_vars.out.mode}}）"
+      },
+      "next": "ai_summary",
+      "label": "人工确认：继续生成简报"
+    },
+    {
+      "id": "subflow_call",
+      "type": "subflow",
+      "params": {
+        "workflowName": "子工作流-文字整理",
+        "inputs": {
+          "rawText": "{{py_prep.out}}",
+          "title": "{{inputs.reportTitle}}"
+        }
+      },
+      "next": "end_final",
+      "label": "子工作流：文字整理"
+    },
+    {
+      "id": "ai_summary",
+      "type": "subagent",
+      "params": {
+        "prompt": "你是技术简报编辑。请基于以下材料写一段 200 字以内的中文简报正文：\n【时间戳骨架】\n{{py_prep.out}}\n【工作区扫描】\n{{bash_scan.out}}\n【网络探测】HTTP {{http_probe.out.status}}\n【搜索】主题「{{inputs.topic}}」共 {{web_search1.out.count}} 条结果\n【样例正文节选】\n{{web_fetch1.out.text}}\n【最近会话节选】\n{{session_read.out}}\n只输出简报正文本身，不要解释。",
+        "model": "dsh:llm:deepseek-vision:deepseek-flash",
+        "system": "你是严谨的中文技术编辑。",
+        "timeoutMs": 120000
+      },
+      "next": [
+        "if_has_search",
+        "switch_mode"
+      ],
+      "label": "AI：汇总生成简报正文"
+    },
+    {
+      "id": "if_has_search",
+      "type": "if",
+      "params": {
+        "condition": "web_search1.count > 0",
+        "portKeys": [
+          "true",
+          "false"
+        ]
+      },
+      "next": {
+        "true": "file_save_report",
+        "false": "log_no_result"
+      },
+      "label": "条件：搜索有结果？"
+    },
+    {
+      "id": "file_save_report",
+      "type": "file_save",
+      "params": {
+        "source": "text",
+        "filename": "reports/全节点演示简报.md",
+        "content": "# {{inputs.reportTitle}}\n\n- 主题：{{inputs.topic}}\n- 模式：{{prep_vars.out.mode}}\n- 生成时间骨架：{{py_prep.out}}\n\n## AI 简报正文\n\n{{ai_summary.out}}\n\n## 子工作流回执\n\n工作流={{subflow_call.out.workflow}} 状态={{subflow_call.out.status}}\n\n## 附：最近会话节选\n\n{{session_read.out}}\n",
+        "_label": "文件保存：简报落盘"
+      },
+      "next": "end_final",
+      "label": "文件保存：简报落盘"
+    },
+    {
+      "id": "log_no_result",
+      "type": "log",
+      "params": {
+        "level": "warn",
+        "message": "搜索结果为 0 条，未生成简报文件"
+      },
+      "next": "end_final",
+      "label": "日志：无搜索结果提示"
+    },
+    {
+      "id": "log_mode",
+      "type": "log",
+      "params": {
+        "level": "info",
+        "message": "当前为 quick 模式——跳过多媒体生成。把 set_var 的 mode 改为 full / video 可测试图片/视频生成分支",
+        "_label": "日志：quick 模式提示"
+      },
+      "next": "end_final",
+      "label": "日志：quick 模式提示"
+    },
+    {
+      "id": "image_gen",
+      "type": "image_generate",
+      "params": {
+        "prompt": "科技感深蓝色调的数据流插图，主题：{{inputs.topic}}",
+        "baseURL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "model": "wanx-v1",
+        "apiKeyEnv": "DASHSCOPE_API_KEY",
+        "size": "1024*1024",
+        "n": 1,
+        "filenamePrefix": "demo",
+        "_label": "图片生成（full 模式才执行）"
+      },
+      "next": "end_final",
+      "label": "图片生成（full 模式才执行）"
+    },
+    {
+      "id": "video_gen",
+      "type": "video_generate",
+      "params": {
+        "submitUrl": "https://your-video-api.example.com/video/generations",
+        "pollUrl": "https://your-video-api.example.com/video/tasks/{taskId}",
+        "pollIntervalMs": 5000,
+        "maxWaitMs": 600000
+      },
+      "next": "end_final",
+      "label": "视频生成（video 模式才执行）"
+    },
+    {
+      "id": "end_final",
+      "type": "end",
+      "params": {
+        "outputs": {
+          "reportTitle": "{{inputs.reportTitle}}",
+          "mode": "{{prep_vars.out.mode}}",
+          "httpStatus": "{{http_probe.out.status}}",
+          "searchCount": "{{web_search1.out.count}}",
+          "aiReport": "{{ai_summary.out}}",
+          "subflowStatus": "{{subflow_call.out.status}}",
+          "loopCount": "{{loop_demo.out.count}}",
+          "loopOverCount": "{{loop_over.out.count}}",
+          "savedReport": "{{file_save_report.out.path}}"
+        }
+      },
+      "label": "结束：汇总"
+    },
+    {
+      "id": "switch_mode",
+      "type": "switch",
+      "params": {
+        "value": "prep_vars.mode",
+        "cases": {
+          "quick": "log_mode",
+          "full": "image_gen",
+          "video": "video_gen",
+          "image": "log_mode"
+        },
+        "_label": "多路分支：运行模式"
+      },
+      "next": {
+        "quick": "log_mode",
+        "full": "image_gen",
+        "video": "video_gen",
+        "image": "log_mode"
+      },
+      "label": "多路分支：运行模式"
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "prep_vars"
+    },
+    {
+      "from": "prep_vars",
+      "to": "py_prep"
+    },
+    {
+      "from": "prep_vars",
+      "to": "bash_scan"
+    },
+    {
+      "from": "prep_vars",
+      "to": "http_probe"
+    },
+    {
+      "from": "prep_vars",
+      "to": "web_search1"
+    },
+    {
+      "from": "prep_vars",
+      "to": "session_read"
+    },
+    {
+      "from": "prep_vars",
+      "to": "loop_demo"
+    },
+    {
+      "from": "py_prep",
+      "to": "merge_ab"
+    },
+    {
+      "from": "bash_scan",
+      "to": "merge_ab"
+    },
+    {
+      "from": "merge_ab",
+      "to": "manual_ok"
+    },
+    {
+      "from": "merge_ab",
+      "to": "subflow_call"
+    },
+    {
+      "from": "http_probe",
+      "to": "log_http"
+    },
+    {
+      "from": "log_http",
+      "to": "end_final"
+    },
+    {
+      "from": "web_search1",
+      "to": "web_fetch1"
+    },
+    {
+      "from": "web_search1",
+      "to": "loop_over"
+    },
+    {
+      "from": "web_fetch1",
+      "to": "end_final"
+    },
+    {
+      "from": "session_read",
+      "to": "end_final"
+    },
+    {
+      "from": "loop_demo",
+      "to": "end_final"
+    },
+    {
+      "from": "loop_over",
+      "to": "end_final"
+    },
+    {
+      "from": "manual_ok",
+      "to": "ai_summary"
+    },
+    {
+      "from": "subflow_call",
+      "to": "end_final"
+    },
+    {
+      "from": "ai_summary",
+      "to": "if_has_search"
+    },
+    {
+      "from": "ai_summary",
+      "to": "switch_mode"
+    },
+    {
+      "from": "if_has_search",
+      "to": "file_save_report",
+      "when": "true"
+    },
+    {
+      "from": "if_has_search",
+      "to": "log_no_result",
+      "when": "false"
+    },
+    {
+      "from": "file_save_report",
+      "to": "end_final"
+    },
+    {
+      "from": "log_no_result",
+      "to": "end_final"
+    },
+    {
+      "from": "switch_mode",
+      "to": "log_mode",
+      "when": "quick"
+    },
+    {
+      "from": "log_mode",
+      "to": "end_final"
+    },
+    {
+      "from": "switch_mode",
+      "to": "log_mode",
+      "when": "image"
+    },
+    {
+      "from": "image_gen",
+      "to": "end_final"
+    },
+    {
+      "from": "switch_mode",
+      "to": "image_gen",
+      "when": "full"
+    },
+    {
+      "from": "video_gen",
+      "to": "end_final"
+    },
+    {
+      "from": "switch_mode",
+      "to": "video_gen",
+      "when": "video"
+    }
+  ],
+  "layout": {
+    "start": {
+      "x": 98,
+      "y": 801
+    },
+    "prep_vars": {
+      "x": 394,
+      "y": 801
+    },
+    "py_prep": {
+      "x": 690,
+      "y": 356
+    },
+    "bash_scan": {
+      "x": 690,
+      "y": 534
+    },
+    "merge_ab": {
+      "x": 986,
+      "y": 445
+    },
+    "http_probe": {
+      "x": 690,
+      "y": 712
+    },
+    "log_http": {
+      "x": 986,
+      "y": 712
+    },
+    "web_search1": {
+      "x": 690,
+      "y": 890
+    },
+    "web_fetch1": {
+      "x": 986,
+      "y": 890
+    },
+    "session_read": {
+      "x": 690,
+      "y": 1068
+    },
+    "loop_demo": {
+      "x": 690,
+      "y": 1246
+    },
+    "loop_over": {
+      "x": 985,
+      "y": 1130
+    },
+    "manual_ok": {
+      "x": 1282,
+      "y": 356
+    },
+    "subflow_call": {
+      "x": 2170,
+      "y": 890
+    },
+    "ai_summary": {
+      "x": 1578,
+      "y": 356
+    },
+    "if_has_search": {
+      "x": 1874,
+      "y": 89
+    },
+    "file_save_report": {
+      "x": 2170,
+      "y": 0
+    },
+    "log_no_result": {
+      "x": 2170,
+      "y": 178
+    },
+    "log_mode": {
+      "x": 2138.75,
+      "y": 302.25
+    },
+    "image_gen": {
+      "x": 2170,
+      "y": 534
+    },
+    "video_gen": {
+      "x": 2170,
+      "y": 712
+    },
+    "end_final": {
+      "x": 2466,
+      "y": 445
+    },
+    "switch_mode": {
+      "x": 1871.2248251748251,
+      "y": 369.90699300699293
+    }
+  }
+}

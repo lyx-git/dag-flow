@@ -158,6 +158,15 @@ const EXPECTED = [
   'exact /api/dag-flow/test-image-api',
   'exact /api/dag-flow/sessions',
   'prefix /api/dag-flow/sessions',
+  // ★ 2026-10-03 定时任务轮：+4 条（/schedules 列表、/schedules/save 写入、/schedules/delete 删除、/schedules/run 立即运行）
+  'exact /api/dag-flow/schedules',
+  'exact /api/dag-flow/schedules/save',
+  'exact /api/dag-flow/schedules/delete',
+  'exact /api/dag-flow/schedules/run',
+  // ★ 2026-10-04 自检轮 1/2：+1 条（/selfcheck 只自检不执行；点运行 → 自检中 → 通过后人工确认才 /run）
+  'exact /api/dag-flow/selfcheck',
+  // ★ 2026-10-04 运行日志：+1 条（GET /run/log 按工作流名查在跑/最近一次完成的日志）
+  'exact /api/dag-flow/run/log',
 ];
 const routeKeys = () => state.routes.map((r) => `${r.kind} ${r.path}`).sort();
 
@@ -185,7 +194,7 @@ let s1 = null;   // 场景 2 要拿它的 effect disposer 模拟 fiber 卸载
   mod.apply(ctx);   // 真实 DSH loader 的调用点
   s1 = { ctx, effects, logs };
 
-  t('apply(ctx) 注册 15 条路由（无一条静默失败）', state.routes.length === 15, `routes=${state.routes.length} ${routeKeys().join(' | ')}`);
+  t('apply(ctx) 注册 21 条路由（15 条既有 + 4 条定时任务 + 1 条自检 + 1 条运行日志；无一条静默失败）', state.routes.length === 21, `routes=${state.routes.length} ${routeKeys().join(' | ')}`);
   t('路由清单与源码一致', JSON.stringify(routeKeys()) === JSON.stringify([...EXPECTED].sort()), routeKeys().join(' | '));
   t('workflow 工具注册成功', state.tools.length === 1 && state.tools[0].name === 'workflow', JSON.stringify(state.tools.map((x) => x.name)));
 
@@ -195,8 +204,8 @@ let s1 = null;   // 场景 2 要拿它的 effect disposer 模拟 fiber 卸载
   t('safeMode = false（不再被 inject 误判拖入安全模式）', mod.isSafeMode() === false && drift.safeMode === false);
   t('getDriftReport().details 无核心能力条目', core.every((c) => drift.details[c] === undefined), JSON.stringify(drift.details));
 
-  t('两条 effect 已挂载（工具 + 路由 disposer）', effects.length === 2, JSON.stringify(effects.map((e) => e.label)));
-  t('effect 标签可辨识', effects.some((e) => /tool/i.test(e.label ?? '')) && effects.some((e) => /api/i.test(e.label ?? '')), JSON.stringify(effects.map((e) => e.label)));
+  t('三条 effect 已挂载（工具 + 路由 + 定时调度器 disposer）', effects.length === 3, JSON.stringify(effects.map((e) => e.label)));
+  t('effect 标签可辨识', effects.some((e) => /tool/i.test(e.label ?? '')) && effects.some((e) => /api/i.test(e.label ?? '')) && effects.some((e) => /schedul/i.test(e.label ?? '')), JSON.stringify(effects.map((e) => e.label)));
 
   const infoLine = logs.filter((l) => l.level === 'info').map((l) => String(l.msg)).find((m) => m.includes('[dag-flow] loaded')) ?? '';
   t('加载日志同时报告 tool / api 的注册结果', /workflow tool registered/.test(infoLine) && /api registered/.test(infoLine), infoLine);
@@ -208,7 +217,7 @@ let s1 = null;   // 场景 2 要拿它的 effect disposer 模拟 fiber 卸载
   const logFiles = existsSync(logDir) ? readdirSync(logDir).filter((f) => f.endsWith('.log')) : [];
   t('dag-flow 自己的文件日志已落盘', logFiles.length === 1, logFiles.join(','));
   const logText = logFiles.length ? readFileSync(join(logDir, logFiles[0]), 'utf8') : '';
-  t('文件日志含路由注册条数与 loaded 行', /API routes registered: 15/.test(logText) && /\[dag-flow\] loaded/.test(logText), logText.slice(-300));
+  t('文件日志含路由注册条数与 loaded 行', /API routes registered: 21/.test(logText) && /\[dag-flow\] loaded/.test(logText), logText.slice(-300));
 
   // 存储根来自 host-ctx（ctx.get('workspace').cwd），全部写入临时工作区
   t('storage 根解析为宿主工作区（host-ctx）', existsSync(join(WS, '.dag-flow', 'workflow')), join(WS, '.dag-flow'));
@@ -252,10 +261,10 @@ console.log('\n[2] 热重载（patchReload:"live"）：先注销再重载');
   });
   mod.apply(ctx2);
   const warnDup = logs.filter((l) => /duplicate|注册失败/.test(String(l.msg)));
-  t('重载后 15 条路由全部重新注册', state.routes.length === 15, `routes=${state.routes.length}`);
+  t('重载后 21 条路由全部重新注册', state.routes.length === 21, `routes=${state.routes.length}`);
   t('重载后无 duplicate / 注册失败告警', warnDup.length === 0, JSON.stringify(warnDup.map((l) => l.msg)));
   t('重载后 workflow 工具仍只有 1 个', state.tools.length === 1, `tools=${state.tools.length}`);
-  t('重载后新 fiber 挂载 2 条 effect', effects2.length === 2, JSON.stringify(effects2.map((e) => e.label)));
+  t('重载后新 fiber 挂载 3 条 effect', effects2.length === 3, JSON.stringify(effects2.map((e) => e.label)));
 
   // 卸载新 fiber，恢复干净状态
   for (const e of [...effects2].reverse()) if (e.dispose) e.dispose();
@@ -294,7 +303,7 @@ console.log('\n[4] 旧宿主兼容：普通对象 ctx（无 get / effect）');
     workspace: { cwd: WS },
   };
   mod.apply(legacyCtx);
-  t('旧宿主仍注册 15 条路由（属性访问兜底）', state.routes.length === 15, `routes=${state.routes.length}`);
+  t('旧宿主仍注册 21 条路由（属性访问兜底）', state.routes.length === 21, `routes=${state.routes.length}`);
   t('旧宿主仍注册 workflow 工具', state.tools.length === 1, `tools=${state.tools.length}`);
   t('无 ctx.effect 时不抛错（disposer 无处挂，降级为不注销）', true);
   const infoLine = logs.map((l) => String(l.msg)).find((m) => m.includes('[dag-flow] loaded')) ?? '';

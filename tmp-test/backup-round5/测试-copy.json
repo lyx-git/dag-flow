@@ -1,0 +1,232 @@
+{
+  "name": "测试-copy",
+  "version": 1,
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "params": {},
+      "next": [
+        "148826",
+        "end",
+        "192850"
+      ],
+      "label": "start"
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "params": {},
+      "label": "end"
+    },
+    {
+      "id": "192850",
+      "type": "merge",
+      "params": {},
+      "next": "end",
+      "label": "合流_fuw3"
+    },
+    {
+      "id": "148826",
+      "type": "bash",
+      "params": {
+        "code": "",
+        "timeoutMs": 30000
+      },
+      "next": "196969",
+      "label": "Bash_7izv"
+    },
+    {
+      "id": "196969",
+      "type": "http",
+      "params": {
+        "method": "GET",
+        "url": ""
+      },
+      "label": "HTTP_souj"
+    },
+    {
+      "id": "188406",
+      "type": "switch",
+      "params": {
+        "value": "",
+        "cases": {}
+      },
+      "label": "多路分支_xgmr"
+    },
+    {
+      "id": "136369",
+      "type": "manual",
+      "params": {
+        "prompt": ""
+      },
+      "label": "手动确认_bdbi"
+    },
+    {
+      "id": "174326",
+      "type": "start",
+      "params": {},
+      "label": "开始_vwix"
+    },
+    {
+      "id": "178603",
+      "type": "start",
+      "params": {},
+      "label": "开始_w1hx"
+    },
+    {
+      "id": "110812",
+      "type": "set_var",
+      "params": {
+        "vars": {}
+      },
+      "label": "设置变量_ja8k"
+    },
+    {
+      "id": "100326",
+      "type": "set_var",
+      "params": {
+        "vars": {}
+      },
+      "label": "设置变量_6eul"
+    },
+    {
+      "id": "175342",
+      "type": "if",
+      "params": {
+        "portKeys": [
+          "true",
+          "false"
+        ],
+        "condition": "count > 0"
+      },
+      "label": "条件分支_j2e5"
+    },
+    {
+      "id": "184045",
+      "type": "switch",
+      "params": {
+        "value": "",
+        "cases": {}
+      },
+      "label": "多路分支_d34n"
+    },
+    {
+      "id": "135171",
+      "type": "if",
+      "params": {
+        "portKeys": [
+          "true",
+          "false"
+        ],
+        "condition": "count > 0",
+        "_label": "条件分支_pj65"
+      },
+      "next": {
+        "true": "188406",
+        "false": "136369"
+      },
+      "label": "条件分支_pj65"
+    },
+    {
+      "id": "120987",
+      "type": "end",
+      "params": {},
+      "label": "结束_7jaj"
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "148826"
+    },
+    {
+      "from": "start",
+      "to": "end"
+    },
+    {
+      "from": "start",
+      "to": "192850"
+    },
+    {
+      "from": "192850",
+      "to": "end"
+    },
+    {
+      "from": "148826",
+      "to": "196969"
+    },
+    {
+      "from": "135171",
+      "to": "188406",
+      "when": "true"
+    },
+    {
+      "from": "135171",
+      "to": "136369",
+      "when": "false"
+    }
+  ],
+  "layout": {
+    "100326": {
+      "x": 92,
+      "y": 318.5
+    },
+    "110812": {
+      "x": -177,
+      "y": 374.5
+    },
+    "120987": {
+      "x": 136.25,
+      "y": -188
+    },
+    "135171": {
+      "x": -156.75,
+      "y": 39
+    },
+    "136369": {
+      "x": 139,
+      "y": 44.5
+    },
+    "148826": {
+      "x": 394,
+      "y": 0
+    },
+    "174326": {
+      "x": -170,
+      "y": -178.5
+    },
+    "175342": {
+      "x": -293.5,
+      "y": -77
+    },
+    "178603": {
+      "x": -151,
+      "y": -177.5
+    },
+    "184045": {
+      "x": -288.5,
+      "y": -37
+    },
+    "188406": {
+      "x": 142,
+      "y": -95
+    },
+    "192850": {
+      "x": 394,
+      "y": 230
+    },
+    "196969": {
+      "x": 690,
+      "y": 0
+    },
+    "start": {
+      "x": 98,
+      "y": 136
+    },
+    "end": {
+      "x": 690,
+      "y": 183
+    }
+  }
+}

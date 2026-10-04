@@ -32,6 +32,9 @@ function t(name, cond, detail = '') {
 /** 串行模式（next 链）运行：target 节点类型 + params 可指定 */
 const runSerial = async (type, params) => {
   const r = await fetch(base + '/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+    // ★ 2026-10-04 自检轮 2：本文件测的是**引擎侧**参数预检，显式跳过运行前自检那道门
+    //   （不带 skipSelfcheck 时会被 /run 里的自检以 409 + PARAM_REQUIRED 拦下，见 F 段）
+    skipSelfcheck: true,
     def: { name: 'p-serial', version: 1, nodes: [
       { id: 'start', type: 'start', next: 't' },
       { id: 't', type, params },
@@ -44,6 +47,7 @@ const runSerial = async (type, params) => {
 /** DAG 模式（edges）运行 */
 const runDag = async (nodes, edges) => {
   const r = await fetch(base + '/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+    skipSelfcheck: true,   // ★ 同上：本文件测引擎侧预检，跳过运行前自检这道门
     def: { name: 'p-dag', version: 1, nodes, edges },
   }) });
   return (await r.json().catch(() => ({})))?.summary;
@@ -142,6 +146,37 @@ const runDag = async (nodes, edges) => {
     [ { from: 'start', to: 'sv' }, { from: 'sv', to: 'end' } ],
   );
   t('E2. DAG 合法（set_var 有 vars）→ 正常执行不被预检拦截', s?.status === 'success' && s?.results?.sv?.status === 'success', JSON.stringify(s?.error)?.slice(0, 140));
+}
+
+// ===== F. 运行前自检（2026-10-04 轮 2）：不带 skipSelfcheck 时，必填缺失在**自检阶段**就被拦下 =
+//     A~E 全用 skipSelfcheck:true 走引擎侧预检；这里锁"新门"的契约：409 + selfcheck + PARAM_REQUIRED + fix。
+{
+  const r = await fetch(base + '/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+    def: { name: 'p-gate', version: 1, nodes: [
+      { id: 'start', type: 'start', next: 't' },
+      { id: 't', type: 'python', params: {} },
+      { id: 'end', type: 'end' },
+    ] },
+  }) });
+  const body = await r.json().catch(() => ({}));
+  t('F1. 必填缺失且未确认 → 409 + blocked（自检先拦，不进引擎）',
+    r.status === 409 && body?.blocked === true, JSON.stringify({ status: r.status, blocked: body?.blocked }));
+  t('F2. 拦截项带 PARAM_REQUIRED 错误码 + 指明节点',
+    body?.selfcheck?.items?.[0]?.code === 'PARAM_REQUIRED' && body?.selfcheck?.items?.[0]?.nodeId === 't',
+    JSON.stringify(body?.selfcheck?.items?.[0] ?? {}).slice(0, 200));
+  t('F3. ★拦截项带「解决办法」（fix）',
+    typeof body?.selfcheck?.items?.[0]?.fix === 'string' && body.selfcheck.items[0].fix.length > 10,
+    JSON.stringify(body?.selfcheck?.items?.[0]?.fix ?? ''));
+  // 自检专用路由：只自检不执行
+  const sc = await fetch(base + '/selfcheck', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+    def: { name: 'p-gate2', version: 1, nodes: [
+      { id: 'start', type: 'start' }, { id: 't', type: 'python', params: {} }, { id: 'end', type: 'end' },
+    ], edges: [{ from: 'start', to: 't' }, { from: 't', to: 'end' }] },
+  }) });
+  const scBody = await sc.json().catch(() => ({}));
+  t('F4. POST /selfcheck → 200 且只报告不执行（无 summary/runId）',
+    sc.status === 200 && scBody?.errorCount === 1 && !scBody?.summary && !scBody?.runId,
+    JSON.stringify({ status: sc.status, errorCount: scBody?.errorCount, hasSummary: !!scBody?.summary }));
 }
 
 server.close();

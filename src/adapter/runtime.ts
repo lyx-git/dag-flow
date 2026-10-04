@@ -158,78 +158,105 @@ function findCachedExe(tool: string, platform: Platform, sub: string): string | 
   return null;
 }
 
-/** 解析 Python 路径：bundled → user-cache（动态版本）→ system */
+// ---------- 解析结果记忆化（2026-10-04 用户反馈：长任务/循环里不要反复扫描这三个运行时）----------
+// 为什么必须缓存：`resolve*` 每次调用都要
+//   ① `readdirSync(USER_RUNTIME_DIR/<tool>)` 扫一遍用户缓存目录；
+//   ② `bundledPath()` 2 次 existsSync；
+//   ③ `which()` 把 PATH × PATHEXT 全展开逐条 existsSync（Windows 上常是几十~上百次系统调用）；
+// 而 **每个 python / bash 节点执行都会调一次**（registry/builtin.ts 的 python/bash 节点），
+// 跑循环体（loop body）或长工作流时就是"每轮都全盘扫描一次"。
+// 这些结果在一次进程生命周期内不会变（运行时是随插件包/用户缓存就位的；下载完需要重启或显式失效）。
+// 逃生舱：环境变量 DSH_RUNTIME_NO_CACHE=1 关闭缓存；__resetRuntimeCache() 手动清（测试/下载后可用）。
+export function __resetRuntimeCache(): void { _resolveCache.clear(); }
+const _resolveCache = new Map<string, unknown>();
+function memoResolve<T>(key: string, make: () => T): T {
+  if (process.env.DSH_RUNTIME_NO_CACHE === '1') return make();
+  if (_resolveCache.has(key)) return _resolveCache.get(key) as T;
+  const v = make();
+  _resolveCache.set(key, v);
+  return v;
+}
+
+/** 解析 Python 路径：bundled → user-cache（动态版本）→ system（结果带缓存，见上） */
 export function resolvePython(platform: Platform = detectPlatform()): { exe: string; source: RuntimePaths['pythonSource'] } {
-  const sub = PY_EXE_BY_PLATFORM[platform];
-  if (sub) {
-    const bundled = bundledPath('python', `${PYTHON_VERSION}+${PYTHON_RELEASE}`, platform, sub);
-    if (existsSync(bundled)) return { exe: bundled, source: 'bundled' };
-    const cached = findCachedExe('python', platform, sub);
-    if (cached) return { exe: cached, source: 'user-cache' };
-  }
-  // 系统 python 探测
-  for (const bin of ['python3.12', 'python3', 'python', 'py']) {
-    const sys = which(bin);
-    if (sys) return { exe: sys, source: 'system' };
-  }
-  return { exe: '', source: 'missing' };
+  return memoResolve(`python:${platform}`, () => {
+    const sub = PY_EXE_BY_PLATFORM[platform];
+    if (sub) {
+      const bundled = bundledPath('python', `${PYTHON_VERSION}+${PYTHON_RELEASE}`, platform, sub);
+      if (existsSync(bundled)) return { exe: bundled, source: 'bundled' as const };
+      const cached = findCachedExe('python', platform, sub);
+      if (cached) return { exe: cached, source: 'user-cache' as const };
+    }
+    // 系统 python 探测
+    for (const bin of ['python3.12', 'python3', 'python', 'py']) {
+      const sys = which(bin);
+      if (sys) return { exe: sys, source: 'system' as const };
+    }
+    return { exe: '', source: 'missing' as const };
+  });
 }
 
 export function resolveBash(platform: Platform = detectPlatform()): { exe: string; source: RuntimePaths['bashSource'] } {
-  // win-x64：多候选布局（MinGit 2.55 完整版是 usr/bin/sh.exe；旧版是 mingit64/usr/bin/bash.exe）
-  if (platform === 'win-x64') {
-    for (const cand of BASH_CANDIDATES_WIN) {
-      const bundled = bundledPath('bash', BASH_VERSION, platform, cand);
-      if (existsSync(bundled)) return { exe: bundled, source: 'bundled' };
-      const cached = findCachedExe('bash', platform, cand);
-      if (cached) return { exe: cached, source: 'user-cache' };
+  return memoResolve(`bash:${platform}`, () => {
+    // win-x64：多候选布局（MinGit 2.55 完整版是 usr/bin/sh.exe；旧版是 mingit64/usr/bin/bash.exe）
+    if (platform === 'win-x64') {
+      for (const cand of BASH_CANDIDATES_WIN) {
+        const bundled = bundledPath('bash', BASH_VERSION, platform, cand);
+        if (existsSync(bundled)) return { exe: bundled, source: 'bundled' as const };
+        const cached = findCachedExe('bash', platform, cand);
+        if (cached) return { exe: cached, source: 'user-cache' as const };
+      }
+    } else {
+      const sub = BASH_EXE_BY_PLATFORM[platform];
+      if (sub) {
+        const bundled = bundledPath('bash', BASH_VERSION, platform, sub);
+        if (existsSync(bundled)) return { exe: bundled, source: 'bundled' as const };
+        const cached = findCachedExe('bash', platform, sub);
+        if (cached) return { exe: cached, source: 'user-cache' as const };
+      }
     }
-  } else {
-    const sub = BASH_EXE_BY_PLATFORM[platform];
-    if (sub) {
-      const bundled = bundledPath('bash', BASH_VERSION, platform, sub);
-      if (existsSync(bundled)) return { exe: bundled, source: 'bundled' };
-      const cached = findCachedExe('bash', platform, sub);
-      if (cached) return { exe: cached, source: 'user-cache' };
+    // 系统 bash（macOS/Linux 都有；Windows 无）
+    for (const bin of ['bash']) {
+      const sys = which(bin);
+      if (sys) return { exe: sys, source: 'system' as const };
     }
-  }
-  // 系统 bash（macOS/Linux 都有；Windows 无）
-  for (const bin of ['bash']) {
-    const sys = which(bin);
-    if (sys) return { exe: sys, source: 'system' };
-  }
-  return { exe: '', source: 'missing' };
+    return { exe: '', source: 'missing' as const };
+  });
 }
 
 export function resolveUv(platform: Platform = detectPlatform()): { exe: string; source: RuntimePaths['uvSource'] } {
-  const sub = UV_EXE_BY_PLATFORM[platform];
-  if (sub) {
-    const bundled = bundledPath('uv', UV_VERSION, platform, sub);
-    if (existsSync(bundled)) return { exe: bundled, source: 'bundled' };
-    const cached = findCachedExe('uv', platform, sub);
-    if (cached) return { exe: cached, source: 'user-cache' };
-  }
-  for (const bin of ['uv']) {
-    const sys = which(bin);
-    if (sys) return { exe: sys, source: 'system' };
-  }
-  return { exe: '', source: 'missing' };
+  return memoResolve(`uv:${platform}`, () => {
+    const sub = UV_EXE_BY_PLATFORM[platform];
+    if (sub) {
+      const bundled = bundledPath('uv', UV_VERSION, platform, sub);
+      if (existsSync(bundled)) return { exe: bundled, source: 'bundled' as const };
+      const cached = findCachedExe('uv', platform, sub);
+      if (cached) return { exe: cached, source: 'user-cache' as const };
+    }
+    for (const bin of ['uv']) {
+      const sys = which(bin);
+      if (sys) return { exe: sys, source: 'system' as const };
+    }
+    return { exe: '', source: 'missing' as const };
+  });
 }
 
 export function resolveAll(): RuntimePaths {
-  const platform = detectPlatform();
-  const p = resolvePython(platform);
-  const b = resolveBash(platform);
-  const u = resolveUv(platform);
-  return {
-    platform,
-    pythonExe: p.exe,
-    pythonSource: p.source,
-    bashExe: b.exe,
-    bashSource: b.source,
-    uvExe: u.exe,
-    uvSource: u.source,
-  };
+  return memoResolve('all', () => {
+    const platform = detectPlatform();
+    const p = resolvePython(platform);
+    const b = resolveBash(platform);
+    const u = resolveUv(platform);
+    return {
+      platform,
+      pythonExe: p.exe,
+      pythonSource: p.source,
+      bashExe: b.exe,
+      bashSource: b.source,
+      uvExe: u.exe,
+      uvSource: u.source,
+    };
+  });
 }
 
 /** 检查 Python 解释器是否包含某个模块（用于决定是否需要 uv pip install） */

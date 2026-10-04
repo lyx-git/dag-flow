@@ -34,6 +34,16 @@ const TESTS = [
   ['live-status', () => import('./test-live-status.mjs')],
   // ★ 2026-10-03：画布视图控件（进画布默认 75% 看得清 / 适应画布 50% 下限 / 一键放大缩小 / 不被重渲染重置）
   ['view-controls', () => import('./test-view-controls.mjs')],
+  // ★ 2026-10-04：⏰ 定时任务弹窗（列表/新增/防抖/非法 cron 本地拦截/启停/立即运行一次/删除/过滤）
+  ['schedule-dialog', () => import('./test-schedule-dialog.mjs')],
+  // ★ 2026-10-04：定时（宿主侧）触发的运行也要点亮画布（用户真机反馈「工作流的状态不会变化」）
+  ['sched-run', () => import('./test-sched-run.mjs')],
+  // ★ 2026-10-04 轮 5：失败策略「回跳不生效」在问题面板提前显形（goto 目标只执行一次）
+  ['goto-warn', () => import('./test-goto-warn.mjs')],
+  // ★ 2026-10-04 运行日志：🧾 弹窗（节点之间的参数传递可见）
+  ['run-log', () => import('./test-run-log.mjs')],
+  // ★ 2026-10-04 轮 1 自检：运行前自动检查 → 报错提示 + 解决办法 + 人工确认（仍然运行）
+  ['selfcheck-gate', () => import('./test-selfcheck-gate.mjs')],
 ];
 
 // —— fixture 服务器 ——

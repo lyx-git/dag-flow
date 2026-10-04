@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>dag-flow · 分组框 + 便签 原型（2026-10-04）</title>
+<style>
+  :root { --bg:#08101e; --panel:#0d1728; --border:#22304a; --text:#dbe6f7; --muted:#8b9bb3; --accent:#4f8cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif; padding:18px 22px 26px; }
+  h1 { font-size:17px; margin:0 0 2px; }
+  .sub { color:var(--muted); font-size:11.5px; margin-bottom:16px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px 14px 16px; }
+  .card h2 { font-size:13.5px; margin:0 0 8px; display:flex; align-items:center; gap:7px; }
+  .tag { font-size:10.5px; padding:1px 7px; border-radius:999px; border:1px solid currentColor; opacity:.9; }
+  .tag.rec { color:#34d399; } .tag.heavy { color:#fbbf24; }
+  .canvas { position:relative; height:300px; border-radius:10px; border:1px dashed #1d2b45; overflow:hidden;
+            background:radial-gradient(circle at 22% 28%, rgba(79,140,255,.10), transparent 42%), radial-gradient(circle at 78% 72%, rgba(167,139,250,.10), transparent 45%), #060d19; }
+  .dotgrid { position:absolute; inset:0; background-image:radial-gradient(#1a2740 1px, transparent 1px); background-size:16px 16px; opacity:.65; }
+  .node { position:absolute; width:132px; border-radius:9px; background:linear-gradient(180deg,#132039,#0e1a2e); border:1px solid #2a3b5c;
+          border-left:3px solid var(--accent); padding:7px 9px; box-shadow:0 6px 16px rgba(0,0,0,.35); }
+  .node .t { font-size:12px; font-weight:640; }
+  .node .s { font-size:10px; color:var(--muted); margin-top:1px; }
+  .node.py { border-left-color:#fbbf24; } .node.http { border-left-color:#38bdf8; } .node.ai { border-left-color:#a78bfa; }
+  .wire { position:absolute; height:2px; background:linear-gradient(90deg,#2a3b5c,#3b5580); border-radius:2px; }
+  /* —— 分组框 —— */
+  .groupbox { position:absolute; border-radius:14px; border:1.5px solid rgba(79,140,255,.55);
+              background:linear-gradient(180deg, rgba(79,140,255,.10), rgba(79,140,255,.03)); }
+  .groupbox .ghead { position:absolute; top:-11px; left:12px; display:flex; align-items:center; gap:6px;
+              background:#0d1728; border:1px solid rgba(79,140,255,.55); border-radius:999px; padding:1px 9px; font-size:11px; }
+  .groupbox .ghead .grip { cursor:grab; color:var(--muted); }
+  .groupbox .gtools { position:absolute; top:-12px; right:10px; display:flex; gap:5px; }
+  .gtools span { background:#0d1728; border:1px solid var(--border); border-radius:6px; padding:0 5px; font-size:10.5px; color:var(--muted); }
+  /* —— 便签 —— */
+  .note { position:absolute; width:150px; min-height:74px; border-radius:6px; padding:9px 10px 10px; color:#2a2410;
+          background:#ffd977; box-shadow:0 8px 20px rgba(0,0,0,.42); transform:rotate(-1.2deg); }
+  .note .nhead { display:flex; justify-content:space-between; font-size:10px; opacity:.65; margin-bottom:3px; }
+  .note .ntext { font-size:11.5px; line-height:1.5; }
+  .note.blue { background:#9ecbff; color:#10233a; transform:rotate(1deg); }
+  .note.purple { background:#c9b6ff; color:#231640; transform:rotate(-0.6deg); }
+  .note .fold { position:absolute; right:0; bottom:0; width:0; height:0; border-left:14px solid rgba(0,0,0,.16); border-top:14px solid transparent; border-radius:0 0 6px 0; }
+  ul { margin:8px 0 0; padding-left:17px; color:#c3d2e8; font-size:11.8px; }
+  li { margin:2px 0; }
+  .k { color:#7dd3fc; font-family:ui-monospace,Consolas,monospace; }
+  .compare { margin-top:16px; }
+  table { width:100%; border-collapse:collapse; font-size:11.6px; }
+  th,td { border:1px solid var(--border); padding:5px 8px; text-align:left; vertical-align:top; }
+  th { background:#0f1b2f; color:#cfe0f7; font-weight:620; }
+</style>
+</head>
+<body>
+  <h1>dag-flow · 画布「分组框 + 便签」原型</h1>
+  <div class="sub">2026-10-04 · 目的：给大图（23 节点）做**可读性组织**。两个候选形态 + 对比表，看完请你拍板。</div>
+
+  <div class="grid">
+    <!-- 方案 A：自研视觉装饰 -->
+    <div class="card">
+      <h2>方案 A：画布装饰（分组框 + 便签）<span class="tag rec">推荐 · 轻</span></h2>
+      <div class="canvas">
+        <div class="dotgrid"></div>
+        <!-- 分组框（含 3 个节点，拖动框时框内节点一起动） -->
+        <div class="groupbox" style="left:14px; top:34px; width:300px; height:150px;">
+          <div class="ghead"><span class="grip">⠿</span><span>数据抓取</span><span style="opacity:.6">3 个节点</span></div>
+          <div class="gtools"><span>🎨</span><span>✎</span><span>✕</span></div>
+          <div class="node http" style="left:16px; top:26px;"><div class="t">网页搜索</div><div class="s">web_search · bing</div></div>
+          <div class="node http" style="left:16px; top:84px;"><div class="t">网页抓取</div><div class="s">web_fetch</div></div>
+          <div class="node py" style="left:160px; top:54px;"><div class="t">央视新闻</div><div class="s">python</div></div>
+        </div>
+        <!-- 便签 -->
+        <div class="note" style="left:342px; top:48px;">
+          <div class="nhead"><span>📝 便签</span><span>✕</span></div>
+          <div class="ntext">这一组负责当天材料的抓取；搜索源固定 bing，别改回 auto。</div>
+          <div class="fold"></div>
+        </div>
+        <!-- 框外节点 -->
+        <div class="node ai" style="left:120px; top:206px;"><div class="t">AI 汇总</div><div class="s">subagent · 深度分析</div></div>
+        <div class="node" style="left:300px; top:220px;"><div class="t">保存简报</div><div class="s">file_save</div></div>
+        <div class="wire" style="left:250px; top:186px; width:60px; transform:rotate(38deg);"></div>
+        <div class="wire" style="left:250px; top:238px; width:52px;"></div>
+      </div>
+      <ul>
+        <li>拖动<b>框</b>时，<b>框内节点一起移动</b>（按几何包含关系临时算，<b>不建立父子数据</b>）</li>
+        <li>框：改标题 / 选配色 / 拖边框改大小 / ✕ 解散（节点原地不动）</li>
+        <li>便签：纯文本（支持换行）、黄/蓝/紫三色、可拖动、可折叠成小图标</li>
+        <li>存储：<span class="k">def.canvas = { groups:[], comments:[] }</span> —— <b>不进执行图</b>，引擎/自检/运行日志零影响</li>
+      </ul>
+    </div>
+
+    <!-- 方案 B：官方 group 插件（真容器） -->
+    <div class="card">
+      <h2>方案 B：官方 free-group 容器（真父子）<span class="tag heavy">重 · 2-3 轮</span></h2>
+      <div class="canvas">
+        <div class="dotgrid"></div>
+        <div class="groupbox" style="left:14px; top:30px; width:300px; height:158px; border-style:solid; border-color:rgba(52,211,153,.6); background:linear-gradient(180deg, rgba(52,211,153,.10), rgba(52,211,153,.03));">
+          <div class="ghead" style="border-color:rgba(52,211,153,.6)"><span class="grip">⠿</span><span>容器组（可折叠）</span><span>▾</span></div>
+          <div class="gtools"><span>⤢</span><span>✕</span></div>
+          <div class="node http" style="left:16px; top:26px;"><div class="t">网页搜索</div><div class="s">web_search · bing</div></div>
+          <div class="node http" style="left:16px; top:84px;"><div class="t">网页抓取</div><div class="s">web_fetch</div></div>
+          <div class="node py" style="left:160px; top:54px;"><div class="t">央视新闻</div><div class="s">python</div></div>
+        </div>
+        <div class="node ai" style="left:120px; top:214px;"><div class="t">AI 汇总</div><div class="s">subagent · 深度分析</div></div>
+        <div class="node" style="left:300px; top:226px;"><div class="t">保存简报</div><div class="s">file_save</div></div>
+        <div class="note blue" style="left:342px; top:56px;">
+          <div class="nhead"><span>💬 批注</span><span>✕</span></div>
+          <div class="ntext">官方 comment 组件（节点级批注），同样是画布装饰。</div>
+          <div class="fold"></div>
+        </div>
+      </div>
+      <ul>
+        <li>真容器语义：<b>折叠/展开</b>、组内整体移动、跨组拖入拖出、组内自动布局</li>
+        <li>代价 ①：<span class="k">def.nodes[].parent</span> 新字段 → <b>三处 schema 同步</b>（host types / host 校验 / client JsonView）</li>
+        <li>代价 ②：装饰节点（group/container/comment）<b>必须排除出执行图</b>，否则引擎按节点执行 → <span class="k">UNKNOWN_NODE_TYPE</span></li>
+        <li>代价 ③：拖拽/连线/选中/删除/自检/运行日志全部要逐条回归（CDP 31 项）</li>
+        <li>现状：<span class="k">@flowgram.ai/free-group-plugin@1.0.15</span> 存在（与本项目其它 flowgram 包同版本），但<b>尚未安装</b></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card compare">
+    <h2>对比与取舍</h2>
+    <table>
+      <tr><th style="width:22%">维度</th><th>方案 A：画布装饰（推荐）</th><th>方案 B：官方容器</th></tr>
+      <tr><td>你的核心诉求（大图可读性）</td><td>✅ 达到：能分区、能写备注、拖动一框一起搬</td><td>✅ 达到，且能折叠收起省空间</td></tr>
+      <tr><td>执行图 / 自检 / 运行日志</td><td><b>零影响</b>（装饰存在 def.canvas，引擎看不到）</td><td>需显式排除装饰节点，逐个回归</td></tr>
+      <tr><td>数据结构</td><td>新增根字段 <span class="k">canvas</span>（schema 加一条 + JsonView 同步）</td><td>新增节点级 <span class="k">parent</span>（三处 schema + 拖拽语义）</td></tr>
+      <tr><td>新依赖</td><td>无</td><td>+1 个 flowgram 包（打进入 bundle，用户装机负担不变）</td></tr>
+      <tr><td>工作量</td><td><b>1 轮</b>（装饰层 + 编辑 + 持久化 + 断言）</td><td><b>2-3 轮</b></td></tr>
+      <tr><td>风险</td><td>低（不碰节点/连线交互，只在最底层画）</td><td>中-高（容器会改变命中测试与拖拽链路，本项目对此极敏感）</td></tr>
+    </table>
+    <div class="sub" style="margin-top:10px">
+      我的建议：<b>先做 A</b>（花的是一轮的代价，拿到你要的可读性）；等你真用了一阵、确实需要"折叠收起 / 跨组拖拽"再上 B —— 那时 A 的数据结构（def.canvas）可以与 B 共存，不白做。
+    </div>
+  </div>
+</body>
+</html>

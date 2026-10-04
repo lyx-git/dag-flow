@@ -1,0 +1,436 @@
+{
+  "name": "演示-你好dagflow",
+  "version": 1,
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "params": {},
+      "next": "if_105644",
+      "label": "开始"
+    },
+    {
+      "id": "py",
+      "type": "python",
+      "params": {
+        "codePath": "scripts/演示-你好dagflow/hello.py",
+        "timeoutMs": 15000
+      },
+      "next": "merge_117623",
+      "label": "生成问候（文件引用）"
+    },
+    {
+      "id": "py2",
+      "type": "python",
+      "params": {
+        "code": "# 内联代码示例：选中本节点 → 点「📝 编辑代码」即可修改\nprint('这是内联代码节点（编辑代码弹窗演示）')\nfor i in range(3):\n    print('  循环输出', i)\n",
+        "timeoutMs": 15000
+      },
+      "next": [
+        "http_167819",
+        "merge_117623"
+      ],
+      "label": "内联代码演示"
+    },
+    {
+      "id": "sh",
+      "type": "bash",
+      "params": {
+        "code": "echo 'hello from bash node'\necho 'Bash 内建命令演示 OK'\n",
+        "timeoutMs": 15000
+      },
+      "next": [
+        "route",
+        "subagent_120806"
+      ],
+      "label": "Bash 演示"
+    },
+    {
+      "id": "route",
+      "type": "switch",
+      "params": {
+        "value": "A",
+        "cases": {
+          "A": "logA",
+          "*": "logB"
+        }
+      },
+      "next": {
+        "A": "logA",
+        "*": "logB"
+      },
+      "label": "多路分支演示"
+    },
+    {
+      "id": "logA",
+      "type": "log",
+      "params": {
+        "level": "info",
+        "message": "走了 A 分支"
+      },
+      "next": "lg",
+      "label": "分支A"
+    },
+    {
+      "id": "logB",
+      "type": "log",
+      "params": {
+        "level": "info",
+        "message": "走了 B 分支"
+      },
+      "next": "lg",
+      "label": "分支B"
+    },
+    {
+      "id": "lg",
+      "type": "log",
+      "params": {
+        "level": "info",
+        "message": "演示工作流执行完成"
+      },
+      "next": "end",
+      "label": "记录日志"
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "params": {},
+      "label": "结束"
+    },
+    {
+      "id": "if_105644",
+      "type": "if",
+      "params": {
+        "portKeys": [
+          "true",
+          "false"
+        ],
+        "condition": "count > 0",
+        "_label": "条件分支_08g4"
+      },
+      "next": {
+        "true": "py2",
+        "false": "py"
+      },
+      "label": "条件分支_08g4"
+    },
+    {
+      "id": "merge_117623",
+      "type": "merge",
+      "params": {},
+      "next": "sh",
+      "label": "合流_b1h8"
+    },
+    {
+      "id": "http_167819",
+      "type": "http",
+      "params": {
+        "method": "GET",
+        "url": ""
+      },
+      "next": [
+        "python_198047",
+        "web_fetch_157655"
+      ],
+      "label": "HTTP_f91h"
+    },
+    {
+      "id": "web_fetch_157655",
+      "type": "web_fetch",
+      "params": {
+        "url": "",
+        "maxChars": 8000
+      },
+      "next": "session_input_154408",
+      "label": "网页抓取_iy1v"
+    },
+    {
+      "id": "python_198047",
+      "type": "python",
+      "params": {
+        "code": "",
+        "timeoutMs": 30000
+      },
+      "label": "Python_2wmn"
+    },
+    {
+      "id": "subagent_120806",
+      "type": "subagent",
+      "params": {
+        "prompt": "",
+        "model": "dsh:custom-model:glm-5.3-flash",
+        "_label": "AI 子代理_fsv7"
+      },
+      "label": "AI 子代理_fsv7"
+    },
+    {
+      "id": "session_input_154408",
+      "type": "session_input",
+      "params": {
+        "sessionId": "session-bcffb1e5-9703-47cc-9a7c-91041c58b76b",
+        "limit": 10
+      },
+      "next": "if_146800",
+      "label": "会话输入_1thv"
+    },
+    {
+      "id": "if_146800",
+      "type": "if",
+      "params": {
+        "portKeys": [
+          "true",
+          "false"
+        ],
+        "condition": "count > 0"
+      },
+      "label": "条件分支_7rt5"
+    },
+    {
+      "id": "http_160841",
+      "type": "http",
+      "params": {
+        "method": "GET",
+        "url": ""
+      },
+      "label": "HTTP_2dqp"
+    },
+    {
+      "id": "web_search_194878",
+      "type": "web_search",
+      "params": {
+        "query": "",
+        "provider": "auto",
+        "count": 8
+      },
+      "label": "网页搜索_qjkd"
+    },
+    {
+      "id": "web_fetch_157331",
+      "type": "web_fetch",
+      "params": {
+        "url": "",
+        "maxChars": 8000
+      },
+      "label": "网页抓取_ws0k"
+    },
+    {
+      "id": "subagent_102719",
+      "type": "subagent",
+      "params": {
+        "prompt": ""
+      },
+      "label": "AI 子代理_bq9k"
+    },
+    {
+      "id": "image_generate_122608",
+      "type": "image_generate",
+      "params": {
+        "prompt": "",
+        "baseURL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "model": "wanx-v1",
+        "size": "1024*1024",
+        "n": 1,
+        "apiKeyEnv": "DASHSCOPE_API_KEY",
+        "apiKey": ""
+      },
+      "label": "图片生成_sx0n"
+    },
+    {
+      "id": "video_generate_179118",
+      "type": "video_generate",
+      "params": {
+        "submitUrl": "",
+        "pollUrl": "",
+        "pollIntervalMs": 5000,
+        "maxWaitMs": 600000,
+        "apiKeyEnv": ""
+      },
+      "label": "视频生成_rkyb"
+    },
+    {
+      "id": "log_194840",
+      "type": "log",
+      "params": {
+        "level": "info",
+        "message": ""
+      },
+      "label": "日志_8pch"
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "if_105644"
+    },
+    {
+      "from": "if_105644",
+      "to": "py",
+      "when": "false"
+    },
+    {
+      "from": "py",
+      "to": "merge_117623"
+    },
+    {
+      "from": "if_105644",
+      "to": "py2",
+      "when": "true"
+    },
+    {
+      "from": "py2",
+      "to": "http_167819"
+    },
+    {
+      "from": "py2",
+      "to": "merge_117623"
+    },
+    {
+      "from": "merge_117623",
+      "to": "sh"
+    },
+    {
+      "from": "sh",
+      "to": "route"
+    },
+    {
+      "from": "sh",
+      "to": "subagent_120806"
+    },
+    {
+      "from": "route",
+      "to": "logA",
+      "when": "A"
+    },
+    {
+      "from": "route",
+      "to": "logB",
+      "when": "*"
+    },
+    {
+      "from": "logA",
+      "to": "lg"
+    },
+    {
+      "from": "logB",
+      "to": "lg"
+    },
+    {
+      "from": "lg",
+      "to": "end"
+    },
+    {
+      "from": "http_167819",
+      "to": "python_198047"
+    },
+    {
+      "from": "http_167819",
+      "to": "web_fetch_157655"
+    },
+    {
+      "from": "web_fetch_157655",
+      "to": "session_input_154408"
+    },
+    {
+      "from": "session_input_154408",
+      "to": "if_146800"
+    }
+  ],
+  "layout": {
+    "subagent_102719": {
+      "x": 98,
+      "y": 1068
+    },
+    "if_105644": {
+      "x": 394,
+      "y": 356
+    },
+    "merge_117623": {
+      "x": 986,
+      "y": 534
+    },
+    "subagent_120806": {
+      "x": 1578,
+      "y": 623
+    },
+    "image_generate_122608": {
+      "x": 97.99999999999989,
+      "y": 1246
+    },
+    "if_146800": {
+      "x": 1874,
+      "y": 178
+    },
+    "session_input_154408": {
+      "x": 1578,
+      "y": 177.99999999999994
+    },
+    "web_fetch_157331": {
+      "x": 98,
+      "y": 890
+    },
+    "web_fetch_157655": {
+      "x": 1282,
+      "y": 178
+    },
+    "http_160841": {
+      "x": 98,
+      "y": 533.9999999999999
+    },
+    "http_167819": {
+      "x": 986,
+      "y": 89
+    },
+    "video_generate_179118": {
+      "x": 98,
+      "y": 1424
+    },
+    "log_194840": {
+      "x": 98,
+      "y": 1602
+    },
+    "web_search_194878": {
+      "x": 98,
+      "y": 712
+    },
+    "python_198047": {
+      "x": 1282,
+      "y": 0
+    },
+    "start": {
+      "x": 98,
+      "y": 356
+    },
+    "py": {
+      "x": 690,
+      "y": 539
+    },
+    "py2": {
+      "x": 690,
+      "y": 94
+    },
+    "sh": {
+      "x": 1282,
+      "y": 534
+    },
+    "route": {
+      "x": 1578,
+      "y": 445
+    },
+    "logA": {
+      "x": 1874,
+      "y": 356
+    },
+    "logB": {
+      "x": 1874,
+      "y": 534
+    },
+    "lg": {
+      "x": 2170,
+      "y": 445
+    },
+    "end": {
+      "x": 2466,
+      "y": 445
+    }
+  }
+}

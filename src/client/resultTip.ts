@@ -66,6 +66,15 @@ export function tipModel(item: RunStatusItem | undefined, opts: { label: string;
   if (tolerated) {
     lines.push({ kind: 'warn', text: '已容错：本节点失败被放行，后续节点照常执行（这次没有中断工作流）' });
   }
+  // ★ 2026-10-04 用户反馈「定时任务自动触发的运行，手动确认节点自动跳过」→ 拍板显形（不是失败、也不是有人确认过）
+  const autoPassed = !!(item.out && typeof item.out === 'object' && (item.out as { autoPassed?: boolean }).autoPassed === true);
+  if (autoPassed) {
+    lines.push({
+      kind: 'warn',
+      text: '⏭ 自动通过：这次是非交互运行（定时触发 / 「立即运行一次」/ CLI / 子工作流内部），没人能确认，'
+        + 'manual 节点被直接放行——不是失败，也不代表有人确认过。要人工把关就在画布上点 ▶ 运行。',
+    });
+  }
   if (status === 'skipped') {
     lines.push({ kind: 'muted', text: '未执行：所在分支未激活，或上游失败后被跳过' });
   }

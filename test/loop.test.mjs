@@ -53,9 +53,11 @@ const post = async (p, body) => {
   });
   return { status: r.status, body: await r.json().catch(() => null) };
 };
-/** 跑一个 def，返回 summary.results（节点 id → NodeResult） */
+/** 跑一个 def，返回 summary.results（节点 id → NodeResult）
+ *  ★ 2026-10-04 自检轮 3：本文件测的是**引擎侧**的 loop/merge/subflow 语义，显式跳过运行前自检那道门
+ *    （不带 skipSelfcheck 时，"故意不合法"的 def 会被自检以 409 拦下，见文件末尾 §自检门 段） */
 async function run(def) {
-  const r = await post('/run', { def });
+  const r = await post('/run', { skipSelfcheck: true, def });
   return { status: r.status, results: r.body?.summary?.results ?? {}, raw: r.body };
 }
 
@@ -441,6 +443,28 @@ if (!existsSync(DEMO)) {
     `params=${JSON.stringify(lc.params)} out=${JSON.stringify(results.loop_demo?.out)?.slice(0, 160)}`);
   t('演示 end_final 的 {{loop_demo.out.count}} 能解析', results.end_final?.out?.loopCount === results.loop_demo?.out?.count,
     JSON.stringify(results.end_final?.out));
+}
+
+// ===== 自检门（2026-10-04 轮 3）：上面用 skipSelfcheck 走引擎侧；这里锁"新门"会**提前**拦住同一批错误 =====
+{
+  const badLoop = await post('/run', { def: { name: 'lp-gate', version: 1, nodes: [
+    { id: 'start', type: 'start', next: 'lp' }, { id: 'lp', type: 'loop', params: {} }, { id: 'end', type: 'end' },
+  ] } });
+  t('自检门：loop 无边界 → 409 + LOOP_NO_BOUND（不必等运行时才失败）',
+    badLoop.status === 409 && badLoop.body?.selfcheck?.items?.some((i) => i.code === 'LOOP_NO_BOUND'),
+    JSON.stringify({ status: badLoop.status, codes: badLoop.body?.selfcheck?.items?.map((i) => i.code) }));
+  t('自检门：拦下时给出解决办法（fix）',
+    (badLoop.body?.selfcheck?.items ?? []).every((i) => typeof i.fix === 'string' && i.fix.length > 8),
+    JSON.stringify((badLoop.body?.selfcheck?.items ?? []).map((i) => String(i.fix).slice(0, 30))));
+
+  const badBody = await post('/run', { def: { name: 'lp-body-gate', version: 1, nodes: [
+    { id: 'start', type: 'start', next: 'lp' },
+    { id: 'lp', type: 'loop', params: { count: 1, body: { workflowName: '不存在的子流-xyz' } } },
+    { id: 'end', type: 'end' },
+  ] } });
+  t('自检门：循环体子工作流不存在 → 409 + LOOP_BODY_MISSING（提前报，不等每轮失败）',
+    badBody.status === 409 && badBody.body?.selfcheck?.items?.some((i) => i.code === 'LOOP_BODY_MISSING'),
+    JSON.stringify({ status: badBody.status, codes: badBody.body?.selfcheck?.items?.map((i) => i.code) }));
 }
 
 server.close();

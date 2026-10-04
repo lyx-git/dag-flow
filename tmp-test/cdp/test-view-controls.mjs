@@ -31,6 +31,11 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, sleep, name, base })
   eq(info?.zoom, 0.75, '①b 默认缩放抬到 75%（看得清），不是 fit 出来的 ~0.4');
   eq(await zoomPct(), 75, '①c 工具栏百分比读数 = 75%');
   ok(info?.applied === true, '①d 视图真的应用了（scrollToView/updateConfig 成功）');
+  // ★ 取景 C（2026-10-04）：本夹具是**大图**（rawFit≈0.4），入口节点本来就在可视区外
+  //   → 应当做一次**最少平移**把它带进来；且**缩放不变**（平移不碰 zoom）。
+  ok(info?.ensure?.shifted === true && info.ensure.dx < 0,
+    `①e ★大图：入口不在可视区 → 取景 C 平移带进来（ensure=${JSON.stringify(info?.ensure)}）`);
+  eq(await zoomPct(), 75, '①f 平移不改缩放（工具栏仍是 75%）');
 
   // ⑤ 重新渲染后视图不被重置：拖动节点（改坐标 → def 同步 → 图层重渲染）是最真实的场景
   //    注：点「✨ 整理」也会重渲染，但 **FlowGram 的自动布局自己会把视图适配全图**（实测 ~33%），

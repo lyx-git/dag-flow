@@ -19,6 +19,7 @@ import { WorkflowNodeRegistry, registerNode } from './registry/external.js';
 import { runWorkflow } from './executor/run.js';
 import { writeRunRecord, showWorkflow, listRuns } from './executor/record.js';
 import { registerApiRoutes } from './adapter/api.js';
+import { startScheduler } from './adapter/scheduler.js';
 import type { DshStorage, DshLogger } from './adapter/storage.js';
 
 // —— 模块顶层副作用：注册内置节点（fail-soft，import 时即跑）
@@ -96,6 +97,15 @@ export function apply(ctx: any, config?: any): void {
     }
     bindDispose(ctx, apiResult.dispose, 'dag-flow: api routes');
 
+    // 3.6. 启动定时调度器（2026-10-03 用户拍板方案 v1，docs/SCHEDULE-PLAN.md §5）
+    //   载体 = 宿主进程内 20s tick（所以 dsh web 必须常驻才会触发）；disposer 挂 ctx.effect
+    //   （第三条 effect：工具 + 路由 + 调度器），插件热重载/卸载时定时器随之清掉。
+    let schedResult: AttachResult = { registered: false };
+    try { schedResult = startScheduler() ?? schedResult; } catch (e) {
+      try { logger.warn('[dag-flow] startScheduler failed (non-fatal):', e); } catch {}
+    }
+    bindDispose(ctx, schedResult.dispose, 'dag-flow: scheduler');
+
     // 4. 提示已加载（带 reason，失败原因不再被吞掉）
     const driftMsg = drift.safeMode
       ? `safe mode active (drifted: ${drift.drifted.join(', ') || 'none'})`
@@ -103,7 +113,7 @@ export function apply(ctx: any, config?: any): void {
     const status = (r: AttachResult) => (r.registered ? 'registered' : `skipped${r.reason ? ` (${r.reason})` : ''}`);
     try {
       logger.info(
-        `[dag-flow] loaded (host v20261003-midrun-out), ${WorkflowNodeRegistry.list().length} nodes, workflow tool ${status(toolResult)}, api ${status(apiResult)}, ${driftMsg}`
+        `[dag-flow] loaded (host v20261004-viewC), ${WorkflowNodeRegistry.list().length} nodes, workflow tool ${status(toolResult)}, api ${status(apiResult)}, scheduler ${status(schedResult)}, ${driftMsg}`
       );
     } catch {}
   } catch (e) {

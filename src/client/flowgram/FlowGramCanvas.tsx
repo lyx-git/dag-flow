@@ -41,7 +41,7 @@ import type { RFNode, RFEdge } from '../util/flowDef';
 import { startResize8, readStoredJSON, saveJSON, readStoredWidth, clampNum, type PaletteGeom } from '../util/edge-drag';
 import { DSH_NODE_REGISTRIES, SWITCH_NO_CASE } from './nodes';
 // ★ 画布缩放策略（进画布默认缩放 / 适应画布夹取 / 一键放大缩小档位）——纯函数，离线可测
-import { FIT_MIN_ZOOM, nextZoomStep, pickInitialZoom, fitZoomClamped } from '../viewZoom';
+import { FIT_MIN_ZOOM, nextZoomStep, pickInitialZoom, fitZoomClamped, ensureVisibleShift } from '../viewZoom';
 import { runStatusStore, selectionStore } from './runStatus';
 import { switchCaseStore } from './switchCaseStore';
 
@@ -475,6 +475,39 @@ function computeProblems(nodes: any[], edges: any[]): FlowProblem[] {
       msg: `${e.source} → ${e.target} 这条分支线没设分支键——运行时会当作恒激活（所有分支都会执行）。点画布上该线中点的「未设分支」标签可设置`,
     });
   }
+  // ★ 失败后跳转（onError.goto）指向**本节点之前**的节点（2026-10-04 轮 5）：
+  //   轮 3 起 goto 是"失败边"语义，**目标只执行一次**——目标若在本节点之前（已经跑过）或同层，
+  //   跳转不会生效、按「停止这条支路」处理。这类配置在画布上完全看不出来，运行后才发现，
+  //   所以提前用祖先集合判出来（祖先必然在更早的层）；自跳也一并报。
+  const parentsOf = new Map<string, string[]>();
+  for (const e of edges) {
+    const list = parentsOf.get(e.target);
+    if (list) list.push(e.source); else parentsOf.set(e.target, [e.source]);
+  }
+  for (const n of nodes) {
+    // ★ 取法：onError 是 RFNode 的**顶层字段**（见 util/flowDef.ts 的 RFNode 契约），不在 data 里
+    const oe = (n as any).onError;
+    const goto = oe && typeof oe === 'object' ? (oe as { goto?: string }).goto : undefined;
+    if (!goto) continue;
+    // 反向 BFS 收集祖先
+    const seen = new Set<string>([n.id]);
+    const q = [n.id];
+    let isAncestor = false;
+    while (q.length && !isAncestor) {
+      const cur = q.shift() as string;
+      for (const p of parentsOf.get(cur) ?? []) {
+        if (p === goto) { isAncestor = true; break; }
+        if (!seen.has(p)) { seen.add(p); q.push(p); }
+      }
+    }
+    if (isAncestor || goto === n.id) {
+      problems.push({
+        level: 'warn',
+        nodeId: n.id,
+        msg: `${n.id} 失败后跳转的目标「${goto}」在本节点之前${goto === n.id ? '（就是它自己）' : ''}——跳转只在目标还没跑到时生效（目标只执行一次），这里不会生效、会按「停止这条支路」处理。要"失败后回跳重试"请用循环区（loop 的循环体）`,
+      });
+    }
+  }
   return problems;
 }
 
@@ -853,8 +886,22 @@ function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
           // 居中目标 = 整图内容（与「适应画布」同源，取景与原行为一致）；取不到内容才退回起始节点
           const box = worldBounds(ctx) ?? nodeBounds(start);
           const applied = centerOn(cfg, box, zoom);
+          // ★ 取景 C（2026-10-04 用户拍板）：整图居中之后，若**入口节点**不在真正可见的区域内，
+          //   做一次**最少平移**把它带进来（缩放不变）。右侧面板是浮层，必须从可视宽度里减掉。
+          let ensure: { shifted: boolean; dx: number; dy: number } = { shifted: false, dx: 0, dy: 0 };
+          try {
+            const startBox = nodeBounds(start);
+            const { W: vw, H: vh } = viewportOf(cfg);
+            let panelW = 0;
+            try { panelW = Math.min(460, Math.max(0, document.querySelector('.dsh-wf-right')?.getBoundingClientRect().width ?? 0)); } catch { panelW = 0; }
+            const shift = ensureVisibleShift({ graphBox: box, startBox, viewW: vw, viewH: vh, panelW, zoom });
+            if (shift.shifted && shift.target) {
+              cfg?.scrollToView?.({ bounds: shift.target, zoom, easing: false, scrollToCenter: true });
+            }
+            ensure = { shifted: shift.shifted, dx: Math.round(shift.dx), dy: Math.round(shift.dy) };
+          } catch { /* 取景失败不影响画布 */ }
           // 诊断钩子（CDP 验证用）
-          (window as any).__df_initialView = { zoom, rawFit: Number.isFinite(raw) ? Number(raw.toFixed(4)) : null, startId: start?.id ?? null, box, applied, tryNo, at: Date.now() };
+          (window as any).__df_initialView = { zoom, rawFit: Number.isFinite(raw) ? Number(raw.toFixed(4)) : null, startId: start?.id ?? null, box, applied, ensure, tryNo, at: Date.now() };
         } catch (e) {
           console.warn('[dag-flow] 初始视图设置失败:', e);
         }

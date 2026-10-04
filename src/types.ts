@@ -41,7 +41,10 @@ export interface Node {
 export interface Edge {
   from: string;
   to: string;
-  when?: 'true' | 'false' | 'always';
+  /** 分支键：if 用 'true'/'false'，switch 用 case 值（'*' 为兜底），普通边省略。
+   *  ★ 2026-10-04 由字面量联合放宽为 string：WORKFLOW_SCHEMA 一直是 { type: 'string' }，
+   *  switch 的 case 值本来就是任意字符串（旧联合类型迫使客户端 at flowDef.ts:167 强转）。 */
+  when?: string;
 }
 
 export type NextRef =
@@ -158,6 +161,7 @@ export const WORKFLOW_SCHEMA = {
     // ★ layout=画布节点位置（UI 保存必带；2026-10-02 修复：schema 此前不认 layout，
     //   导致 UI 保存的工作流一执行就被「多余字段」拒绝——「运行按钮没用」的真根因之一）
     layout: { type: 'object', additionalProperties: true },
+
     edges: {
       type: 'array',
       items: {

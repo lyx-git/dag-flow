@@ -7,7 +7,7 @@
 //   ④ 右上 ✕ 只关弹窗、运行继续等待（徽标仍在）
 //   ⑤ 「✕ 取消本次运行」→ DELETE /run?name= → 徽标转「✗ 已取消」
 // fixture：tmp-test/picker-server.mjs —— def 含 manual 节点即返回 202 awaiting
-import { installHelpers } from './driver.mjs';
+import {installHelpers, confirmSelfcheck } from './driver.mjs';
 
 export async function run({ cdp, evaluate, waitFor, ok, sleep }) {
   const openDlg = () => evaluate(cdp, `(() => { const el = document.querySelector('.dsh-wf-run-result.is-wait'); if (el) el.click(); return !!el; })()`);
@@ -39,6 +39,7 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep }) {
 
   // ② 点 ▶ 运行 → fixture 返回 202 awaiting
   await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-btn-success').click(); })(); true;`);
+  await confirmSelfcheck(cdp);   // ★ 越过运行前自检的人工确认
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-run-result.is-wait')`, { timeout: 6000 });
   const chip = await evaluate(cdp, `document.querySelector('.dsh-wf-run-result.is-wait')?.textContent ?? ''`);
   ok(chip.includes('等待人工确认'), '头部出现等待徽标（实际：' + chip.trim() + '）');
@@ -83,6 +84,7 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep }) {
 
   // ⑥ 取消路径：再跑一次 → 弹窗内点「✕ 取消本次运行」
   await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-btn-success').click(); })(); true;`);
+  await confirmSelfcheck(cdp);   // ★ 越过运行前自检的人工确认
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-run-result.is-wait')`, { timeout: 6000 });
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-manual-prompt')`, { timeout: 5000 });
   await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-btn-danger').click(); })(); true;`);
@@ -93,6 +95,7 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep }) {
 
   // ⑦ 刷新页面 → 等待态从 localStorage + GET /run/status 恢复（契约里的「刷新可恢复」）
   await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-btn-success').click(); })(); true;`);
+  await confirmSelfcheck(cdp);   // ★ 越过运行前自检的人工确认
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-manual-prompt')`, { timeout: 6000 });
   const beforeReload = await evaluate(cdp, `JSON.parse(localStorage.getItem('dag-flow:manual-wait') || '{}').runId ?? ''`);
   ok(!!beforeReload, '等待态已写入 localStorage（runId=' + beforeReload + '）');

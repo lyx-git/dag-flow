@@ -1,0 +1,436 @@
+{
+  "name": "演示-你好dagflow",
+  "version": 1,
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "params": {},
+      "next": "105644",
+      "label": "开始"
+    },
+    {
+      "id": "py",
+      "type": "python",
+      "params": {
+        "codePath": "scripts/演示-你好dagflow/hello.py",
+        "timeoutMs": 15000
+      },
+      "next": "117623",
+      "label": "生成问候（文件引用）"
+    },
+    {
+      "id": "py2",
+      "type": "python",
+      "params": {
+        "code": "# 内联代码示例：选中本节点 → 点「📝 编辑代码」即可修改\nprint('这是内联代码节点（编辑代码弹窗演示）')\nfor i in range(3):\n    print('  循环输出', i)\n",
+        "timeoutMs": 15000
+      },
+      "next": [
+        "167819",
+        "117623"
+      ],
+      "label": "内联代码演示"
+    },
+    {
+      "id": "sh",
+      "type": "bash",
+      "params": {
+        "code": "echo 'hello from bash node'\necho 'Bash 内建命令演示 OK'\n",
+        "timeoutMs": 15000
+      },
+      "next": [
+        "route",
+        "120806"
+      ],
+      "label": "Bash 演示"
+    },
+    {
+      "id": "route",
+      "type": "switch",
+      "params": {
+        "value": "A",
+        "cases": {
+          "A": "演示：命中 A 分支",
+          "B": ""
+        }
+      },
+      "next": {
+        "A": "logA",
+        "*": "logB"
+      },
+      "label": "多路分支演示"
+    },
+    {
+      "id": "logA",
+      "type": "log",
+      "params": {
+        "level": "info",
+        "message": "走了 A 分支"
+      },
+      "next": "lg",
+      "label": "分支A"
+    },
+    {
+      "id": "logB",
+      "type": "log",
+      "params": {
+        "level": "info",
+        "message": "走了 B 分支"
+      },
+      "next": "lg",
+      "label": "分支B"
+    },
+    {
+      "id": "lg",
+      "type": "log",
+      "params": {
+        "level": "info",
+        "message": "演示工作流执行完成"
+      },
+      "next": "end",
+      "label": "记录日志"
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "params": {},
+      "label": "结束"
+    },
+    {
+      "id": "105644",
+      "type": "if",
+      "params": {
+        "portKeys": [
+          "true",
+          "false"
+        ],
+        "condition": "count > 0",
+        "_label": "条件分支_08g4"
+      },
+      "next": {
+        "true": "py2",
+        "false": "py"
+      },
+      "label": "条件分支_08g4"
+    },
+    {
+      "id": "117623",
+      "type": "merge",
+      "params": {},
+      "next": "sh",
+      "label": "合流_b1h8"
+    },
+    {
+      "id": "167819",
+      "type": "http",
+      "params": {
+        "method": "GET",
+        "url": ""
+      },
+      "next": [
+        "198047",
+        "157655"
+      ],
+      "label": "HTTP_f91h"
+    },
+    {
+      "id": "157655",
+      "type": "web_fetch",
+      "params": {
+        "url": "",
+        "maxChars": 8000
+      },
+      "next": "154408",
+      "label": "网页抓取_iy1v"
+    },
+    {
+      "id": "198047",
+      "type": "python",
+      "params": {
+        "code": "",
+        "timeoutMs": 30000
+      },
+      "label": "Python_2wmn"
+    },
+    {
+      "id": "120806",
+      "type": "subagent",
+      "params": {
+        "prompt": "",
+        "model": "dsh:custom-model:glm-5.3-flash",
+        "_label": "AI 子代理_fsv7"
+      },
+      "label": "AI 子代理_fsv7"
+    },
+    {
+      "id": "154408",
+      "type": "session_input",
+      "params": {
+        "sessionId": "session-bcffb1e5-9703-47cc-9a7c-91041c58b76b",
+        "limit": 10
+      },
+      "next": "146800",
+      "label": "会话输入_1thv"
+    },
+    {
+      "id": "146800",
+      "type": "if",
+      "params": {
+        "portKeys": [
+          "true",
+          "false"
+        ],
+        "condition": "count > 0"
+      },
+      "label": "条件分支_7rt5"
+    },
+    {
+      "id": "160841",
+      "type": "http",
+      "params": {
+        "method": "GET",
+        "url": ""
+      },
+      "label": "HTTP_2dqp"
+    },
+    {
+      "id": "194878",
+      "type": "web_search",
+      "params": {
+        "query": "",
+        "provider": "auto",
+        "count": 8
+      },
+      "label": "网页搜索_qjkd"
+    },
+    {
+      "id": "157331",
+      "type": "web_fetch",
+      "params": {
+        "url": "",
+        "maxChars": 8000
+      },
+      "label": "网页抓取_ws0k"
+    },
+    {
+      "id": "102719",
+      "type": "subagent",
+      "params": {
+        "prompt": ""
+      },
+      "label": "AI 子代理_bq9k"
+    },
+    {
+      "id": "122608",
+      "type": "image_generate",
+      "params": {
+        "prompt": "",
+        "baseURL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "model": "wanx-v1",
+        "size": "1024*1024",
+        "n": 1,
+        "apiKeyEnv": "DASHSCOPE_API_KEY",
+        "apiKey": ""
+      },
+      "label": "图片生成_sx0n"
+    },
+    {
+      "id": "179118",
+      "type": "video_generate",
+      "params": {
+        "submitUrl": "",
+        "pollUrl": "",
+        "pollIntervalMs": 5000,
+        "maxWaitMs": 600000,
+        "apiKeyEnv": ""
+      },
+      "label": "视频生成_rkyb"
+    },
+    {
+      "id": "194840",
+      "type": "log",
+      "params": {
+        "level": "info",
+        "message": ""
+      },
+      "label": "日志_8pch"
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "105644"
+    },
+    {
+      "from": "105644",
+      "to": "py",
+      "when": "false"
+    },
+    {
+      "from": "py",
+      "to": "117623"
+    },
+    {
+      "from": "105644",
+      "to": "py2",
+      "when": "true"
+    },
+    {
+      "from": "py2",
+      "to": "167819"
+    },
+    {
+      "from": "py2",
+      "to": "117623"
+    },
+    {
+      "from": "117623",
+      "to": "sh"
+    },
+    {
+      "from": "sh",
+      "to": "route"
+    },
+    {
+      "from": "sh",
+      "to": "120806"
+    },
+    {
+      "from": "route",
+      "to": "logA",
+      "when": "A"
+    },
+    {
+      "from": "route",
+      "to": "logB",
+      "when": "*"
+    },
+    {
+      "from": "logA",
+      "to": "lg"
+    },
+    {
+      "from": "logB",
+      "to": "lg"
+    },
+    {
+      "from": "lg",
+      "to": "end"
+    },
+    {
+      "from": "167819",
+      "to": "198047"
+    },
+    {
+      "from": "167819",
+      "to": "157655"
+    },
+    {
+      "from": "157655",
+      "to": "154408"
+    },
+    {
+      "from": "154408",
+      "to": "146800"
+    }
+  ],
+  "layout": {
+    "102719": {
+      "x": 98,
+      "y": 1068
+    },
+    "105644": {
+      "x": 394,
+      "y": 356
+    },
+    "117623": {
+      "x": 986,
+      "y": 534
+    },
+    "120806": {
+      "x": 1578,
+      "y": 623
+    },
+    "122608": {
+      "x": 97.99999999999989,
+      "y": 1246
+    },
+    "146800": {
+      "x": 1874,
+      "y": 178
+    },
+    "154408": {
+      "x": 1578,
+      "y": 177.99999999999994
+    },
+    "157331": {
+      "x": 98,
+      "y": 890
+    },
+    "157655": {
+      "x": 1282,
+      "y": 178
+    },
+    "160841": {
+      "x": 98,
+      "y": 533.9999999999999
+    },
+    "167819": {
+      "x": 986,
+      "y": 89
+    },
+    "179118": {
+      "x": 98,
+      "y": 1424
+    },
+    "194840": {
+      "x": 98,
+      "y": 1602
+    },
+    "194878": {
+      "x": 98,
+      "y": 712
+    },
+    "198047": {
+      "x": 1282,
+      "y": 0
+    },
+    "start": {
+      "x": 98,
+      "y": 356
+    },
+    "py": {
+      "x": 690,
+      "y": 539
+    },
+    "py2": {
+      "x": 690,
+      "y": 94
+    },
+    "sh": {
+      "x": 1282,
+      "y": 534
+    },
+    "route": {
+      "x": 1578,
+      "y": 445
+    },
+    "logA": {
+      "x": 1874,
+      "y": 356
+    },
+    "logB": {
+      "x": 1874,
+      "y": 534
+    },
+    "lg": {
+      "x": 2170,
+      "y": 445
+    },
+    "end": {
+      "x": 2466,
+      "y": 445
+    }
+  }
+}

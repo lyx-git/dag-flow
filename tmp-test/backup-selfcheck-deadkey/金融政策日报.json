@@ -1,0 +1,472 @@
+{
+  "name": "金融政策日报",
+  "version": 1,
+  "description": "资深金融政策分析专家 · 每日情报：国内政策/国际事件/中美外交信号/新闻联播提炼 → 行业板块影响矩阵（A股/港股/美股/纳斯达克，积极与消极）→ Markdown 日报 → 邮件推送",
+  "inputs": {
+    "收件邮箱": "lyx_emails@163.com",
+    "关注板块": "银行/券商/保险、半导体、新能源、医药、军工、消费、地产、互联网",
+    "关键词": "金融政策 央行 货币 财政 监管"
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "params": {},
+      "next": "py_date",
+      "label": "开始（每日触发）"
+    },
+    {
+      "id": "py_date",
+      "type": "python",
+      "params": {
+        "code": "# -*- coding: utf-8 -*-\nimport datetime\nprint(datetime.datetime.now().strftime('%Y-%m-%d'))",
+        "timeoutMs": 15000
+      },
+      "next": "cfg",
+      "label": "取今天日期"
+    },
+    {
+      "id": "cfg",
+      "type": "set_var",
+      "params": {
+        "vars": {
+          "mailTo": "{{inputs.收件邮箱}}",
+          "subject": "金融政策日报 {{py_date.out}}",
+          "sectors": "{{inputs.关注板块}}",
+          "kw": "{{inputs.关键词}}",
+          "day": "{{py_date.out}}"
+        },
+        "_label": "日报配置"
+      },
+      "next": [
+        "srch_domestic",
+        "srch_cctv",
+        "srch_intl",
+        "srch_diplo"
+      ],
+      "label": "日报配置"
+    },
+    {
+      "id": "srch_domestic",
+      "type": "web_search",
+      "params": {
+        "query": "{{cfg.out.day}} 国内 金融政策 央行 财政部 发改委 证监会 监管 新规 {{cfg.out.kw}}",
+        "provider": "bing",
+        "count": 6
+      },
+      "next": "ai_q_domestic",
+      "label": "搜：国内金融政策"
+    },
+    {
+      "id": "srch_intl",
+      "type": "web_search",
+      "params": {
+        "query": "{{cfg.out.day}} 国际 金融 美联储 欧央行 利率 通胀 地缘 市场 重要事件",
+        "provider": "bing",
+        "count": 6
+      },
+      "next": "ai_q_intl",
+      "label": "搜：国际金融事件"
+    },
+    {
+      "id": "srch_diplo",
+      "type": "web_search",
+      "params": {
+        "query": "{{cfg.out.day}} 中美关系 外交政策 变化 关税 出口管制 信号 分析",
+        "provider": "bing",
+        "count": 6
+      },
+      "next": "ai_q_diplo",
+      "label": "搜：中美/外交信号"
+    },
+    {
+      "id": "srch_cctv",
+      "type": "web_search",
+      "params": {
+        "query": "{{cfg.out.day}} 新闻联播 主要内容 文字稿",
+        "provider": "bing",
+        "count": 4
+      },
+      "next": "ai_q_cctv",
+      "label": "搜：新闻联播文字稿"
+    },
+    {
+      "id": "fetch_cctv",
+      "type": "python",
+      "params": {
+        "code": "# -*- coding: utf-8 -*-\n# 抓「新闻联播」当日条目清单（央视网按日页，标题+时长，官方口径）。\n# ★ 永不失败：任何问题都打印 CCTV_OK / CCTV_FETCH_SKIPPED 并 exit 0\n#   —— DAG 模式下节点失败会中断后续层（节点级 onError 在 DAG 里不生效）。\n# 为什么不再「抓搜索结果第一条」：2026-10-03 真机那次第一条是百度百科\n#   （baike.baidu.com/item/2026年），该站对任何 UA 一律 403（实测无 UA / Chrome UA 都 403）\n#   → 原 web_fetch 节点失败 → 后面 ai_domestic/ai_matrix/save_doc/mail 全没跑。\n# 实测可抓：https://tv.cctv.com/lm/xwlb/day/YYYYMMDD.shtml → HTTP 200，正文=当日联播条目。\nimport json, re, sys, urllib.error, urllib.request\n\nMAX = 6000\nUA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '\n      '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')\nSKIP_HOSTS = ('baidu.com', 'zhihu.com', 'weixin.qq.com', 'mp.weixin.qq.com', 'jianshu.com')\n\n\ndef emit(status, body=''):\n    # 统一出口：状态行 + 正文（正文可为空）+ 永远 exit 0\n    sys.stdout.write(status + (('\\n' + body) if body else '') + '\\n')\n    sys.exit(0)\n\n\ndef strip_html(html):\n    html = re.sub(r'(?is)<script.*?</script>', ' ', html)\n    html = re.sub(r'(?is)<style.*?</style>', ' ', html)\n    html = re.sub(r'(?is)<noscript.*?</noscript>', ' ', html)\n    html = re.sub(r'(?s)<!--.*?-->', ' ', html)\n    html = re.sub(r'(?i)</(p|div|li|tr|h[1-6]|br)>', '\\n', html)\n    html = re.sub(r'(?i)<br\\s*/?>', '\\n', html)\n    html = re.sub(r'<[^>]+>', ' ', html)\n    for a, b in (('&nbsp;', ' '), ('&amp;', '&'), ('&quot;', '\"'), ('&#39;', \"'\"), ('&lt;', '<'), ('&gt;', '>')):\n        html = html.replace(a, b)\n    html = re.sub(r'[ \\t]+', ' ', html)\n    html = re.sub(r'\\n\\s*\\n+', '\\n', html)\n    return '\\n'.join(l.strip() for l in html.split('\\n') if l.strip())\n\n\ndef fetch_text(url):\n    req = urllib.request.Request(url, headers={\n        'User-Agent': UA,\n        'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',\n        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',\n        'Accept-Encoding': 'identity',   # 不请求压缩：urllib 不会自动解 gzip\n    })\n    try:\n        with urllib.request.urlopen(req, timeout=12) as r:\n            raw, charset = r.read(), r.headers.get_content_charset()\n    except urllib.error.HTTPError as e:\n        return '', 'HTTP %s' % e.code\n    except Exception as e:\n        return '', '%s: %s' % (type(e).__name__, str(e)[:80])\n    html = None\n    for enc in (charset, 'utf-8', 'gbk'):\n        if not enc:\n            continue\n        try:\n            html = raw.decode(enc)\n            break\n        except Exception:\n            continue\n    if html is None:\n        html = raw.decode('utf-8', 'replace')\n    return strip_html(html), ''\n\n\nday = \"\"\"{{py_date.out}}\"\"\".strip()\ndigits = re.sub(r'\\D', '', day)\n\n# 候选源：央视网按日页（今天 → 昨天，防当天尚未发布）优先；搜索结果降级兜底\ncands = []\nfor d in ([digits] if digits else []) + ([str(int(digits) - 1)] if digits.isdigit() else []):\n    cands.append('https://tv.cctv.com/lm/xwlb/day/%s.shtml' % d)\ntry:\n    hits = json.loads(r'''{{srch_cctv.out.results}}''')\n    if isinstance(hits, dict):\n        hits = hits.get('results') or []\n    for h in (hits or []):\n        u = (h or {}).get('url') if isinstance(h, dict) else None\n        if u and u not in cands:\n            cands.append(u)\nexcept Exception:\n    pass\n\ntried = []\nfor url in cands:\n    host = url.split('/')[2].lower() if '//' in url else ''\n    if any(s in url.lower() for s in SKIP_HOSTS):\n        tried.append('%s（跳过：已知反爬站）' % host)\n        continue\n    if re.search(r'/lm/xwlb/?$', url):\n        tried.append('%s（跳过：栏目页只有导航，无当日条目）' % url)\n        continue\n    text, err = fetch_text(url)\n    if err:\n        tried.append('%s → %s' % (url, err))\n        continue\n    if len(text) < 150:\n        tried.append('%s → 正文仅 %d 字（无有效内容）' % (url, len(text)))\n        continue\n    emit('CCTV_OK %s · %d 字 · %s（央视网按日页：当日条目清单，非逐字稿）' % (day, len(text), url), text[:MAX])\n\nemit('CCTV_FETCH_SKIPPED %s · 所有候选源均不可用（%s）；本次只用搜索结果摘要'\n     % (day, '；'.join(tried[:4]) if tried else '无候选源'))",
+        "timeoutMs": 120000
+      },
+      "next": "ai_domestic",
+      "label": "抓：新闻联播当日条目（央视网 · 失败不影响流程）"
+    },
+    {
+      "id": "ai_intl",
+      "type": "subagent",
+      "params": {
+        "model": "dsh:llm:deepseek-vision:deepseek-flash",
+        "prompt": "你是资深金融政策分析专家，为投资决策者做每日国际线情报。今天是 {{py_date.out}}。\n\n【国际金融事件搜索结果（第一轮·广度）】\n{{srch_intl.out.results}}\n\n【国际金融事件搜索结果（第二轮·AI 精准检索：{{ai_q_intl.out}}）】\n{{srch_intl2.out.results}}\n\n【外交 / 国际关系 / 中美关系搜索结果（第一轮·广度）】\n{{srch_diplo.out.results}}\n\n【外交 / 国际关系 / 中美关系搜索结果（第二轮·AI 精准检索：{{ai_q_diplo.out}}）】\n{{srch_diplo2.out.results}}\n\n任务：把材料提炼成「国际线」分析，输出中文 Markdown，不要寒暄：\n1) **今日国际重要金融事件/政策**（≤6 条，每条：一句话事件 + 来源链接）\n2) **外交与国际关系变化**：含中美外交新信号、关税/出口管制/科技限制、地缘冲突；每条标注「信号强度：强/中/弱」与「新增信号 / 延续既有」\n3) **对不同市场行业板块的影响**（分点列表）：板块 | 市场（美股 / 纳斯达克 / 港股 / A股）| 积极 or 消极 | 影响逻辑一句话 | 置信度（高/中/低）\n4) 只用搜索材料支撑；材料不足就写「材料不足」，**不要编造数字、政策名或时间**。",
+        "timeoutMs": 300000
+      },
+      "next": "ai_matrix",
+      "label": "AI：国际线分析"
+    },
+    {
+      "id": "ai_domestic",
+      "type": "subagent",
+      "params": {
+        "model": "dsh:llm:deepseek-vision:deepseek-flash",
+        "prompt": "你是资深金融政策分析专家，为投资决策者做每日国内线情报。今天是 {{py_date.out}}。\n\n【国内金融政策搜索结果（第一轮·广度）】\n{{srch_domestic.out.results}}\n\n【国内金融政策搜索结果（第二轮·AI 精准检索：{{ai_q_domestic.out}}）】\n{{srch_domestic2.out.results}}\n\n【新闻联播当日条目（央视网脚本抓取，可能为空）】\n{{fetch_cctv.out}}\n\n任务：输出中文 Markdown，不要寒暄：\n1) **今日国内重要政策/监管动向**（≤6 条，每条：政策一句话 + 发布主体 + 来源链接）\n2) **新闻联播要点提炼**（≤6 条，标注「官方口径」；若上面显示 CCTV_FETCH_SKIPPED 或没有内容，就写「未取到联播条目，仅用搜索材料」）\n3) **对不同市场行业板块的影响**（分点列表）：板块 | 市场（A股 / 港股）| 积极 or 消极 | 影响逻辑一句话 | 置信度（高/中/低）\n4) 只写有材料支撑的内容，材料不足写「材料不足」，不要编造。",
+        "timeoutMs": 300000
+      },
+      "next": "ai_matrix",
+      "label": "AI：国内线分析"
+    },
+    {
+      "id": "ai_matrix",
+      "type": "subagent",
+      "params": {
+        "model": "dsh:llm:deepseek-vision:deepseek-flash",
+        "prompt": "你是资深金融政策分析专家。基于下面两份分析，产出可直接邮件发送的**每日金融政策与行业机会信号日报**。\n\n【关注板块】{{cfg.out.sectors}}\n【今日日期】{{cfg.out.day}}\n\n【国际线分析】\n{{ai_intl.out}}\n\n【国内线分析】\n{{ai_domestic.out}}\n\n严格按这个结构输出中文 Markdown（不要寒暄、不要代码块包裹全文）：\n# 金融政策与市场影响日报 · {{cfg.out.day}}\n## 0. 今日一句话结论（≤120 字）\n## 1. 重要事件与政策清单（国际 / 国内分列；每条：事件 + 影响方向 + 来源）\n## 2. 外交与国际关系信号（单列中美外交变化小节；每条标「新增信号/延续」与强度）\n## 3. 新闻联播要点提炼（≤6 条，标「官方口径」）\n## 4. 行业板块影响矩阵（Markdown 表格：板块 | A股 | 港股 | 美股 | 纳斯达克 | 积极/消极 | 影响逻辑 | 置信度）\n## 5. 机会信号与风险提示（按板块给 1-2 条「值得关注的变化信号」，明确区分事实与推断）\n## 6. 数据与来源（列出用到的链接）\n\n要求：精炼、可执行、便于扫读；无材料支撑处写「材料不足」；不给投资建议式断言，只陈述政策/事件与行业影响逻辑。",
+        "timeoutMs": 600000
+      },
+      "next": "save_doc",
+      "label": "AI：终稿（矩阵+机会信号）"
+    },
+    {
+      "id": "save_doc",
+      "type": "file_save",
+      "params": {
+        "source": "text",
+        "filename": "reports/金融政策日报-{{py_date.out}}.md",
+        "content": "{{ai_matrix.out}}"
+      },
+      "next": "mail",
+      "label": "落盘：日报 Markdown"
+    },
+    {
+      "id": "mail",
+      "type": "python",
+      "params": {
+        "code": "# -*- coding: utf-8 -*-\n# 把日报发到邮箱（Python 标准库 smtplib，零额外依赖）。v3 · 2026-10-03\n# ★ 路径不再依赖\"当前工作目录\"！python 节点的 cwd 默认继承**宿主进程**（≠ 工作区），\n#   旧版按 ./.dag-flow/mail.json、./.dag-flow/reports/... 找文件，真机上必然找不到\n#   → 表现为 MAIL_SKIPPED_NO_SMTP（2026-10-03 用户截图就是这个）。现在改为从 save_doc 的\n#   **绝对路径**反推：DOC = <工作区>/.dag-flow/reports/金融政策日报-<日期>.md → .dag-flow = 上两级。\n# 凭据来源（优先级）：DAGFLOW_MAIL_CONFIG 指定文件 → 约定位置 <工作区>/.dag-flow/workflow/config/mail.json\n#   → .dag-flow/workflow/.mail.json（点号开头，不进工作流列表）→ .dag-flow/mail.json（旧位置兼容）\n#   环境变量永远优先覆盖文件内容：DAGFLOW_SMTP_HOST / PORT(465=SSL，否则 STARTTLS) / USER / PASS\n#   本地文件格式：{\"host\":\"smtp.163.com\",\"port\":465,\"user\":\"you@163.com\",\"pass\":\"授权码\"}\n#   ★ 约定（2026-10-03 用户指令「和工作流相关的配置文件，都放到 .dag-flow/workflow/ 下面」）：\n#     配置文件放 .dag-flow/workflow/ 下；为免被工作流列表当成工作流，放进子目录 config/ 或用 . 开头命名\n#     （listJsonNames 会跳过目录与点号开头的文件）。\n# ★ 永不失败：任何问题都打印 MAIL_* 状态并 exit 0；main() 外面还有一层顶层兜底。\nimport glob, json, os, smtplib, sys\nfrom email.mime.text import MIMEText\nfrom email.mime.multipart import MIMEMultipart\nfrom email.mime.application import MIMEApplication\nfrom email.header import Header\nfrom email.utils import formatdate\n\n# 由 file_save 节点注入的绝对路径（模板在运行期替换）。\n# ★ 必须用**原始字符串** r'''...'''：Windows 路径里的 反斜杠+r（\\reports 的 \\r）、反斜杠+w（\\workspace 的 \\w）\n#   都是 Python 转义序列，普通三引号里 反斜杠+r 会变成回车 → 路径被改写、反推 .dag-flow 失败（本版第一稿实测就是这个坑）。\nDOC_PATH = r'''{{save_doc.out.absolutePath}}'''.strip()\nDAY = '''{{py_date.out}}'''.strip()\n\n\ndef done(status, detail=''):\n    print('%s%s' % (status, (': ' + detail) if detail else ''))\n    sys.exit(0)\n\n\ndef _ok(p):\n    return bool(p) and p.lower() not in ('none', 'null', '')\n\n\ndef dagflow_candidates():\n    \"\"\"按可靠性排序的 .dag-flow 候选目录：①DOC 反推 ②DAGFLOW_MAIL_CONFIG 所在目录 ③cwd 及其祖先\"\"\"\n    out = []\n    if _ok(DOC_PATH):\n        d = os.path.dirname(os.path.abspath(DOC_PATH))\n        for _ in range(4):\n            if os.path.basename(d) == '.dag-flow':\n                out.append(d)\n                break\n            parent = os.path.dirname(d)\n            if parent == d:\n                break\n            d = parent\n        out.append(os.path.dirname(os.path.abspath(DOC_PATH)))\n    envcfg = (os.environ.get('DAGFLOW_MAIL_CONFIG') or '').strip()\n    if envcfg:\n        out.append(os.path.dirname(os.path.abspath(envcfg)))\n    d = os.getcwd()\n    for _ in range(6):\n        out.append(d)\n        parent = os.path.dirname(d)\n        if parent == d:\n            break\n        d = parent\n    seen, uniq = set(), []\n    for p in out:\n        k = os.path.normcase(os.path.abspath(p))\n        if k not in seen:\n            seen.add(k)\n            uniq.append(os.path.abspath(p))\n    return uniq\n\n\ndef cfg_paths(base):\n    \"\"\"一个候选根目录下的所有配置文件位置（按优先级）。带 .dag-flow 前缀的形态用于 base=工作区根的情况。\"\"\"\n    return [\n        os.path.join(base, 'workflow', 'config', 'mail.json'),   # ★ 约定位置\n        os.path.join(base, 'workflow', '.mail.json'),             # 同目录但点号开头\n        os.path.join(base, 'mail.json'),                          # .dag-flow 根\n        os.path.join(base, '.dag-flow', 'workflow', 'config', 'mail.json'),\n        os.path.join(base, '.dag-flow', 'mail.json'),             # 旧位置（兼容）\n    ]\n\n\ndef find_mail_json():\n    envcfg = (os.environ.get('DAGFLOW_MAIL_CONFIG') or '').strip()\n    if envcfg and os.path.exists(envcfg):\n        return envcfg, [envcfg]\n    tried = []\n    for base in dagflow_candidates():\n        for p in cfg_paths(base):\n            if p not in tried:\n                tried.append(p)\n                if os.path.exists(p):\n                    return p, tried\n    return None, tried\n\n\ndef find_doc():\n    if _ok(DOC_PATH) and os.path.exists(DOC_PATH):\n        return DOC_PATH, [DOC_PATH]\n    tried = []\n    names = ['金融政策日报-%s.md' % DAY, '金融政策日报.md']\n    for base in dagflow_candidates():\n        for sub in (os.path.join(base, 'reports'), os.path.join(base, '.dag-flow', 'reports')):\n            for n in names:\n                p = os.path.join(sub, n)\n                if p not in tried:\n                    tried.append(p)\n                    if os.path.exists(p):\n                        return p, tried\n    for base in dagflow_candidates():   # ���底：目录里翻名字匹配的最新一份\n        for pat in ('reports/金融政策日报*.md', '.dag-flow/reports/金融政策日报*.md'):\n            hits = sorted(glob.glob(os.path.join(base, pat)))\n            if hits:\n                return hits[-1], tried\n    return None, tried\n\n\ndef load_cfg():\n    path, tried = find_mail_json()\n    cfg = {}\n    if path:\n        try:\n            with open(path, 'r', encoding='utf-8') as f:\n                data = json.load(f)\n            if isinstance(data, dict):\n                cfg = {k: ('' if v is None else str(v)) for k, v in data.items()}\n        except Exception as e:\n            sys.stderr.write('[mail] 读取 %s 失败：%s: %s\\n' % (path, type(e).__name__, e))\n    for env_key, key in (('DAGFLOW_SMTP_HOST', 'host'), ('DAGFLOW_SMTP_PORT', 'port'),\n                         ('DAGFLOW_SMTP_USER', 'user'), ('DAGFLOW_SMTP_PASS', 'pass')):\n        v = (os.environ.get(env_key) or '').strip()\n        if v:\n            cfg[key] = v\n    return cfg, path, tried\n\n\ndef main():\n    MAIL_TO = \"\"\"{{inputs.收件邮箱}}\"\"\".strip()\n    if not MAIL_TO or '@' not in MAIL_TO:\n        done('MAIL_SKIPPED_NO_TO', '工作流参数「收件邮箱」没填（或不是邮箱）——在头部「工作流参数」里填')\n\n    cfg, cfg_path, tried_cfg = load_cfg()\n    host = (cfg.get('host') or '').strip()\n    user = (cfg.get('user') or '').strip()\n    pwd = (cfg.get('pass') or '').strip()\n    try:\n        port = int((cfg.get('port') or '465').strip() or '465')\n    except ValueError:\n        done('MAIL_FAILED', 'SMTP 端口不是数字：%r（应为 465 或 587）' % cfg.get('port'))\n    if not (host and user and pwd):\n        # ★ 失败信息自带诊断：找过哪些路径、cwd 是什么（省得再截图问）\n        done('MAIL_SKIPPED_NO_SMTP',\n             '未配置 SMTP。找过：%s；cwd=%s。请设环境变量 DAGFLOW_SMTP_HOST/USER/PASS，'\n             '或按约定把凭据写进 <工作区>/.dag-flow/workflow/config/mail.json（推荐第一个候选）'\n             % (' | '.join(tried_cfg[:4]) or '(无候选)', os.getcwd()))\n\n    doc, tried_doc = find_doc()\n    if not doc:\n        done('MAIL_SKIPPED_NO_DOC', '没找到日报文件。找过：%s' % (' | '.join(tried_doc[:4]) or '(无候选)'))\n    try:\n        with open(doc, 'r', encoding='utf-8') as f:\n            body = f.read()\n    except Exception as e:\n        done('MAIL_SKIPPED_READ', '%s: %s（%s）' % (type(e).__name__, e, doc))\n\n    msg = MIMEMultipart()\n    msg['Subject'] = Header('金融政策日报 %s' % DAY, 'utf-8')\n    msg['From'] = user\n    msg['To'] = MAIL_TO\n    msg['Date'] = formatdate(localtime=True)\n    msg.attach(MIMEText(body, 'plain', 'utf-8'))\n    att = MIMEApplication(body.encode('utf-8'))\n    att.add_header('Content-Disposition', 'attachment', filename=('utf-8', '', os.path.basename(doc)))\n    msg.attach(att)\n\n    try:\n        if port == 465:\n            s = smtplib.SMTP_SSL(host, port, timeout=30)\n        else:\n            s = smtplib.SMTP(host, port, timeout=30)\n            s.starttls()\n        s.login(user, pwd)\n        s.sendmail(user, [MAIL_TO], msg.as_string())\n        s.quit()\n    except Exception as e:\n        done('MAIL_FAILED', '%s: %s（检查授权码/端口/邮箱是否开通 SMTP 服务；凭据来自 %s）'\n             % (type(e).__name__, e, cfg_path or '环境变量'))\n\n    done('MAIL_SENT', '%s（正文 %d 字 + 附件 %s；凭据 %s）'\n         % (MAIL_TO, len(body), os.path.basename(doc), cfg_path or '环境变量'))\n\n\nif __name__ == '__main__':\n    try:\n        main()\n    except SystemExit:\n        raise\n    except Exception as e:\n        import traceback\n        print('MAIL_FAILED: 未预期异常 %s: %s（已兜底，不影响后续节点）' % (type(e).__name__, e))\n        traceback.print_exc(file=sys.stderr)\n        sys.exit(0)\n",
+        "timeoutMs": 60000,
+        "_label": "发邮件（smtplib · 失败不影响流程）"
+      },
+      "next": "log_done",
+      "label": "发邮件（smtplib · 失败不影响流程）"
+    },
+    {
+      "id": "log_done",
+      "type": "log",
+      "params": {
+        "level": "info",
+        "message": "金融政策日报已生成：{{save_doc.out.path}}；邮件：{{mail.out}}"
+      },
+      "next": "end",
+      "label": "日志：完成"
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "params": {
+        "outputs": {
+          "day": "{{py_date.out}}",
+          "doc": "{{save_doc.out.path}}",
+          "mail": "{{mail.out}}",
+          "intlSearchCount": "{{srch_intl.out.count}}",
+          "domesticSearchCount": "{{srch_domestic.out.count}}",
+          "cctv": "{{fetch_cctv.out}}",
+          "report": "{{ai_matrix.out}}",
+          "refinedQueries": {
+            "domestic": "{{ai_q_domestic.out}}",
+            "intl": "{{ai_q_intl.out}}",
+            "diplo": "{{ai_q_diplo.out}}",
+            "cctv": "{{ai_q_cctv.out}}"
+          }
+        }
+      },
+      "label": "结束（汇总）"
+    },
+    {
+      "id": "ai_q_domestic",
+      "type": "subagent",
+      "params": {
+        "model": "dsh:llm:deepseek-vision:deepseek-flash",
+        "prompt": "你是资深金融政策分析专家的**检索规划助手**。今天是 {{py_date.out}}。\n\n【第一轮粗搜结果（国内金融政策/监管）】\n{{srch_domestic.out.results}}\n\n【关注板块】{{cfg.out.sectors}}\n\n任务：读上面的材料，找出**今天真正值得深挖**的具体线索（政策名 / 发文机构 / 人名 / 会议 / 具体数字 / 公司行业），\n把它们编成**一条**搜索引擎检索语句，用于第二轮精准检索。\n\n硬性要求（不遵守则结果不可用）：\n1. **只输出这一行检索语句**，不要任何解释、不要前后缀、不要引号、不要换行、不要 Markdown；\n2. 必须包含日期 {{py_date.out}}；\n3. 关键词用空格分隔，控制在 8~16 个词；\n4. 优先用材料里出现的**具体专有名词**，不要泛泛的\"最新政策\"\"重要事件\"；\n5. 若材料里没有可用线索，就输出「{{py_date.out}} 国内金融政策/监管 重要动向」这一行兜底即可。"
+      },
+      "next": "srch_domestic2",
+      "label": "AI 规划：国内政策检索式"
+    },
+    {
+      "id": "srch_domestic2",
+      "type": "web_search",
+      "params": {
+        "query": "{{py_date.out}} {{ai_q_domestic.out}}",
+        "provider": "auto",
+        "count": ""
+      },
+      "next": "ai_domestic",
+      "label": "搜②：国内政策（AI 精准检索）"
+    },
+    {
+      "id": "ai_q_intl",
+      "type": "subagent",
+      "params": {
+        "model": "dsh:llm:deepseek-vision:deepseek-flash",
+        "prompt": "你是资深金融政策分析专家的**检索规划助手**。今天是 {{py_date.out}}。\n\n【第一轮粗搜结果（国际金融与市场）】\n{{srch_intl.out.results}}\n\n\n任务：读上面的材料，找出**今天真正值得深挖**的具体线索（政策名 / 发文机构 / 人名 / 会议 / 具体数字 / 公司行业），\n把它们编成**一条**搜索引擎检索语句，用于第二轮精准检索。\n\n硬性要求（不遵守则结果不可用）：\n1. **只输出这一行检索语句**，不要任何解释、不要前后缀、不要引号、不要换行、不要 Markdown；\n2. 必须包含日期 {{py_date.out}}；\n3. 关键词用空格分隔，控制在 8~16 个词；\n4. 优先用材料里出现的**具体专有名词**，不要泛泛的\"最新政策\"\"重要事件\"；\n5. 若材料里没有可用线索，就输出「{{py_date.out}} 国际金融与市场 重要动向」这一行兜底即可。"
+      },
+      "next": "srch_intl2",
+      "label": "AI 规划：国际金融检索式",
+      "onError": "stop"
+    },
+    {
+      "id": "srch_intl2",
+      "type": "web_search",
+      "params": {
+        "query": "{{py_date.out}} {{ai_q_intl.out}}",
+        "provider": "bing",
+        "count": 6
+      },
+      "next": "ai_intl",
+      "label": "搜②：国际金融（AI 精准检索）"
+    },
+    {
+      "id": "ai_q_diplo",
+      "type": "subagent",
+      "params": {
+        "model": "dsh:llm:deepseek-vision:deepseek-flash",
+        "prompt": "你是资深金融政策分析专家的**检索规划助手**。今天是 {{py_date.out}}。\n\n【第一轮粗搜结果（中美关系与外交信号）】\n{{srch_diplo.out.results}}\n\n\n任务：读上面的材料，找出**今天真正值得深挖**的具体线索（政策名 / 发文机构 / 人名 / 会议 / 具体数字 / 公司行业），\n把它们编成**一条**搜索引擎检索语句，用于第二轮精准检索。\n\n硬性要求（不遵守则结果不可用）：\n1. **只输出这一行检索语句**，不要任何解释、不要前后缀、不要引号、不要换行、不要 Markdown；\n2. 必须包含日期 {{py_date.out}}；\n3. 关键词用空格分隔，控制在 8~16 个词；\n4. 优先用材料里出现的**具体专有名词**，不要泛泛的\"最新政策\"\"重要事件\"；\n5. 若材料里没有可用线索，就输出「{{py_date.out}} 中美关系与外交信号 重要动向」这一行兜底即可。"
+      },
+      "next": "srch_diplo2",
+      "label": "AI 规划：中美外交检索式"
+    },
+    {
+      "id": "srch_diplo2",
+      "type": "web_search",
+      "params": {
+        "query": "{{py_date.out}} {{ai_q_diplo.out}}",
+        "provider": "bing",
+        "count": 6
+      },
+      "next": "ai_intl",
+      "label": "搜②：中美外交（AI 精准检索）"
+    },
+    {
+      "id": "ai_q_cctv",
+      "type": "subagent",
+      "params": {
+        "model": "dsh:llm:deepseek-vision:deepseek-flash",
+        "prompt": "你是资深金融政策分析专家的**检索规划助手**。今天是 {{py_date.out}}。\n\n【第一轮粗搜结果（新闻联播当日议程）】\n{{srch_cctv.out.results}}\n\n\n任务：读上面的材料，找出**今天真正值得深挖**的具体线索（政策名 / 发文机构 / 人名 / 会议 / 具体数字 / 公司行业），\n把它们编成**一条**搜索引擎检索语句，用于第二轮精准检索。\n\n硬性要求（不遵守则结果不可用）：\n1. **只输出这一行检索语句**，不要任何解释、不要前后缀、不要引号、不要换行、不要 Markdown；\n2. 必须包含日期 {{py_date.out}}；\n3. 关键词用空格分隔，控制在 8~16 个词；\n4. 优先用材料里出现的**具体专有名词**，不要泛泛的\"最新政策\"\"重要事件\"；\n5. 若材料里没有可用线索，就输出「{{py_date.out}} 新闻联播当日议程 重要动向」这一行兜底即可。"
+      },
+      "next": "srch_cctv2",
+      "label": "AI 规划：新闻联播检索式"
+    },
+    {
+      "id": "srch_cctv2",
+      "type": "web_search",
+      "params": {
+        "query": "{{py_date.out}} {{ai_q_cctv.out}}",
+        "provider": "bing",
+        "count": 4
+      },
+      "next": "fetch_cctv",
+      "label": "搜②：新闻联播（AI 精准检索）"
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "py_date"
+    },
+    {
+      "from": "py_date",
+      "to": "cfg"
+    },
+    {
+      "from": "cfg",
+      "to": "srch_domestic"
+    },
+    {
+      "from": "cfg",
+      "to": "srch_cctv"
+    },
+    {
+      "from": "cfg",
+      "to": "srch_intl"
+    },
+    {
+      "from": "cfg",
+      "to": "srch_diplo"
+    },
+    {
+      "from": "srch_domestic",
+      "to": "ai_q_domestic"
+    },
+    {
+      "from": "srch_intl",
+      "to": "ai_q_intl"
+    },
+    {
+      "from": "srch_diplo",
+      "to": "ai_q_diplo"
+    },
+    {
+      "from": "srch_cctv",
+      "to": "ai_q_cctv"
+    },
+    {
+      "from": "srch_cctv2",
+      "to": "fetch_cctv"
+    },
+    {
+      "from": "fetch_cctv",
+      "to": "ai_domestic"
+    },
+    {
+      "from": "srch_intl2",
+      "to": "ai_intl"
+    },
+    {
+      "from": "srch_diplo2",
+      "to": "ai_intl"
+    },
+    {
+      "from": "ai_intl",
+      "to": "ai_matrix"
+    },
+    {
+      "from": "srch_domestic2",
+      "to": "ai_domestic"
+    },
+    {
+      "from": "ai_domestic",
+      "to": "ai_matrix"
+    },
+    {
+      "from": "ai_matrix",
+      "to": "save_doc"
+    },
+    {
+      "from": "save_doc",
+      "to": "mail"
+    },
+    {
+      "from": "mail",
+      "to": "log_done"
+    },
+    {
+      "from": "log_done",
+      "to": "end"
+    },
+    {
+      "from": "ai_q_domestic",
+      "to": "srch_domestic2"
+    },
+    {
+      "from": "ai_q_intl",
+      "to": "srch_intl2"
+    },
+    {
+      "from": "ai_q_diplo",
+      "to": "srch_diplo2"
+    },
+    {
+      "from": "ai_q_cctv",
+      "to": "srch_cctv2"
+    }
+  ],
+  "layout": {
+    "start": {
+      "x": 98,
+      "y": 267
+    },
+    "py_date": {
+      "x": 394,
+      "y": 267
+    },
+    "cfg": {
+      "x": 690,
+      "y": 267
+    },
+    "srch_domestic": {
+      "x": 1282,
+      "y": 0
+    },
+    "srch_intl": {
+      "x": 986,
+      "y": 356
+    },
+    "srch_diplo": {
+      "x": 986,
+      "y": 534
+    },
+    "srch_cctv": {
+      "x": 986,
+      "y": 178
+    },
+    "fetch_cctv": {
+      "x": 1874,
+      "y": 178
+    },
+    "ai_intl": {
+      "x": 1874,
+      "y": 445
+    },
+    "ai_domestic": {
+      "x": 2170,
+      "y": 89
+    },
+    "ai_matrix": {
+      "x": 2466,
+      "y": 267
+    },
+    "save_doc": {
+      "x": 2762,
+      "y": 267
+    },
+    "mail": {
+      "x": 3058,
+      "y": 267
+    },
+    "log_done": {
+      "x": 3354,
+      "y": 267
+    },
+    "end": {
+      "x": 3650,
+      "y": 267
+    },
+    "ai_q_domestic": {
+      "x": 1578,
+      "y": 0
+    },
+    "srch_domestic2": {
+      "x": 1874,
+      "y": 0
+    },
+    "ai_q_intl": {
+      "x": 1282,
+      "y": 356
+    },
+    "srch_intl2": {
+      "x": 1578,
+      "y": 356
+    },
+    "ai_q_diplo": {
+      "x": 1282,
+      "y": 534
+    },
+    "srch_diplo2": {
+      "x": 1578,
+      "y": 534
+    },
+    "ai_q_cctv": {
+      "x": 1282,
+      "y": 178
+    },
+    "srch_cctv2": {
+      "x": 1578,
+      "y": 178
+    }
+  }
+}

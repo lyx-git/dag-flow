@@ -69,6 +69,24 @@ console.log('== C. 跳过 ==');
   ok(texts(m).includes('未执行：'), 'C3. 说明为什么没跑（分支未激活/上游失败被跳过）');
 }
 
+// ★ 2026-10-04 用户反馈「定时任务自动触发的运行，手动确认节点自动跳过」→ 拍板 A：保持自动通过，但**显形**
+console.log('== C2. 人工确认「自动通过」（非交互运行）要显形 ==');
+{
+  const auto = tipModel(
+    { status: 'success', durationMs: 3, out: { prompt: '继续生成日报？', confirmed: true, autoPassed: true, value: '', confirmedAt: '2026-10-04T01:00:00.000Z' } },
+    { label: '人工确认', id: 'manual_ok' },
+  );
+  ok(texts(auto).includes('⏭ 自动通过'), 'C2a. 悬浮卡写明「⏭ 自动通过」（实际：' + texts(auto).slice(0, 80) + '）');
+  ok(texts(auto).includes('非交互运行'), 'C2b. 说明原因：这次是非交互运行（定时/立即运行一次/CLI/子工作流内部）');
+  ok(texts(auto).includes('不代表有人确认过'), 'C2c. 明确"不是失败、也不代表有人确认过"（避免误判成确认节点坏了）');
+  ok(texts(auto).includes('画布上点 ▶ 运行'), 'C2d. 给出正确做法（要人工把关就手动运行）');
+  ok(!texts(auto).includes('已容错'), 'C2e. 自动通过不等于容错（不串标签）');
+  eq(auto.badgeKind, 'ok', 'C2f. 自动通过仍是成功态（不是失败/警告）');
+  // 真的有人确认过（interactive 运行）→ 不应出现「自动通过」
+  const real = tipModel({ status: 'success', durationMs: 900, out: { prompt: '继续？', confirmed: true, autoPassed: false, value: '已核对' } }, { label: '人工确认', id: 'manual_ok' });
+  ok(!texts(real).includes('自动通过'), 'C2g. 有人真确认过时不写「自动通过」');
+}
+
 console.log('== D. 输出预览（截断 / JSON / 循环次数）==');
 eq(previewOut(undefined), '', 'D1. undefined → 空串');
 eq(previewOut(null), '', 'D2. null → 空串');

@@ -2,7 +2,11 @@
 import { appendFile } from "node:fs/promises";
 import * as path4 from "node:path";
 
-// src/adapter/safety.ts
+// src/dsh-gate/host.ts
+var _host = null;
+function getHost() {
+  return _host;
+}
 function hostService(name, host = _host) {
   if (host == null) return void 0;
   const ctx = host;
@@ -22,10 +26,6 @@ function hostService(name, host = _host) {
     return void 0;
   }
 }
-var _host = null;
-function getHost() {
-  return _host;
-}
 
 // src/adapter/workspace.ts
 import { promises as fs2 } from "node:fs";
@@ -36,7 +36,7 @@ import { promises as fs } from "node:fs";
 import * as path2 from "node:path";
 import * as os2 from "node:os";
 
-// src/adapter/dsh-home.ts
+// src/dsh-gate/paths.ts
 import * as os from "node:os";
 import * as path from "node:path";
 function dshHome() {
@@ -259,6 +259,7 @@ async function ensureDagFlowDirs() {
       const root = await dagFlowDir();
       await fs2.mkdir(path3.join(root, "tmp"), { recursive: true });
       await fs2.mkdir(path3.join(root, "logs"), { recursive: true });
+      await fs2.mkdir(path3.join(root, "scripts"), { recursive: true });
     })().catch(() => {
     });
   }

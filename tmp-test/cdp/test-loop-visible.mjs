@@ -5,7 +5,7 @@
 //       P2 右侧「🔁 循环设置」区（类型下拉/数值回显/切换清旧边界/改值副标题同步）；
 //       P3 loop 出边紫色「循环」标 + 运行后徽标「· 循环 N 次」。
 // 夹具：cdp-host.html?loop=1（四个不同边界的 loop + 四条出边，形状=画布保存后的真实产物）
-import { goto, installHelpers } from './driver.mjs';
+import {goto, installHelpers, confirmSelfcheck } from './driver.mjs';
 
 export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
   await goto(cdp, `${base}/cdp-host.html?name=${encodeURIComponent(name)}&loop=1`);
@@ -114,6 +114,7 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
 
   // —— P3 运行后徽标「· 循环 N 次」（用 fixture 的 /run stub：返回 loop 节点 out.count=7）——
   await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-btn-success').click(); })(); true;`);
+  await confirmSelfcheck(cdp);   // ★ 越过运行前自检的人工确认
   await waitFor(cdp, `(window.__df_reqs ?? []).some((r) => r.includes('/api/dag-flow/run'))`, { timeout: 8000 });
   await waitFor(cdp, `(() => {
     const c = [...document.querySelectorAll('.dsh-wf-fg-card')].find((x) => (x.textContent || '').includes('循环：固定次数'));

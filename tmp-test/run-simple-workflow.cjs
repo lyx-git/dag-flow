@@ -3261,8 +3261,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path9) {
-      let input = path9;
+    function removeDotSegments(path8) {
+      let input = path8;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3671,8 +3671,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path9 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path9 && path9 !== "/" ? path9 : void 0;
+        const path8 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path8 && path8 !== "/" ? path8 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -6881,18 +6881,33 @@ var require_ajv = __commonJS({
   }
 });
 
+// src/name-rule.ts
+function isValidWorkflowName(name) {
+  return NAME_RE.test(name);
+}
+var NAME_RE, WORKFLOW_NAME_PATTERN;
+var init_name_rule = __esm({
+  "src/name-rule.ts"() {
+    "use strict";
+    NAME_RE = /^[\p{L}\p{N}][\p{L}\p{N}_-]{0,63}$/u;
+    WORKFLOW_NAME_PATTERN = "^[\\p{L}\\p{N}][\\p{L}\\p{N}_-]{0,63}$";
+  }
+});
+
 // src/types.ts
 var WORKFLOW_SCHEMA;
 var init_types = __esm({
   "src/types.ts"() {
     "use strict";
+    init_name_rule();
     WORKFLOW_SCHEMA = {
       $id: "https://dag-flow/schemas/workflow.json",
       type: "object",
       required: ["name", "version", "nodes"],
       additionalProperties: false,
       properties: {
-        name: { type: "string", pattern: "^[a-z][a-z0-9-]{0,63}$" },
+        // ★ 名字规则唯一源 name-rule.ts（2026-10-02 修复：此前漏同步，中文名工作流保存得了却过不了执行校验）
+        name: { type: "string", pattern: WORKFLOW_NAME_PATTERN },
         version: { const: 1 },
         description: { type: "string" },
         inputs: { type: "object", additionalProperties: true },
@@ -6907,15 +6922,18 @@ var init_types = __esm({
               id: { type: "string", pattern: "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$" },
               type: { type: "string", minLength: 1 },
               params: { type: "object", additionalProperties: true },
+              // 分支键映射（单一 object 分支，2026-10-02 修）：
+              // if 节点 {true,false} 与 switch 节点 { [case值]: 目标 } 共用同一形状，
+              // 必须合成一个分支——若并列两个 object 分支，{true,false} 会同时命中两个，
+              // oneOf 要求「恰好命中一个」，会导致所有 if 节点校验失败。
               next: {
                 oneOf: [
                   { type: "string" },
                   { type: "array", items: { type: "string" } },
                   {
                     type: "object",
-                    required: ["true", "false"],
-                    additionalProperties: false,
-                    properties: { true: { type: "string" }, false: { type: "string" } }
+                    minProperties: 1,
+                    additionalProperties: { type: "string" }
                   },
                   { type: "null" }
                 ]
@@ -6931,10 +6949,15 @@ var init_types = __esm({
                   }
                 ]
               },
-              label: { type: "string" }
+              label: { type: "string" },
+              // ★ 容错开关（2026-10-03）：失败不中断后续层（节点级 onError 在 DAG 模式不生效）
+              tolerate: { type: "boolean" }
             }
           }
         },
+        // ★ layout=画布节点位置（UI 保存必带；2026-10-02 修复：schema 此前不认 layout，
+        //   导致 UI 保存的工作流一执行就被「多余字段」拒绝——「运行按钮没用」的真根因之一）
+        layout: { type: "object", additionalProperties: true },
         edges: {
           type: "array",
           items: {
@@ -6962,10 +6985,47 @@ function zhAjvMessage(m) {
   }
   return m;
 }
+function nodeTag(node, fallback = "") {
+  const id = typeof node?.id === "string" && node.id ? node.id : fallback;
+  const label = typeof node?.label === "string" ? node.label : "";
+  return label && label !== id ? `${label}_${id}` : id;
+}
+function locate(def2, instancePath) {
+  const raw = instancePath || "/";
+  const m = /^\/nodes\/(\d+)((?:\/.*)?)$/.exec(raw);
+  if (!m) return raw;
+  const idx = Number(m[1]);
+  const nodes = def2?.nodes;
+  const node = Array.isArray(nodes) ? nodes[idx] : void 0;
+  const tag = nodeTag(node, `#${idx}`);
+  const type = typeof node?.type === "string" && node.type ? `(${node.type})` : "";
+  const rest = (m[2] ?? "").replace(/^\//, "").replace(/\//g, ".");
+  return `\u8282\u70B9 ${tag}${type}${rest ? ` \u7684 ${rest}` : ""}`;
+}
 function parseAndValidate(def2) {
   if (!validateSchema(def2)) {
-    const errs = (validateSchema.errors ?? []).map((e) => `${e.instancePath || "/"} ${zhAjvMessage(e.message ?? "")}`).join("\uFF1B");
-    throw new WorkflowParseError(`\u5DE5\u4F5C\u6D41\u7ED3\u6784\u6821\u9A8C\u672A\u901A\u8FC7: ${errs}`);
+    const errs = validateSchema.errors ?? [];
+    const folded = new Set(
+      errs.filter((e) => e.keyword === "oneOf" || e.keyword === "anyOf").map((e) => e.instancePath ?? "")
+    );
+    const lines = [];
+    const seen = /* @__PURE__ */ new Set();
+    const push = (line) => {
+      if (seen.has(line)) return;
+      seen.add(line);
+      lines.push(line);
+    };
+    for (const e of errs) {
+      const path8 = e.instancePath ?? "";
+      if (folded.has(path8)) {
+        const forms = ONEOF_FORMS[path8.split("/").filter(Boolean).pop() ?? ""];
+        push(`${locate(def2, path8)} \u7ED3\u6784\u4E0D\u7B26\u5408\u4EFB\u4E00\u5141\u8BB8\u7684\u5F62\u5F0F${forms ? `\uFF08\u5141\u8BB8\uFF1A${forms}\uFF09` : ""}`);
+        continue;
+      }
+      if (e.schemaPath?.includes("/oneOf/") || e.schemaPath?.includes("/anyOf/")) continue;
+      push(`${locate(def2, path8)} ${zhAjvMessage(e.message ?? "")}`);
+    }
+    throw new WorkflowParseError(`\u5DE5\u4F5C\u6D41\u7ED3\u6784\u6821\u9A8C\u672A\u901A\u8FC7: ${lines.join("\uFF1B")}`);
   }
   const wf = def2;
   const ids = /* @__PURE__ */ new Set();
@@ -7024,13 +7084,13 @@ function nextRefs(n) {
   if (Array.isArray(n.next)) return n.next;
   return Object.values(n.next);
 }
-var import_ajv, ajv, validateSchema, WorkflowParseError, AJV_ZH;
+var import_ajv, ajv, validateSchema, WorkflowParseError, AJV_ZH, ONEOF_FORMS;
 var init_parse = __esm({
   "src/executor/parse.ts"() {
     "use strict";
     import_ajv = __toESM(require_ajv(), 1);
     init_types();
-    ajv = new import_ajv.default({ allErrors: true, strict: false });
+    ajv = new import_ajv.default({ allErrors: true, strict: false, unicodeRegExp: true });
     validateSchema = ajv.compile(WORKFLOW_SCHEMA);
     WorkflowParseError = class extends Error {
       constructor(msg) {
@@ -7053,6 +7113,10 @@ var init_parse = __esm({
       [/must have unique item/, "\u6570\u7EC4\u5143\u7D20\u5FC5\u987B\u552F\u4E00"],
       [/must NOT be valid/, "\u683C\u5F0F\u4E0D\u5408\u6CD5"]
     ];
+    ONEOF_FORMS = {
+      next: "\u5B57\u7B26\u4E32 / \u5B57\u7B26\u4E32\u6570\u7EC4 / { \u5206\u652F\u952E: \u76EE\u6807\u8282\u70B9id } \u5BF9\u8C61 / null",
+      onError: '"stop" / "continue" / { goto: \u76EE\u6807\u8282\u70B9id }'
+    };
   }
 });
 
@@ -7147,8 +7211,11 @@ function checkWorkflowParams(def2) {
   }
   return problems;
 }
-function formatParamProblems(problems) {
-  return problems.map((p) => `\u8282\u70B9 ${p.nodeId}(${p.type}): ${p.msg}`).join("\uFF1B");
+function formatParamProblems(problems, labels) {
+  return problems.map((p) => {
+    const tag = labels ? labels(p.nodeId) : p.nodeId;
+    return `\u8282\u70B9 ${tag}(${p.type}): ${p.msg}`;
+  }).join("\uFF1B");
 }
 var CHECKERS;
 var init_params_check = __esm({
@@ -7183,7 +7250,10 @@ var init_params_check = __esm({
   }
 });
 
-// src/adapter/safety.ts
+// src/dsh-gate/host.ts
+function getHost() {
+  return _host;
+}
 function hostService(name, host = _host) {
   if (host == null) return void 0;
   const ctx = host;
@@ -7203,39 +7273,56 @@ function hostService(name, host = _host) {
     return void 0;
   }
 }
-function getHost() {
-  return _host;
-}
 var _host;
-var init_safety = __esm({
-  "src/adapter/safety.ts"() {
+var init_host = __esm({
+  "src/dsh-gate/host.ts"() {
     "use strict";
     _host = null;
   }
 });
 
-// src/adapter/dsh-home.ts
+// src/adapter/safety.ts
+var init_safety = __esm({
+  "src/adapter/safety.ts"() {
+    "use strict";
+    init_host();
+    init_host();
+  }
+});
+
+// src/dsh-gate/paths.ts
 function dshHome() {
   return process.env.DSH_HOME || path.join(os.homedir(), ".dsh");
 }
+function sessionsRoot() {
+  return path.join(dshHome(), "sessions");
+}
+function settingsYamlPath() {
+  return path.join(dshHome(), "settings.yaml");
+}
+function credentialsYamlPath() {
+  return path.join(dshHome(), ".credentials.yaml");
+}
+function profilesDir() {
+  return path.join(dshHome(), "profiles");
+}
+function profilePatchPath(profile) {
+  return path.join(dshHome(), "profiles", profile, "cordis.patch.yml");
+}
 var os, path;
-var init_dsh_home = __esm({
-  "src/adapter/dsh-home.ts"() {
+var init_paths = __esm({
+  "src/dsh-gate/paths.ts"() {
     "use strict";
     os = __toESM(require("node:os"), 1);
     path = __toESM(require("node:path"), 1);
   }
 });
 
-// src/name-rule.ts
-function isValidWorkflowName(name) {
-  return NAME_RE.test(name);
-}
-var NAME_RE;
-var init_name_rule = __esm({
-  "src/name-rule.ts"() {
+// src/adapter/dsh-home.ts
+var init_dsh_home = __esm({
+  "src/adapter/dsh-home.ts"() {
     "use strict";
-    NAME_RE = /^[\p{L}\p{N}][\p{L}\p{N}_-]{0,63}$/u;
+    init_paths();
   }
 });
 
@@ -7511,6 +7598,24 @@ function createStorage() {
       const tmp = `${file}.tmp`;
       await import_node_fs.promises.writeFile(tmp, next, "utf8");
       await import_node_fs.promises.rename(tmp, file);
+      const renameFrom = opts?.renameFrom;
+      if (renameFrom && renameFrom !== name) {
+        try {
+          const oldSafe = safeName(renameFrom);
+          const root = path2.dirname(dir);
+          await import_node_fs.promises.rm(path2.join(dir, `${oldSafe}.json`), { force: true });
+          const pairs = [
+            [path2.join(dir, "versions", oldSafe), path2.join(dir, "versions", safe)],
+            [path2.join(root, "scripts", oldSafe), path2.join(root, "scripts", safe)]
+          ];
+          for (const [from, to] of pairs) {
+            if (from !== to && await import_node_fs.promises.stat(from).catch(() => null) && !await import_node_fs.promises.stat(to).catch(() => null)) {
+              await import_node_fs.promises.rename(from, to);
+            }
+          }
+        } catch {
+        }
+      }
     },
     async deleteWorkflow(name) {
       const safe = safeName(name);
@@ -7693,6 +7798,93 @@ var init_topo = __esm({
   }
 });
 
+// src/executor/normalize.ts
+function edgesOfNode(n) {
+  const out = [];
+  const nx = n.next;
+  if (nx === void 0 || nx === null) return out;
+  const star = n.type === "switch" ? "*" : void 0;
+  if (typeof nx === "string") {
+    out.push(star ? { from: n.id, to: nx, when: star } : { from: n.id, to: nx });
+    return out;
+  }
+  if (Array.isArray(nx)) {
+    for (const t of nx) {
+      if (!t) continue;
+      out.push(star ? { from: n.id, to: t, when: star } : { from: n.id, to: t });
+    }
+    return out;
+  }
+  for (const [key, target] of Object.entries(nx)) {
+    if (!target) continue;
+    out.push({ from: n.id, to: target, when: key });
+  }
+  return out;
+}
+function nextToEdges(nodes) {
+  const out = [];
+  for (const n of nodes) out.push(...edgesOfNode(n));
+  return out;
+}
+function normalizeDef(def2) {
+  if (def2.edges && def2.edges.length > 0) return { def: def2, added: 0 };
+  const edges = nextToEdges(def2.nodes);
+  if (edges.length === 0) return { def: def2, added: 0 };
+  return { def: { ...def2, edges }, added: edges.length };
+}
+var init_normalize = __esm({
+  "src/executor/normalize.ts"() {
+    "use strict";
+  }
+});
+
+// src/executor/awaiting.ts
+function newRunId() {
+  return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+function waitForManual(info, signal) {
+  return new Promise((resolve4, reject) => {
+    const runId = info.runId;
+    let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      pendings.delete(runId);
+      reject(new Error("\u8FD0\u884C\u5DF2\u7531\u7528\u6237\u53D6\u6D88"));
+    };
+    const settle = () => {
+      if (settled) return false;
+      settled = true;
+      if (signal) signal.removeEventListener("abort", onAbort);
+      pendings.delete(runId);
+      return true;
+    };
+    const entry = {
+      info,
+      onAbort,
+      resolve: (r) => {
+        if (settle()) resolve4(r);
+      },
+      reject: (e) => {
+        if (settle()) reject(e);
+      }
+    };
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    pendings.set(runId, entry);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+var pendings;
+var init_awaiting = __esm({
+  "src/executor/awaiting.ts"() {
+    "use strict";
+    pendings = /* @__PURE__ */ new Map();
+  }
+});
+
 // src/executor/dataflow.ts
 function resolveRefToken(token, ctx, nodeId) {
   const parts = token.split(".").filter((p) => p.length > 0);
@@ -7858,174 +8050,27 @@ async function runWorkflow(defInput, opts) {
   const def2 = parseAndValidate(defInput);
   const paramProblems = checkWorkflowParams(def2);
   if (paramProblems.length > 0) {
-    return invalidParamsSummary(def2, formatParamProblems(paramProblems));
+    return invalidParamsSummary(def2, formatParamProblems(paramProblems, (id) => nodeTag(def2.nodes.find((n) => n.id === id), id)));
   }
-  if (def2.edges && def2.edges.length > 0) {
-    return runDag(def2, opts);
+  const norm = normalizeDef(def2);
+  if (norm.added > 0) {
+    opts.logger.info("workflow exec: normalized next \u2192 edges (dag)", { name: def2.name, added: norm.added });
   }
-  const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return runDag(norm.def, opts);
+}
+async function runDag(def2, opts) {
+  const runId = opts.runId ?? newRunId();
   const startedAt = (/* @__PURE__ */ new Date()).toISOString();
   const t0 = Date.now();
   const ctx = {
     inputs: { ...def2.inputs ?? {}, ...opts.inputs ?? {} },
     vars: {},
     results: {},
-    _depth: opts._depth ?? 0,
-    signal: opts.signal
-  };
-  const start = def2.nodes.find((n) => n.type === "start");
-  const upstreamMap = /* @__PURE__ */ new Map();
-  if (def2.edges?.length) {
-    for (const e of def2.edges) {
-      const list = upstreamMap.get(e.to) ?? [];
-      list.push(e.from);
-      upstreamMap.set(e.to, list);
-    }
-  } else {
-    for (const n of def2.nodes) {
-      const refs = Array.isArray(n.next) ? n.next : typeof n.next === "string" ? [n.next] : n.next ? Object.values(n.next) : [];
-      for (const to of refs) {
-        if (!to) continue;
-        const list = upstreamMap.get(to) ?? [];
-        list.push(n.id);
-        upstreamMap.set(to, list);
-      }
-    }
-  }
-  const withUpstreams = (nodeId) => ({
-    ...ctx,
-    currentNodeId: nodeId,
-    upstreams: { ...ctx.upstreams, [nodeId]: upstreamMap.get(nodeId) ?? [] }
-  });
-  let successCount = 0, failedCount = 0, skippedCount = 0;
-  let firstError;
-  const scheduled = /* @__PURE__ */ new Set();
-  const cancelled = () => ({ ...makeResult("failed", { error: { code: "RUN_CANCELLED", message: "\u8FD0\u884C\u5DF2\u7531\u7528\u6237\u53D6\u6D88" } }), durationMs: 0, startedAt: (/* @__PURE__ */ new Date()).toISOString(), endedAt: (/* @__PURE__ */ new Date()).toISOString() });
-  async function executeNode(node) {
-    if (scheduled.has(node.id)) {
-      return ctx.results[node.id];
-    }
-    scheduled.add(node.id);
-    if (opts.signal?.aborted) {
-      const r2 = cancelled();
-      ctx.results[node.id] = r2;
-      return r2;
-    }
-    const defReg = WorkflowNodeRegistry.get(node.type);
-    if (!defReg) {
-      const r2 = { ...makeResult("failed", { error: { code: "UNKNOWN_NODE_TYPE", message: `\u8282\u70B9\u7C7B\u578B "${node.type}" \u672A\u6CE8\u518C\uFF08\u63D0\u4F9B\u8BE5\u8282\u70B9\u7684\u63D2\u4EF6\u662F\u5426\u5DF2\u5B89\u88C5\uFF1F\uFF09` } }), durationMs: 0, startedAt: (/* @__PURE__ */ new Date()).toISOString(), endedAt: (/* @__PURE__ */ new Date()).toISOString() };
-      ctx.results[node.id] = r2;
-      failedCount++;
-      opts.onNodeDone?.(node.id, r2);
-      return r2;
-    }
-    const r = await safeNodeRun(async () => {
-      let resolved = node.params ?? {};
-      try {
-        resolved = resolveParams(node.params ?? {}, ctx, node.id);
-      } catch (e) {
-        if (e instanceof DataflowError) {
-          return makeResult("failed", { error: { code: "DATAFLOW_REF", message: e.message } });
-        }
-        throw e;
-      }
-      return defReg.run(withUpstreams(node.id), resolved);
-    });
-    ctx.results[node.id] = r;
-    if (r.status === "success") successCount++;
-    else if (r.status === "failed") failedCount++;
-    else skippedCount++;
-    opts.onNodeDone?.(node.id, r);
-    return r;
-  }
-  async function advance(fromNode, fromResult) {
-    if (fromNode.type === "end") return;
-    if (fromResult.status === "failed") {
-      if (fromNode.onError === "continue") {
-        return;
-      } else if (fromNode.onError && typeof fromNode.onError === "object" && fromNode.onError.goto) {
-        const next2 = def2.nodes.find((n) => n.id === fromNode.onError.goto);
-        if (!next2) throw new Error(`onError \u8DF3\u8F6C\u76EE\u6807\u4E0D\u5B58\u5728\uFF1A${fromNode.onError.goto}`);
-        const r2 = await executeNode(next2);
-        return advance(next2, r2);
-      } else {
-        if (!firstError) firstError = { code: fromResult.error?.code ?? "NODE_FAILED", message: fromResult.error?.message ?? "node failed", nodeId: fromNode.id };
-        return;
-      }
-    }
-    const next = fromNode.next;
-    if (next === void 0 || next === null) return;
-    if (typeof next === "string") {
-      const n = def2.nodes.find((x) => x.id === next);
-      if (!n) throw new Error(`\u8FDE\u7EBF\u65AD\u88C2\uFF1A${fromNode.id} \u2192 ${next}\uFF08\u76EE\u6807\u8282\u70B9\u4E0D\u5B58\u5728\uFF09`);
-      const r = await executeNode(n);
-      return advance(n, r);
-    }
-    if (Array.isArray(next)) {
-      const ps = next.map((id) => def2.nodes.find((x) => x.id === id)).filter(Boolean);
-      const rs = await Promise.all(ps.map((n) => executeNode(n)));
-      const anyFailed = rs.some((r) => r.status === "failed");
-      if (anyFailed) {
-        if (!firstError) firstError = { code: "PARALLEL_FAILED", message: "\u4E00\u4E2A\u6216\u591A\u4E2A\u5E76\u884C\u5206\u652F\u5931\u8D25", nodeId: fromNode.id };
-        return;
-      }
-    }
-    if (typeof next === "object" && !Array.isArray(next)) {
-      let branch;
-      if ("true" in next || "false" in next) {
-        const cond = ctx.results[fromNode.id]?.out;
-        branch = cond ? next.true : next.false;
-      } else {
-        const matched = String(ctx.results[fromNode.id]?.out?.matched ?? "");
-        branch = next[matched] ?? next["*"];
-      }
-      if (!branch) throw new Error(`\u8FDE\u7EBF\u65AD\u88C2\uFF1A${fromNode.id} \u6CA1\u6709\u5339\u914D\u7684\u5206\u652F\uFF08${JSON.stringify(next)}\uFF09`);
-      const n = def2.nodes.find((x) => x.id === branch);
-      if (!n) throw new Error(`\u8FDE\u7EBF\u65AD\u88C2\uFF1A${fromNode.id} \u2192 ${branch}\uFF08\u76EE\u6807\u8282\u70B9\u4E0D\u5B58\u5728\uFF09`);
-      const r = await executeNode(n);
-      return advance(n, r);
-    }
-  }
-  const startR = await executeNode(start);
-  await advance(start, startR);
-  for (const endNode of def2.nodes.filter((n) => n.type === "end")) {
-    if (!scheduled.has(endNode.id)) {
-      const r = await executeNode(endNode);
-      if (r.status === "success") successCount++;
-      else if (r.status === "failed") failedCount++;
-    }
-  }
-  const endedAt = (/* @__PURE__ */ new Date()).toISOString();
-  const summary = {
+    signal: opts.signal,
     runId,
-    workflowName: def2.name,
-    status: failedCount === 0 ? "success" : "failed",
-    totalNodes: def2.nodes.length,
-    successCount,
-    failedCount,
-    skippedCount,
-    totalDurationMs: Date.now() - t0,
-    startedAt,
-    endedAt,
-    results: ctx.results,
-    ...firstError ? { error: firstError } : {}
-  };
-  opts.logger.info("workflow done", { runId, name: def2.name, status: summary.status, totalMs: summary.totalDurationMs });
-  try {
-    await writeRunRecord(summary);
-  } catch (e) {
-    opts.logger.warn("run record write failed", { error: e.message });
-  }
-  return { summary, record: summary };
-}
-async function runDag(def2, opts) {
-  const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const startedAt = (/* @__PURE__ */ new Date()).toISOString();
-  const t0 = Date.now();
-  const ctx = {
-    inputs: { ...def2.inputs ?? {}, ...opts.inputs ?? {} },
-    vars: {},
-    results: {}
+    interactive: opts.interactive === true,
+    onAwaiting: opts.onAwaiting,
+    logger: opts.logger
   };
   const nodeById = new Map(def2.nodes.map((n) => [n.id, n]));
   const dagFail = (code, message) => {
@@ -8079,11 +8124,51 @@ async function runDag(def2, opts) {
     }
   }
   let successCount = 0, failedCount = 0, skippedCount = 0;
+  let toleratedCount = 0;
   let firstError;
   const MAX_NODES = 1e5;
   let executed = 0;
   const skipped = /* @__PURE__ */ new Set();
-  for (const layer of topo.layers) {
+  const policyOf = (node) => {
+    if (node?.tolerate === true) return "ignore";
+    const oe = node?.onError;
+    if (oe === "continue") return "skip";
+    if (oe && typeof oe === "object" && oe.goto) return "goto";
+    return "stop";
+  };
+  const edgeKey = (from, when, to) => `${from}|${when ?? ""}|${to}`;
+  const hardDead = /* @__PURE__ */ new Set();
+  const gotoTargets = /* @__PURE__ */ new Set();
+  const layerIndexOf = /* @__PURE__ */ new Map();
+  topo.layers.forEach((ids, i) => ids.forEach((id) => layerIndexOf.set(id, i)));
+  const recomputeSkipped = () => {
+    skipped.clear();
+    const dead = new Set(hardDead);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const node of def2.nodes) {
+        if (gotoTargets.has(node.id)) continue;
+        const ins = inEdgesMap.get(node.id) ?? [];
+        if (ins.length === 0) continue;
+        const allDead = ins.every((fromId) => {
+          const toMe = (outEdges.get(fromId) ?? []).filter((e) => e.to === node.id);
+          return toMe.length > 0 && toMe.every((e) => dead.has(edgeKey(fromId, e.when, node.id)));
+        });
+        if (!allDead) continue;
+        const res = ctx.results[node.id];
+        if (res && res.status !== "skipped") continue;
+        if (!skipped.has(node.id)) {
+          skipped.add(node.id);
+          changed = true;
+        }
+        for (const e of outEdges.get(node.id) ?? []) dead.add(edgeKey(node.id, e.when, e.to));
+      }
+    }
+  };
+  for (let layerIdx = 0; layerIdx < topo.layers.length; layerIdx++) {
+    const layer = topo.layers[layerIdx];
+    recomputeSkipped();
     const results = await Promise.all(layer.map(async (id) => {
       if (skipped.has(id)) {
         const sr = { ...makeResult("skipped", { out: null }), durationMs: 0, startedAt, endedAt: startedAt };
@@ -8103,10 +8188,12 @@ async function runDag(def2, opts) {
       if (!defReg) {
         return { id, r: { ...makeResult("failed", { error: { code: "UNKNOWN_NODE_TYPE", message: `\u8282\u70B9\u7C7B\u578B "${node.type}" \u672A\u6CE8\u518C\uFF08\u63D0\u4F9B\u8BE5\u8282\u70B9\u7684\u63D2\u4EF6\u662F\u5426\u5DF2\u5B89\u88C5\uFF1F\uFF09` } }), durationMs: 0, startedAt, endedAt: startedAt }, skip: false };
       }
+      opts.onNodeStart?.(id);
       const r = await safeNodeRun(async () => {
         let resolved = node.params ?? {};
         try {
-          resolved = resolveParams(node.params ?? {}, ctx, id);
+          const { body: rawBody, ...restParams } = node.params ?? {};
+          resolved = node.type === "loop" && rawBody !== void 0 ? { ...resolveParams(restParams, ctx, id), body: rawBody } : resolveParams(node.params ?? {}, ctx, id);
         } catch (e) {
           if (e instanceof DataflowError) {
             return makeResult("failed", { error: { code: "DATAFLOW_REF", message: e.message } });
@@ -8123,12 +8210,27 @@ async function runDag(def2, opts) {
       const node = nodeById.get(id);
       const edges = outEdges.get(id);
       if (!node || !edges) continue;
+      if (r.status === "failed") {
+        const policy = policyOf(node);
+        if (policy !== "ignore") {
+          for (const e of edges) hardDead.add(edgeKey(id, e.when, e.to));
+        }
+        if (policy === "goto") {
+          const target = String(node.onError?.goto ?? "");
+          const tLayer = layerIndexOf.get(target);
+          if (tLayer !== void 0 && tLayer > layerIdx) {
+            gotoTargets.add(target);
+          } else if (target) {
+            const why = tLayer === void 0 ? "\u76EE\u6807\u4E0D\u5B58\u5728" : ctx.results[target] ? "\u76EE\u6807\u5DF2\u6267\u884C\u8FC7" : "\u76EE\u6807\u5DF2\u8FC7\u5C42";
+            if (r.error) r.error = { ...r.error, message: `${r.error.message ?? ""}\uFF08onError.goto \u6307\u5411 "${target}"\uFF1A${why}\uFF0C\u672A\u91CD\u590D\u6267\u884C\u2014\u2014\u76EE\u6807\u53EA\u6267\u884C\u4E00\u6B21\uFF09` };
+          }
+        }
+        continue;
+      }
       const isIf = node.type === "if";
       const isSwitch = node.type === "switch";
       if (!isIf && !isSwitch) continue;
-      if (r.status !== "success") {
-        continue;
-      }
+      if (r.status !== "success") continue;
       const outVal = r.out ?? null;
       const truthy = Boolean(outVal);
       const matched = String(outVal?.matched ?? "");
@@ -8142,21 +8244,27 @@ async function runDag(def2, opts) {
           else if (e.when === "*") active = !hasExact;
           else active = false;
         }
-        if (!active) skipped.add(e.to);
+        if (!active) hardDead.add(edgeKey(id, e.when, e.to));
       }
     }
-    for (const { r, skip } of results) {
+    for (const { id, r, skip } of results) {
       if (skip) {
         skippedCount++;
         continue;
       }
       if (r.status === "success") successCount++;
       else if (r.status === "failed") {
-        failedCount++;
-        if (!firstError) firstError = { code: r.error?.code ?? "NODE_FAILED", message: r.error?.message ?? "node failed", nodeId: void 0 };
+        const policy = policyOf(nodeById.get(id));
+        if (r.error?.code !== "RUN_CANCELLED" && (policy === "ignore" || policy === "skip")) {
+          r.tolerated = true;
+          toleratedCount++;
+        } else {
+          failedCount++;
+          if (!firstError) firstError = { code: r.error?.code ?? "NODE_FAILED", message: r.error?.message ?? "node failed", nodeId: id };
+        }
       } else skippedCount++;
     }
-    if (failedCount > 0) break;
+    if (opts.signal?.aborted) break;
   }
   const endedAt = (/* @__PURE__ */ new Date()).toISOString();
   const summary = {
@@ -8167,6 +8275,7 @@ async function runDag(def2, opts) {
     successCount,
     failedCount,
     skippedCount,
+    ...toleratedCount ? { toleratedCount } : {},
     totalDurationMs: Date.now() - t0,
     startedAt,
     endedAt,
@@ -8193,6 +8302,8 @@ var init_run = __esm({
     init_params_check();
     init_record();
     init_topo();
+    init_normalize();
+    init_awaiting();
     init_dataflow();
   }
 });
@@ -9821,41 +9932,55 @@ var require_bundle = __commonJS({
 });
 
 // src/adapter/workspace.ts
+var workspace_exports = {};
+__export(workspace_exports, {
+  dagFlowDir: () => dagFlowDir,
+  dagFlowLogsDir: () => dagFlowLogsDir,
+  dagFlowScriptsDir: () => dagFlowScriptsDir,
+  dagFlowTmpDir: () => dagFlowTmpDir,
+  ensureDagFlowDirs: () => ensureDagFlowDirs,
+  workspaceRoot: () => workspaceRoot
+});
 async function workspaceRoot() {
   if (cachedRoot) return cachedRoot;
   const info = await resolveStorageRoot();
-  cachedRoot = path6.dirname(path6.dirname(info.dir));
+  cachedRoot = path5.dirname(path5.dirname(info.dir));
   return cachedRoot;
 }
 async function dagFlowDir() {
   const info = await resolveStorageRoot();
-  return path6.dirname(info.dir);
+  return path5.dirname(info.dir);
 }
 async function ensureDagFlowDirs() {
   if (!ensured) {
     ensured = (async () => {
       const root = await dagFlowDir();
-      await import_node_fs6.promises.mkdir(path6.join(root, "tmp"), { recursive: true });
-      await import_node_fs6.promises.mkdir(path6.join(root, "logs"), { recursive: true });
+      await import_node_fs7.promises.mkdir(path5.join(root, "tmp"), { recursive: true });
+      await import_node_fs7.promises.mkdir(path5.join(root, "logs"), { recursive: true });
+      await import_node_fs7.promises.mkdir(path5.join(root, "scripts"), { recursive: true });
     })().catch(() => {
     });
   }
   return ensured;
 }
+async function dagFlowScriptsDir() {
+  await ensureDagFlowDirs();
+  return path5.join(await dagFlowDir(), "scripts");
+}
 async function dagFlowTmpDir() {
   await ensureDagFlowDirs();
-  return path6.join(await dagFlowDir(), "tmp");
+  return path5.join(await dagFlowDir(), "tmp");
 }
 async function dagFlowLogsDir() {
   await ensureDagFlowDirs();
-  return path6.join(await dagFlowDir(), "logs");
+  return path5.join(await dagFlowDir(), "logs");
 }
-var import_node_fs6, path6, cachedRoot, ensured;
+var import_node_fs7, path5, cachedRoot, ensured;
 var init_workspace = __esm({
   "src/adapter/workspace.ts"() {
     "use strict";
-    import_node_fs6 = require("node:fs");
-    path6 = __toESM(require("node:path"), 1);
+    import_node_fs7 = require("node:fs");
+    path5 = __toESM(require("node:path"), 1);
     init_storage();
     cachedRoot = null;
     ensured = null;
@@ -9879,11 +10004,15 @@ function todayLogPath() {
   const day = String(d.getDate()).padStart(2, "0");
   return `dag-flow-${y}-${m}-${day}.log`;
 }
+function cstStamp(d = /* @__PURE__ */ new Date()) {
+  const t = new Date(d.getTime() + 8 * 3600 * 1e3);
+  return t.toISOString().replace("T", " ").replace("Z", "");
+}
 function appendToLogFile(level, line) {
-  const stamp = (/* @__PURE__ */ new Date()).toISOString();
+  const stamp = cstStamp();
   const text = `${stamp} [${level.toUpperCase()}] ${line}
 `;
-  void dagFlowLogsDir().then((dir) => (0, import_promises2.appendFile)(path8.join(dir, todayLogPath()), text, "utf8")).catch(() => {
+  void dagFlowLogsDir().then((dir) => (0, import_promises2.appendFile)(path7.join(dir, todayLogPath()), text, "utf8")).catch(() => {
   });
 }
 function createLogger() {
@@ -9913,12 +10042,12 @@ function createLogger() {
     }
   };
 }
-var import_promises2, path8;
+var import_promises2, path7;
 var init_logger = __esm({
   "src/adapter/logger.ts"() {
     "use strict";
     import_promises2 = require("node:fs/promises");
-    path8 = __toESM(require("node:path"), 1);
+    path7 = __toESM(require("node:path"), 1);
     init_safety();
     init_workspace();
   }
@@ -9930,6 +10059,7 @@ init_run();
 // src/registry/builtin.ts
 var import_node_child_process = require("node:child_process");
 var import_promises3 = require("node:fs/promises");
+var import_node_path = require("node:path");
 init_external();
 
 // src/registry/expr.ts
@@ -9993,10 +10123,28 @@ function evaluateBool(expr, scope) {
   return Boolean(v);
 }
 
-// src/adapter/subagent.ts
-init_safety();
+// src/adapter/fetch-errors.ts
+function humanizeFetchError(e) {
+  const err = e;
+  const msg = err?.message ?? String(e);
+  if (err?.name === "AbortError") return "\u8BF7\u6C42\u5DF2\u8D85\u65F6\u4E2D\u65AD";
+  if (/Failed to parse URL|Invalid URL/i.test(msg)) {
+    return `URL \u683C\u5F0F\u4E0D\u5408\u6CD5\uFF08\u68C0\u67E5\u662F\u5426\u6F0F\u4E86 http:// \u6216 https:// \u524D\u7F00\u3001\u662F\u5426\u6709\u591A\u4F59\u7A7A\u683C\uFF09: ${msg}`;
+  }
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR|certificate|SSL|TLS/i.test(msg)) {
+    return `\u7F51\u7EDC\u8FDE\u63A5\u5931\u8D25\uFF08\u65E0\u6CD5\u8BBF\u95EE\u76EE\u6807\u5730\u5740\u2014\u2014\u68C0\u67E5 URL \u662F\u5426\u6B63\u786E\u3001\u7F51\u7EDC/\u4EE3\u7406/\u9632\u706B\u5899\u662F\u5426\u653E\u884C\u3001\u76EE\u6807\u670D\u52A1\u662F\u5426\u5728\u7EBF\uFF09: ${msg}`;
+  }
+  return `\u8BF7\u6C42\u5F02\u5E38: ${msg}`;
+}
+
+// src/dsh-gate/llm.ts
+init_host();
+function hostLlm() {
+  return hostService("llm");
+}
+
+// src/dsh-gate/llm-config.ts
 var import_node_fs2 = require("node:fs");
-var path3 = __toESM(require("node:path"), 1);
 
 // src/adapter/yaml-lite.ts
 function parse(yaml) {
@@ -10097,59 +10245,10 @@ function parseScalar(raw) {
   return s;
 }
 
-// src/adapter/fetch-errors.ts
-function humanizeFetchError(e) {
-  const err = e;
-  const msg = err?.message ?? String(e);
-  if (err?.name === "AbortError") return "\u8BF7\u6C42\u5DF2\u8D85\u65F6\u4E2D\u65AD";
-  if (/Failed to parse URL|Invalid URL/i.test(msg)) {
-    return `URL \u683C\u5F0F\u4E0D\u5408\u6CD5\uFF08\u68C0\u67E5\u662F\u5426\u6F0F\u4E86 http:// \u6216 https:// \u524D\u7F00\u3001\u662F\u5426\u6709\u591A\u4F59\u7A7A\u683C\uFF09: ${msg}`;
-  }
-  if (/fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR|certificate|SSL|TLS/i.test(msg)) {
-    return `\u7F51\u7EDC\u8FDE\u63A5\u5931\u8D25\uFF08\u65E0\u6CD5\u8BBF\u95EE\u76EE\u6807\u5730\u5740\u2014\u2014\u68C0\u67E5 URL \u662F\u5426\u6B63\u786E\u3001\u7F51\u7EDC/\u4EE3\u7406/\u9632\u706B\u5899\u662F\u5426\u653E\u884C\u3001\u76EE\u6807\u670D\u52A1\u662F\u5426\u5728\u7EBF\uFF09: ${msg}`;
-  }
-  return `\u8BF7\u6C42\u5F02\u5E38: ${msg}`;
-}
-
-// src/adapter/subagent.ts
-init_dsh_home();
-var DEFAULT_TIMEOUT_MS = 12e4;
-var SubagentUnavailableError = class extends Error {
-  constructor(reason) {
-    super(`subagent unavailable: ${reason}`);
-    this.name = "SubagentUnavailableError";
-  }
-};
-var MODALITY_EXTS = {
-  image: /\.(png|jpe?g|gif|webp|bmp|svg|ico|tiff?)\b/gi,
-  video: /\.(mp4|mov|avi|mkv|webm|flv|wmv|m4v)\b/gi,
-  file: /\.(pdf|docx?|xlsx?|pptx?|csv|txt|zip|rar|7z)\b/gi
-};
-function detectModalities(text) {
-  const out = /* @__PURE__ */ new Set();
-  for (const [modality, re] of Object.entries(MODALITY_EXTS)) {
-    re.lastIndex = 0;
-    if (re.test(String(text))) out.add(modality);
-  }
-  return [...out];
-}
-function checkModelModality(endpoint, prompt) {
-  const needed = detectModalities(prompt);
-  if (needed.length === 0) return null;
-  const caps = endpoint.input?.length ? endpoint.input : ["text"];
-  const missing = needed.filter((m) => !caps.includes(m));
-  if (missing.length === 0) return null;
-  const label = { image: "\u56FE\u7247", video: "\u89C6\u9891", file: "\u6587\u4EF6" };
-  const missingLabel = missing.map((m) => label[m] ?? m).join("\u3001");
-  const suggest = missing.includes("image") ? "\uFF08\u5982 dsh:custom-model:kimi-k3 / minimax-m3\uFF09" : "";
-  return `\u6240\u9009\u6A21\u578B ${endpoint.providerName ?? endpoint.model} \u4E0D\u652F\u6301${missingLabel}\u8F93\u5165\uFF08\u80FD\u529B: ${caps.join(", ")}\uFF09\u2014\u2014prompt \u4E2D\u5F15\u7528\u4E86${missingLabel}\u6587\u4EF6\u3002\u8BF7\u6362\u652F\u6301\u5BF9\u5E94\u6A21\u6001\u7684\u6A21\u578B${suggest}\uFF0C\u6216\u5728 dsh settings.yaml \u4E3A\u8BE5\u6A21\u578B\u6807\u6CE8 input: [text, image]`;
-}
-var SETTINGS_PATH = path3.join(dshHome(), "settings.yaml");
-var CREDENTIALS_PATH = path3.join(dshHome(), ".credentials.yaml");
-function parseOpenAICompat(endpoint) {
-  const base = String(endpoint.baseURL ?? "").replace(/\/+$/, "");
-  return { baseURL: base, apiKey: endpoint.apiKey, model: endpoint.model };
-}
+// src/dsh-gate/llm-config.ts
+init_paths();
+var SETTINGS_PATH = settingsYamlPath();
+var CREDENTIALS_PATH = credentialsYamlPath();
 var SETTINGS_KEY_PI = "llm-pi-ai";
 var SETTINGS_KEY_DEEPSEEK = "llm-deepseek";
 var SETTINGS_KEY_DEFAULT_MODEL = "agent-default-model";
@@ -10176,14 +10275,14 @@ async function readProfilePatchSettings() {
   const wanted = /* @__PURE__ */ new Set([SETTINGS_KEY_PI, SETTINGS_KEY_DEEPSEEK, SETTINGS_KEY_DEFAULT_MODEL]);
   let profiles = [];
   try {
-    profiles = (await import_node_fs2.promises.readdir(path3.join(dshHome(), "profiles"), { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
+    profiles = (await import_node_fs2.promises.readdir(profilesDir(), { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
   } catch {
     return out;
   }
   for (const p of profiles) {
     let raw;
     try {
-      raw = await import_node_fs2.promises.readFile(path3.join(dshHome(), "profiles", p, "cordis.patch.yml"), "utf8");
+      raw = await import_node_fs2.promises.readFile(profilePatchPath(p), "utf8");
     } catch {
       continue;
     }
@@ -10210,6 +10309,14 @@ function keyFor(credRefs, envName) {
   if (process.env[envName]) return process.env[envName];
   return "";
 }
+function readInput(m) {
+  const input = m?.input;
+  if (Array.isArray(input) && input.length > 0 && input.every((x) => typeof x === "string")) {
+    const arr = input;
+    return arr.includes("text") ? arr : ["text", ...arr];
+  }
+  return ["text"];
+}
 function buildLlmCandidates(settings, creds) {
   const credRefs = creds?.[CREDENTIALS_KEY_REFS] ?? {};
   const candidates = [];
@@ -10218,10 +10325,26 @@ function buildLlmCandidates(settings, creds) {
     const prov = pv;
     const baseURL = String(prov.baseURL ?? "");
     const apiKey = keyFor(credRefs, prov.apiKeyEnv);
+    const api = String(prov.api ?? "").trim().toLowerCase();
+    const needsHost = api !== "" && !api.startsWith("openai");
     const models = Array.isArray(prov.models) ? prov.models : prov.models && typeof prov.models === "object" ? Object.values(prov.models) : [];
     for (const m of models) {
       const modelId = m?.id ?? m?.name;
-      if (modelId) candidates.push({ baseURL, apiKey, model: modelId, providerName: `${pid}:${modelId}`, input: readInput(m) });
+      if (modelId) {
+        const rawName = m?.name;
+        const modelLabel = typeof rawName === "string" && rawName && rawName !== modelId ? rawName : void 0;
+        candidates.push({
+          baseURL,
+          apiKey,
+          model: modelId,
+          providerName: `${pid}:${modelId}`,
+          input: readInput(m),
+          // providerLabel = provider 键名：同名模型消歧时显示它（比内部串 `pid:model` 好认）
+          providerLabel: pid,
+          ...modelLabel ? { modelLabel } : {},
+          ...needsHost ? { viaHost: true, hostProvider: pid } : {}
+        });
+      }
     }
   }
   const ds = settings?.[SETTINGS_KEY_DEEPSEEK] ?? {};
@@ -10232,6 +10355,7 @@ function buildLlmCandidates(settings, creds) {
       apiKey: keyFor(credRefs, "DEEPSEEK_API_KEY") || keyFor(credRefs, "ARK_CODE_LATEST_API_KEY"),
       model: adm.model ?? "deepseek-chat",
       providerName: "llm-deepseek",
+      providerLabel: "llm-deepseek",
       input: ["text"]
     });
   }
@@ -10251,31 +10375,116 @@ function envFallbackEndpoint() {
     input: ["text"]
   };
 }
-async function discoverSettingsEndpoints() {
-  try {
-    const { settings, creds } = await readLlmConfigFiles();
-    return buildLlmCandidates(settings, creds);
-  } catch {
-    return [];
+
+// src/adapter/subagent.ts
+var DEFAULT_TIMEOUT_MS = 12e4;
+var SubagentUnavailableError = class extends Error {
+  /** 可选的节点级错误码：同一种病在不同路径要报同一个码（如空输出 SUBAGENT_EMPTY_OUTPUT），
+   *  否则「host 路径 vs 直连路径」会给出不同 code（2026-10-03 契约测试 E1 暴露）。 */
+  code;
+  constructor(reason, code) {
+    super(`subagent unavailable: ${reason}`);
+    this.name = "SubagentUnavailableError";
+    if (code) this.code = code;
   }
+};
+var MODALITY_EXTS = {
+  image: /\.(png|jpe?g|gif|webp|bmp|svg|ico|tiff?)\b/gi,
+  video: /\.(mp4|mov|avi|mkv|webm|flv|wmv|m4v)\b/gi,
+  file: /\.(pdf|docx?|xlsx?|pptx?|csv|txt|zip|rar|7z)\b/gi
+};
+function detectModalities(text) {
+  const out = /* @__PURE__ */ new Set();
+  for (const [modality, re] of Object.entries(MODALITY_EXTS)) {
+    re.lastIndex = 0;
+    if (re.test(String(text))) out.add(modality);
+  }
+  return [...out];
 }
-function readInput(m) {
-  const input = m?.input;
-  if (Array.isArray(input) && input.length > 0 && input.every((x) => typeof x === "string")) {
-    const arr = input;
-    return arr.includes("text") ? arr : ["text", ...arr];
+function checkModelModality(endpoint, prompt) {
+  const needed = detectModalities(prompt);
+  if (needed.length === 0) return null;
+  const caps = endpoint.input?.length ? endpoint.input : ["text"];
+  const missing = needed.filter((m) => !caps.includes(m));
+  if (missing.length === 0) return null;
+  const label = { image: "\u56FE\u7247", video: "\u89C6\u9891", file: "\u6587\u4EF6" };
+  const missingLabel = missing.map((m) => label[m] ?? m).join("\u3001");
+  const suggest = missing.includes("image") ? "\uFF08\u5982 dsh:custom-model:kimi-k3 / minimax-m3\uFF09" : "";
+  return `\u6240\u9009\u6A21\u578B ${endpoint.modelLabel ?? endpoint.providerName ?? endpoint.model} \u4E0D\u652F\u6301${missingLabel}\u8F93\u5165\uFF08\u80FD\u529B: ${caps.join(", ")}\uFF09\u2014\u2014prompt \u4E2D\u5F15\u7528\u4E86${missingLabel}\u6587\u4EF6\u3002\u8BF7\u6362\u652F\u6301\u5BF9\u5E94\u6A21\u6001\u7684\u6A21\u578B${suggest}\uFF0C\u6216\u5728 dsh settings.yaml \u4E3A\u8BE5\u6A21\u578B\u6807\u6CE8 input: [text, image]`;
+}
+function parseOpenAICompat(endpoint) {
+  const base = String(endpoint.baseURL ?? "").replace(/\/+$/, "");
+  return { baseURL: base, apiKey: endpoint.apiKey, model: endpoint.model };
+}
+var _structureWarned = false;
+async function listAllEndpoints() {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  const dedupeKey = (name) => name.replace(/^llm:/, "");
+  try {
+    const llm = hostLlm();
+    if (llm && typeof llm.listProviders === "function" && typeof llm.listModels === "function") {
+      for (const p of await llm.listProviders()) {
+        if (!p?.id) continue;
+        try {
+          for (const m of await llm.listModels(p.id)) {
+            if (!m?.id) continue;
+            const name = `llm:${p.id}:${m.id}`;
+            const key = dedupeKey(name);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({
+              baseURL: "",
+              apiKey: "",
+              model: m.id,
+              providerName: name,
+              // ★ 显示名（2026-10-03）：只给 UI 用，存值/路由仍是 providerName + model
+              modelLabel: typeof m.name === "string" && m.name ? m.name : void 0,
+              providerLabel: typeof p.name === "string" && p.name ? p.name : void 0,
+              input: Array.isArray(m.inputModalities) && m.inputModalities.length > 0 ? m.inputModalities.includes("text") ? [...m.inputModalities] : ["text", ...m.inputModalities] : ["text"],
+              viaHost: true,
+              hostProvider: p.id
+            });
+          }
+        } catch {
+        }
+      }
+    }
+  } catch {
   }
-  return ["text"];
+  const { settings, creds } = await readLlmConfigFiles();
+  try {
+    for (const ep of buildLlmCandidates(settings, creds)) {
+      const name = ep.providerName ?? `${ep.model}`;
+      const key = dedupeKey(name);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(ep);
+    }
+  } catch {
+  }
+  if (!_structureWarned && settings[SETTINGS_KEY_PI] != null && out.length === 0) {
+    _structureWarned = true;
+    console.warn("[dag-flow] dsh \u914D\u7F6E\uFF08settings.yaml / profile cordis.patch.yml\uFF09\u5B58\u5728 llm-pi-ai \u6BB5\uFF0C\u4F46\u672A\u89E3\u6790\u51FA\u4EFB\u4F55\u53EF\u7528\u6A21\u578B\u2014\u2014dsh \u7684\u914D\u7F6E\u7ED3\u6784\u53EF\u80FD\u5DF2\u53D8\u5316\u3002\u8BF7\u68C0\u67E5 llm-pi-ai.providers[*].models \u7684\u5B57\u6BB5\u5F62\u6001\uFF08id/name\uFF09\uFF0C\u6216\u628A\u914D\u7F6E\u6587\u4EF6\u53D1\u7ED9 dag-flow \u7EF4\u62A4\u8005\u9002\u914D\u65B0\u7ED3\u6784");
+  }
+  const envEp = envFallbackEndpoint();
+  if (envEp && !seen.has(dedupeKey(envEp.providerName ?? ""))) out.push(envEp);
+  return out;
 }
 async function resolveLlmEndpoint(modelId) {
   if (modelId) {
     try {
-      const discovered = await discoverSettingsEndpoints();
-      const hit = discovered.find(
-        (e) => e.providerName === modelId || `dsh:${e.providerName}` === modelId || `dsh:${e.model}` === modelId
-      );
-      if (hit && hit.baseURL && hit.model) return hit;
-    } catch {
+      const all = await listAllEndpoints();
+      const named = (e) => e.providerName === modelId || `dsh:${e.providerName}` === modelId || `dsh:${e.model}` === modelId;
+      const hostHit = all.find((e) => e.viaHost === true && (named(e) || e.model === modelId));
+      if (hostHit) return hostHit;
+      const cfgHit = all.find((e) => !e.viaHost && named(e));
+      if (cfgHit && cfgHit.baseURL && cfgHit.model) return cfgHit;
+      const bareHit = all.find((e) => !e.viaHost && e.model === modelId);
+      if (bareHit && bareHit.baseURL) return bareHit;
+      throw new SubagentUnavailableError(`\u672A\u627E\u5230\u6A21\u578B "${modelId}"\u2014\u2014\u8BF7\u6253\u5F00\u8282\u70B9\u300C\u9009\u62E9\u6A21\u578B\u300D\u4ECE dsh \u5F53\u524D\u53EF\u7528\u6A21\u578B\u4E2D\u91CD\u65B0\u9009\u62E9`);
+    } catch (e) {
+      if (e instanceof SubagentUnavailableError) throw e;
     }
   }
   const { settings, creds } = await readLlmConfigFiles();
@@ -10344,12 +10553,74 @@ async function callOpenAICompatible(endpoint, prompt, opts, signal) {
   }
   throw new SubagentUnavailableError(`LLM \u8C03\u7528\u5931\u8D25: ${lastErr.join(" | ") || "\u6CA1\u6709\u4EFB\u4F55\u7AEF\u70B9\u54CD\u5E94"}`);
 }
+async function callViaHostLlm(endpoint, opts, onDelta) {
+  const llm = hostLlm();
+  if (!llm || typeof llm.stream !== "function") {
+    throw new SubagentUnavailableError("host llm \u670D\u52A1\u4E0D\u53EF\u7528\uFF08\u672A\u6CE8\u5165\u6216\u65E0 stream \u65B9\u6CD5\uFF09");
+  }
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const parts = [];
+  const seen = [];
+  try {
+    const stream = llm.stream({
+      provider: endpoint.hostProvider,
+      model: endpoint.model,
+      ...opts.system ? { system: opts.system } : {},
+      // ★ content 必须是**内容块数组**（dsh-llm 的 RequestUserInput.content = readonly ContentBlock[]，
+      //   TextBlock = {type:'text',text}）。2026-10-03 前这里传的是字符串 → 宿主适配器校验失败 →
+      //   finish{kind:'error',failure} → 被旧代码当正常结束 → 空输出。这是「AI 节点成功但正文为空」的真根因。
+      messages: [{ role: "user", content: [{ type: "text", text: opts.prompt }] }],
+      ...opts.maxTokens ? { maxTokens: opts.maxTokens } : {},
+      ...opts.temperature !== void 0 ? { temperature: opts.temperature } : {},
+      signal: ac.signal
+    });
+    for await (const chunk of stream) {
+      if (chunk?.type === "text-delta" && typeof chunk.text === "string" && chunk.text) {
+        parts.push(chunk.text);
+        onDelta?.(chunk.text);
+      } else if (chunk?.type === "finish") {
+        const finish2 = chunk;
+        const reason = finish2.reason;
+        const kind = typeof reason === "string" ? reason : reason && typeof reason === "object" ? String(reason.kind ?? "") : "";
+        const failure = reason && typeof reason === "object" ? reason.failure : void 0;
+        if (kind === "error" || kind === "aborted") {
+          const bits = [
+            failure?.code,
+            failure?.message ?? finish2.error?.message,
+            failure?.status != null ? `HTTP ${failure.status}` : ""
+          ].filter(Boolean);
+          const detail = bits.length ? bits.join(" / ") : typeof reason === "string" ? "\uFF08host \u6CA1\u6709\u63D0\u4F9B\u9519\u8BEF\u8BE6\u60C5\uFF09" : JSON.stringify(reason);
+          throw new SubagentUnavailableError(`host llm.stream ${kind === "aborted" ? "\u88AB\u4E2D\u6B62" : "\u5931\u8D25"}: ${detail}`);
+        }
+        seen.push(`finish:${typeof reason === "string" ? reason : JSON.stringify(reason)}`);
+      } else if (chunk?.type) {
+        seen.push(String(chunk.type));
+      }
+    }
+  } catch (e) {
+    if (e.name === "AbortError") {
+      throw new SubagentUnavailableError(`AI \u8282\u70B9\u8D85\u65F6\uFF08${opts.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms\uFF09`);
+    }
+    if (e instanceof SubagentUnavailableError) throw e;
+    throw new SubagentUnavailableError(`host llm.stream \u8C03\u7528\u5931\u8D25: ${e.message}`);
+  } finally {
+    clearTimeout(timer);
+  }
+  const text = parts.join("");
+  if (!text.trim()) {
+    const detail = seen.length ? seen.join(",") : "\uFF08host \u4E00\u4E2A chunk \u90FD\u6CA1\u4EA7\u51FA\uFF09";
+    console.warn(`[dag-flow] host llm.stream \u7A7A\u6D41\uFF1Aprovider=${endpoint.hostProvider ?? "?"} model=${endpoint.model} chunks=[${detail}]`);
+    throw new SubagentUnavailableError(`host llm.stream \u672A\u8FD4\u56DE\u4EFB\u4F55\u6587\u672C\uFF08provider=${endpoint.hostProvider ?? "?"} model=${endpoint.model}\uFF1B\u6536\u5230\u7684 chunk\uFF1A${detail}\uFF09\u2014\u2014\u8BF7\u786E\u8BA4\u8BE5\u6A21\u578B\u5728 dsh \u91CC\u53EF\u7528\uFF0C\u6216\u5728\u8282\u70B9\u300C\u9009\u62E9\u6A21\u578B\u300D\u91CC\u6362\u4E00\u4E2A`, "SUBAGENT_EMPTY_OUTPUT");
+  }
+  return text;
+}
 async function callSubagent(opts) {
-  const hostLlm = hostService("llm");
-  const hostChat = hostLlm?.chat;
+  const hostLlm2 = hostLlm();
+  const hostChat = hostLlm2?.chat;
   if (typeof hostChat === "function") {
     try {
-      const raw = await hostChat.call(hostLlm, {
+      const raw = await hostChat.call(hostLlm2, {
         prompt: opts.prompt,
         ...opts.system ? { system: opts.system } : {},
         ...opts.model ? { model: opts.model } : {}
@@ -10361,6 +10632,10 @@ async function callSubagent(opts) {
     }
   }
   const endpoint = await resolveLlmEndpoint(opts.model);
+  if (endpoint.viaHost) {
+    const text = await callViaHostLlm(endpoint, opts);
+    return { text };
+  }
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   try {
@@ -10392,6 +10667,15 @@ async function runSubagentNode(params) {
       };
     }
     const r = await callSubagent(params);
+    if (!String(r.text ?? "").trim()) {
+      return {
+        status: "failed",
+        error: { code: "SUBAGENT_EMPTY_OUTPUT", message: "AI \u8282\u70B9\u8FD4\u56DE\u7A7A\u5185\u5BB9\uFF08\u6A21\u578B\u6CA1\u6709\u8F93\u51FA\uFF09\u2014\u2014\u5DF2\u4E0D\u518D\u6309\u6210\u529F\u5904\u7406\uFF1B\u8BF7\u6362\u4E00\u4E2A\u53EF\u7528\u6A21\u578B\uFF0C\u6216\u68C0\u67E5 prompt/\u4E0A\u6E38\u6570\u636E\u662F\u5426\u4E3A\u7A7A" },
+        durationMs: Date.now() - t0,
+        startedAt,
+        endedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+    }
     return {
       status: "success",
       out: r.text,
@@ -10402,7 +10686,8 @@ async function runSubagentNode(params) {
   } catch (e) {
     return {
       status: "failed",
-      error: { code: "SUBAGENT_UNAVAILABLE", message: e.message },
+      // 带 code 的用带过来的（如空输出的 SUBAGENT_EMPTY_OUTPUT），其余归 SUBAGENT_UNAVAILABLE
+      error: { code: e.code ?? "SUBAGENT_UNAVAILABLE", message: e.message },
       durationMs: Date.now() - t0,
       startedAt,
       endedAt: (/* @__PURE__ */ new Date()).toISOString()
@@ -10412,14 +10697,14 @@ async function runSubagentNode(params) {
 
 // src/adapter/runtime.ts
 var import_node_fs3 = require("node:fs");
-var path4 = __toESM(require("node:path"), 1);
+var path3 = __toESM(require("node:path"), 1);
 var import_node_url = require("node:url");
 init_dsh_home();
 var import_meta = {};
 var __filename = (0, import_node_url.fileURLToPath)(import_meta.url);
-var __dirname = path4.dirname(__filename);
-var PLUGIN_ROOT_CANDIDATES = ["..", "../.."].map((rel) => path4.resolve(__dirname, rel));
-var USER_RUNTIME_DIR = path4.join(dshHome(), "runtime");
+var __dirname = path3.dirname(__filename);
+var PLUGIN_ROOT_CANDIDATES = ["..", "../.."].map((rel) => path3.resolve(__dirname, rel));
+var USER_RUNTIME_DIR = path3.join(dshHome(), "runtime");
 function detectPlatform() {
   const p = process.platform;
   const a = process.arch;
@@ -10467,17 +10752,17 @@ var BASH_CANDIDATES_WIN = [
 ];
 function bundledPath(tool, version, platform, sub) {
   for (const root of PLUGIN_ROOT_CANDIDATES) {
-    const p = path4.join(root, "runtime", tool, version, platform, sub);
+    const p = path3.join(root, "runtime", tool, version, platform, sub);
     if ((0, import_node_fs3.existsSync)(p)) return p;
   }
-  return path4.join(PLUGIN_ROOT_CANDIDATES[0], "runtime", tool, version, platform, sub);
+  return path3.join(PLUGIN_ROOT_CANDIDATES[0], "runtime", tool, version, platform, sub);
 }
 function which(bin) {
-  const PATH = (process.env.PATH ?? "").split(path4.delimiter);
+  const PATH = (process.env.PATH ?? "").split(path3.delimiter);
   const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.BAT;.CMD").split(";") : [""];
   for (const p of PATH) {
     for (const ext of exts) {
-      const full = path4.join(p, bin + ext);
+      const full = path3.join(p, bin + ext);
       try {
         if ((0, import_node_fs3.existsSync)(full)) return full;
       } catch {
@@ -10487,11 +10772,11 @@ function which(bin) {
   return null;
 }
 function findCachedExe(tool, platform, sub) {
-  const toolRoot = path4.join(USER_RUNTIME_DIR, tool);
+  const toolRoot = path3.join(USER_RUNTIME_DIR, tool);
   try {
     const versions = (0, import_node_fs3.readdirSync)(toolRoot);
     for (const v of versions) {
-      const p = path4.join(toolRoot, v, platform, sub);
+      const p = path3.join(toolRoot, v, platform, sub);
       if ((0, import_node_fs3.existsSync)(p)) return p;
     }
   } catch {
@@ -10537,12 +10822,17 @@ function resolveBash(platform = detectPlatform()) {
 }
 
 // src/adapter/sessions.ts
-var import_node_fs4 = require("node:fs");
-var path5 = __toESM(require("node:path"), 1);
 var import_node_fs5 = require("node:fs");
-init_dsh_home();
-var SESSIONS_ROOT = path5.join(dshHome(), "sessions");
+var path4 = __toESM(require("node:path"), 1);
+var import_node_fs6 = require("node:fs");
+
+// src/dsh-gate/session-format.ts
+var import_node_fs4 = require("node:fs");
+init_paths();
 var SESSION_FILE_CANDIDATES = ["session.v4.jsonl.zstd", "session.v3.jsonl.zstd", "session.jsonl.zstd"];
+function hasZstdMagic(buf) {
+  return buf.length >= 4 && buf[0] === 40 && buf[1] === 181 && buf[2] === 47 && buf[3] === 253;
+}
 function decompressZstdAllFrames(buf, decompressSync) {
   const offsets = [];
   for (let i = 0; i + 4 <= buf.length; i++) {
@@ -10581,9 +10871,10 @@ function escapeDirNameV3(s) {
   return out;
 }
 function scanWorkspaceDirs(workspace) {
+  const root = sessionsRoot();
   let all = [];
   try {
-    all = (0, import_node_fs5.readdirSync)(SESSIONS_ROOT).filter((d) => d.startsWith("--") && d.endsWith("--"));
+    all = (0, import_node_fs4.readdirSync)(root).filter((d) => d.startsWith("--") && d.endsWith("--"));
   } catch {
     return [];
   }
@@ -10597,42 +10888,7 @@ function scanWorkspaceDirs(workspace) {
   const rest = all.filter((d) => !preferred.has(d));
   return [...hit, ...rest];
 }
-async function readSessionContent(sessionId, limit = 10, workspace) {
-  let file = "";
-  outer: for (const d of scanWorkspaceDirs(workspace)) {
-    for (const f of SESSION_FILE_CANDIDATES) {
-      const c = path5.join(SESSIONS_ROOT, d, sessionId, f);
-      if ((0, import_node_fs5.existsSync)(c)) {
-        file = c;
-        break outer;
-      }
-    }
-  }
-  if (!file) return null;
-  let buf;
-  try {
-    buf = await import_node_fs4.promises.readFile(file);
-  } catch (e) {
-    throw new Error(`\u65E0\u6CD5\u8BFB\u53D6\u4F1A\u8BDD\u6587\u4EF6: ${e.message}`);
-  }
-  let text;
-  try {
-    const { zstdDecompressSync } = await import("node:zlib");
-    if (typeof zstdDecompressSync !== "function") {
-      throw new Error("\u9700\u8981 Node >= 22.13 \u624D\u652F\u6301 zstd \u89E3\u538B");
-    }
-    const multi = decompressZstdAllFrames(buf, zstdDecompressSync);
-    if (multi === null) {
-      text = buf.toString("utf8");
-    } else {
-      text = multi;
-    }
-  } catch (e) {
-    const head = buf.subarray(0, 4);
-    const isZstd = head[0] === 40 && head[1] === 181 && head[2] === 47 && head[3] === 253;
-    if (isZstd) throw new Error(`zstd \u89E3\u538B\u5931\u8D25: ${e.message}`);
-    text = buf.toString("utf8");
-  }
+function parseMessages(text) {
   const lines = text.split("\n").filter((l) => l.trim());
   const messages = [];
   for (const line of lines) {
@@ -10657,16 +10913,58 @@ async function readSessionContent(sessionId, limit = 10, workspace) {
     } catch {
     }
   }
-  const recent = messages.slice(-Math.max(1, limit));
+  return messages;
+}
+
+// src/adapter/sessions.ts
+init_paths();
+var SESSIONS_ROOT = sessionsRoot();
+async function readSessionContent(sessionId, limit = 10, workspace) {
+  let file = "";
+  outer: for (const d of scanWorkspaceDirs(workspace)) {
+    for (const f of SESSION_FILE_CANDIDATES) {
+      const c = path4.join(SESSIONS_ROOT, d, sessionId, f);
+      if ((0, import_node_fs6.existsSync)(c)) {
+        file = c;
+        break outer;
+      }
+    }
+  }
+  if (!file) return null;
+  let buf;
+  try {
+    buf = await import_node_fs5.promises.readFile(file);
+  } catch (e) {
+    throw new Error(`\u65E0\u6CD5\u8BFB\u53D6\u4F1A\u8BDD\u6587\u4EF6: ${e.message}`);
+  }
+  let text;
+  try {
+    const { zstdDecompressSync } = await import("node:zlib");
+    if (typeof zstdDecompressSync !== "function") {
+      throw new Error("\u9700\u8981 Node >= 22.13 \u624D\u652F\u6301 zstd \u89E3\u538B");
+    }
+    const multi = decompressZstdAllFrames(buf, zstdDecompressSync);
+    if (multi === null) {
+      text = buf.toString("utf8");
+    } else {
+      text = multi;
+    }
+  } catch (e) {
+    if (hasZstdMagic(buf)) throw new Error(`zstd \u89E3\u538B\u5931\u8D25: ${e.message}`);
+    text = buf.toString("utf8");
+  }
+  const recent = parseMessages(text).slice(-Math.max(1, limit));
   if (recent.length === 0) return "";
   return recent.map((m) => `\u3010${m.role}\u3011
 ${m.content}`).join("\n\n");
 }
+var TITLE_HEAD_BYTES = 256 * 1024;
+var TITLE_TAIL_BYTES = 64 * 1024;
 
 // src/adapter/assets.ts
-var import_node_fs7 = require("node:fs");
 var import_node_fs8 = require("node:fs");
-var path7 = __toESM(require("node:path"), 1);
+var import_node_fs9 = require("node:fs");
+var path6 = __toESM(require("node:path"), 1);
 var import_promises = require("node:stream/promises");
 var import_node_stream = require("node:stream");
 init_workspace();
@@ -10674,37 +10972,48 @@ async function outputDir() {
   return dagFlowDir();
 }
 function safeOutputPath(dir, filename) {
-  const base = path7.basename(filename).replace(/[^\w.\-\u4e00-\u9fa5]+/g, "-").replace(/^[-.]+/, "") || `output-${Date.now()}`;
-  const dirPartRaw = path7.dirname(filename).replace(/\\/g, "/");
+  const base = path6.basename(filename).replace(/[^\w.\-\u4e00-\u9fa5]+/g, "-").replace(/^[-.]+/, "") || `output-${Date.now()}`;
+  const dirPartRaw = path6.dirname(filename).replace(/\\/g, "/");
   let sub = "";
   if (dirPartRaw && dirPartRaw !== "." && dirPartRaw !== "/") {
     const cleaned = dirPartRaw.replace(/[^\w\-\u4e00-\u9fa5/]+/g, "-").replace(/^\/+|\/+$/g, "");
     if (cleaned && !cleaned.includes("..")) sub = cleaned;
   }
-  const full = sub ? path7.join(dir, sub, base) : path7.join(dir, base);
-  const resolved = path7.resolve(full);
-  if (!resolved.startsWith(path7.resolve(dir))) {
+  const full = sub ? path6.join(dir, sub, base) : path6.join(dir, base);
+  const resolved = path6.resolve(full);
+  if (!resolved.startsWith(path6.resolve(dir))) {
     throw new Error(`\u6587\u4EF6\u540D\u975E\u6CD5\uFF08\u8DEF\u5F84\u8D8A\u754C\uFF09: ${filename}`);
   }
   return resolved;
 }
+function uniqueOutputPath(file) {
+  if (!(0, import_node_fs9.existsSync)(file)) return file;
+  const dir = path6.dirname(file);
+  const ext = path6.extname(file);
+  const stem = path6.basename(file, ext);
+  for (let i = 2; i < 1e3; i++) {
+    const cand = path6.join(dir, `${stem}-${i}${ext}`);
+    if (!(0, import_node_fs9.existsSync)(cand)) return cand;
+  }
+  return path6.join(dir, `${stem}-${Date.now()}${ext}`);
+}
 async function saveAsset(filename, content, encoding) {
   const dir = await outputDir();
-  const file = safeOutputPath(dir, filename);
-  await import_node_fs7.promises.mkdir(path7.dirname(file), { recursive: true });
+  const file = uniqueOutputPath(safeOutputPath(dir, filename));
+  await import_node_fs8.promises.mkdir(path6.dirname(file), { recursive: true });
   const buf = typeof content === "string" ? encoding === "base64" ? Buffer.from(content, "base64") : Buffer.from(content, "utf8") : Buffer.from(content);
-  await import_node_fs7.promises.writeFile(file, buf);
+  await import_node_fs8.promises.writeFile(file, buf);
   const root = await workspaceRoot();
   return {
-    relativePath: path7.relative(root, file).replace(/\\/g, "/"),
+    relativePath: path6.relative(root, file).replace(/\\/g, "/"),
     absolutePath: file,
     bytes: buf.length
   };
 }
 async function downloadAsset(url, filename, timeoutMs = 3e5) {
   const dir = await outputDir();
-  const file = safeOutputPath(dir, filename);
-  await import_node_fs7.promises.mkdir(path7.dirname(file), { recursive: true });
+  const file = uniqueOutputPath(safeOutputPath(dir, filename));
+  await import_node_fs8.promises.mkdir(path6.dirname(file), { recursive: true });
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), timeoutMs);
   let tmpFile = null;
@@ -10713,14 +11022,14 @@ async function downloadAsset(url, filename, timeoutMs = 3e5) {
     if (!resp.ok) throw new Error(`\u4E0B\u8F7D\u5931\u8D25\uFF08HTTP ${resp.status}\uFF09: ${url.slice(0, 120)}`);
     if (!resp.body) throw new Error(`\u4E0B\u8F7D\u5931\u8D25\uFF1A\u54CD\u5E94\u65E0\u5185\u5BB9: ${url.slice(0, 120)}`);
     const tmpDir = await dagFlowTmpDir();
-    tmpFile = path7.join(tmpDir, `download-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.part`);
-    await (0, import_promises.pipeline)(import_node_stream.Readable.fromWeb(resp.body), (0, import_node_fs8.createWriteStream)(tmpFile));
-    await import_node_fs7.promises.rename(tmpFile, file);
+    tmpFile = path6.join(tmpDir, `download-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.part`);
+    await (0, import_promises.pipeline)(import_node_stream.Readable.fromWeb(resp.body), (0, import_node_fs9.createWriteStream)(tmpFile));
+    await import_node_fs8.promises.rename(tmpFile, file);
     tmpFile = null;
-    const stat = await import_node_fs7.promises.stat(file);
+    const stat = await import_node_fs8.promises.stat(file);
     const root = await workspaceRoot();
     return {
-      relativePath: path7.relative(root, file).replace(/\\/g, "/"),
+      relativePath: path6.relative(root, file).replace(/\\/g, "/"),
       absolutePath: file,
       bytes: stat.size
     };
@@ -10730,7 +11039,7 @@ async function downloadAsset(url, filename, timeoutMs = 3e5) {
   } finally {
     clearTimeout(t);
     if (tmpFile) {
-      await import_node_fs7.promises.rm(tmpFile, { force: true }).catch(() => {
+      await import_node_fs8.promises.rm(tmpFile, { force: true }).catch(() => {
       });
     }
   }
@@ -11176,8 +11485,22 @@ async function runWebFetch(p, signal) {
 }
 
 // src/registry/builtin.ts
+init_awaiting();
+init_dataflow();
 function startedEnded() {
   return { startedAt: (/* @__PURE__ */ new Date()).toISOString(), t0: Date.now() };
+}
+function scriptEnv(exe) {
+  const env = { ...process.env };
+  const sep = process.platform === "win32" ? ";" : ":";
+  env.PATH = `${(0, import_node_path.dirname)(exe)}${sep}${env.PATH ?? ""}`;
+  if (!env.HOME) env.HOME = env.USERPROFILE ?? env.HOMEPATH ?? "";
+  return env;
+}
+async function resolveCodePath(p) {
+  if ((0, import_node_path.isAbsolute)(p)) return p;
+  const { dagFlowDir: dagFlowDir2 } = await Promise.resolve().then(() => (init_workspace(), workspace_exports));
+  return (0, import_node_path.join)(await dagFlowDir2(), p);
 }
 function finish(t0, startedAt, r) {
   return { ...makeResult("success", r), durationMs: Date.now() - t0, startedAt, endedAt: (/* @__PURE__ */ new Date()).toISOString() };
@@ -11203,7 +11526,7 @@ var endDef = {
 };
 async function runPython(p) {
   const { startedAt, t0 } = startedEnded();
-  const code = p.code ?? (p.codePath ? await (0, import_promises3.readFile)(p.codePath, "utf8") : "");
+  const code = p.codePath ? await (0, import_promises3.readFile)(await resolveCodePath(p.codePath), "utf8") : p.code ?? "";
   if (!code) return { ...makeResult("failed", { error: { code: "PYTHON_NO_CODE", message: "code/codePath \u4E3A\u7A7A\u2014\u2014\u586B\u5199\u8981\u6267\u884C\u7684 Python \u4EE3\u7801" } }), durationMs: Date.now() - t0, startedAt, endedAt: (/* @__PURE__ */ new Date()).toISOString() };
   const { exe, source } = resolvePython();
   if (!exe) {
@@ -11223,7 +11546,10 @@ async function runPython(p) {
       child = (0, import_node_child_process.spawn)(exe, ["-c", code], {
         cwd: p.cwd,
         stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true
+        windowsHide: true,
+        // ★ 强制 Python 以 UTF-8 写 stdout/stderr——中文 Windows 下管道默认用系统代码页（GBK），
+        //   Node 按 UTF-8 解码会得到乱码（2026-10-02 用户实测「你好」变乱码）
+        env: { ...scriptEnv(exe), PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" }
       });
     } catch (e) {
       settle({ ...makeResult("failed", { error: { code: "PYTHON_SPAWN", message: `${exe}: ${e.message}` } }), durationMs: Date.now() - t0, startedAt, endedAt: (/* @__PURE__ */ new Date()).toISOString() });
@@ -11273,7 +11599,7 @@ var pythonDef = {
 var DESTRUCTIVE = /(^|\s|;|&&|\|\|)(rm\s+-rf\s+\/|mkfs|dd\s+if=|format\s+)/;
 async function runBash(p) {
   const { startedAt, t0 } = startedEnded();
-  const code = p.code ?? (p.codePath ? await (0, import_promises3.readFile)(p.codePath, "utf8") : "");
+  const code = p.codePath ? await (0, import_promises3.readFile)(await resolveCodePath(p.codePath), "utf8") : p.code ?? "";
   if (!code) return { ...makeResult("failed", { error: { code: "BASH_NO_CODE", message: "code/codePath \u4E3A\u7A7A\u2014\u2014\u586B\u5199\u8981\u6267\u884C\u7684 Bash \u811A\u672C" } }), durationMs: Date.now() - t0, startedAt, endedAt: (/* @__PURE__ */ new Date()).toISOString() };
   if (DESTRUCTIVE.test(code) && !p.dangerouslyAllowDestructive) {
     return { ...makeResult("failed", { error: { code: "BASH_DESTRUCTIVE", message: "\u68C0\u6D4B\u5230\u9AD8\u5371\u547D\u4EE4\u2014\u2014\u5982\u786E\u8BA4\u8981\u6267\u884C\uFF0C\u8BF7\u5728\u8282\u70B9\u53C2\u6570\u4E2D\u8BBE\u7F6E dangerouslyAllowDestructive: true" } }), durationMs: Date.now() - t0, startedAt, endedAt: (/* @__PURE__ */ new Date()).toISOString() };
@@ -11293,7 +11619,7 @@ async function runBash(p) {
     };
     let child;
     try {
-      child = (0, import_node_child_process.spawn)(exe, ["-c", code], { cwd: p.cwd, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+      child = (0, import_node_child_process.spawn)(exe, ["-c", code], { cwd: p.cwd, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, env: scriptEnv(exe) });
     } catch (e) {
       settle({ ...makeResult("failed", { error: { code: "BASH_SPAWN", message: `${exe}: ${e.message}` } }), durationMs: Date.now() - t0, startedAt, endedAt: (/* @__PURE__ */ new Date()).toISOString() });
       return;
@@ -11480,9 +11806,15 @@ var switchDef = {
   },
   run: async (ctx, p) => {
     const { startedAt, t0 } = startedEnded();
-    const v = evaluateExpr(p.value, ctxToScope(ctx));
-    const target = p.cases[v] ?? p.cases["*"] ?? null;
-    return finish(t0, startedAt, { out: { matched: v, target } });
+    let v;
+    try {
+      v = evaluateExpr(p.value, ctxToScope(ctx));
+    } catch {
+      v = void 0;
+    }
+    const matched = v === void 0 || v === null ? String(p.value ?? "") : String(v);
+    const target = p.cases[matched] ?? p.cases["*"] ?? null;
+    return finish(t0, startedAt, { out: { matched, target } });
   },
   describe: () => ({ label: "\u591A\u8DEF\u5206\u652F", category: "control" })
 };
@@ -11510,7 +11842,41 @@ async function runLoop(p, ctx) {
   } else {
     return { ...makeResult("failed", { error: { code: "LOOP_NO_BOUND", message: "\u7F3A\u5C11\u5FAA\u73AF\u8FB9\u754C\u2014\u2014count / while / over \u81F3\u5C11\u914D\u7F6E\u4E00\u4E2A" } }), durationMs: Date.now() - t0, startedAt, endedAt: (/* @__PURE__ */ new Date()).toISOString() };
   }
-  return finish(t0, startedAt, { out: { count: iterations.length, items: iterations } });
+  const body = p.body;
+  if (!body?.workflowName) return finish(t0, startedAt, { out: { count: iterations.length, items: iterations } });
+  const depth = ctx._depth ?? 0;
+  if (depth >= MAX_SUBFLOW_DEPTH) {
+    return { ...makeResult("failed", { error: { code: "SUBFLOW_DEPTH", message: `\u5B50\u5DE5\u4F5C\u6D41\u5D4C\u5957\u8D85\u8FC7 ${MAX_SUBFLOW_DEPTH} \u5C42\u4E0A\u9650` } }), durationMs: Date.now() - t0, startedAt, endedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  }
+  const { createStorage: createStorage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+  const { createLogger: createLogger2 } = await Promise.resolve().then(() => (init_logger(), logger_exports));
+  const { runWorkflow: runWorkflow2 } = await Promise.resolve().then(() => (init_run(), run_exports));
+  const sub = await createStorage2().readWorkflow(String(body.workflowName));
+  if (!sub) {
+    return { ...makeResult("failed", { error: { code: "WORKFLOW_NOT_FOUND", message: `\u5FAA\u73AF\u4F53\u5B50\u5DE5\u4F5C\u6D41\u4E0D\u5B58\u5728: ${body.workflowName}\uFF08\u5148\u5728\u5DE5\u4F5C\u6D41\u9762\u677F\u4FDD\u5B58\uFF0C\u6216\u68C0\u67E5\u540D\u79F0\uFF09` } }), durationMs: Date.now() - t0, startedAt, endedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  }
+  const myId = String(ctx.currentNodeId ?? "loop");
+  const outputs = [];
+  for (let i = 0; i < iterations.length; i++) {
+    if (ctx.signal?.aborted) {
+      return { ...makeResult("failed", { error: { code: "RUN_CANCELLED", message: "\u8FD0\u884C\u5DF2\u7531\u7528\u6237\u53D6\u6D88" } }), out: { count: outputs.length, items: outputs }, durationMs: Date.now() - t0, startedAt, endedAt: (/* @__PURE__ */ new Date()).toISOString() };
+    }
+    const iterCtx = { ...ctx, vars: { ...ctx.vars ?? {}, loopItem: iterations[i], loopIndex: i } };
+    let inputs;
+    try {
+      inputs = resolveParams(body.inputs ?? {}, iterCtx, myId);
+    } catch (e) {
+      return { ...makeResult("failed", { error: { code: "DATAFLOW_REF", message: `\u5FAA\u73AF\u4F53\u7B2C ${i + 1} \u8F6E\u8F93\u5165\u89E3\u6790\u5931\u8D25: ${e.message}` } }), out: { count: outputs.length, items: outputs }, durationMs: Date.now() - t0, startedAt, endedAt: (/* @__PURE__ */ new Date()).toISOString() };
+    }
+    const { summary } = await runWorkflow2(sub, { logger: createLogger2(), cwd: process.cwd(), inputs, _depth: depth + 1, signal: ctx.signal });
+    const endIds = sub.nodes.filter((n) => n.type === "end").map((n) => n.id);
+    const endOut = endIds.map((id) => summary.results[id]?.out).find((v) => v != null) ?? null;
+    if (summary.status !== "success" && p.onIterationError !== "continue") {
+      return { ...makeResult("failed", { error: { code: "LOOP_BODY_FAILED", message: `\u7B2C ${i + 1}/${iterations.length} \u8F6E\u5FAA\u73AF\u4F53\u300C${sub.name}\u300D\u4EE5 ${summary.status} \u7ED3\u675F\u2014\u2014\u5DF2\u5B8C\u6210 ${outputs.length} \u8F6E\uFF0C\u7ED3\u679C\u4FDD\u7559\u5728 out.items \u91CC\uFF08\u8981\u8DF3\u8FC7\u5931\u8D25\u8F6E\u8BF7\u8BBE onIterationError: "continue"\uFF09` } }), out: { count: outputs.length, items: outputs }, durationMs: Date.now() - t0, startedAt, endedAt: (/* @__PURE__ */ new Date()).toISOString() };
+    }
+    outputs.push(summary.status === "success" ? endOut : { error: { code: "SUBFLOW_FAILED", message: `\u7B2C ${i + 1} \u8F6E\u5931\u8D25` }, output: endOut });
+  }
+  return finish(t0, startedAt, { out: { count: outputs.length, items: outputs } });
 }
 var loopDef = {
   type: "loop",
@@ -11522,7 +11888,15 @@ var loopDef = {
       while: { type: "string" },
       over: { type: "array" },
       maxIterations: { type: "integer", minimum: 1, maximum: 1e5 },
-      dangerouslyAllowInfinite: { type: "boolean" }
+      dangerouslyAllowInfinite: { type: "boolean" },
+      // ★ 循环体（方案 A）：每轮调用该子工作流；inputs 里用 {{vars.loopItem}} / {{vars.loopIndex}}
+      body: {
+        type: "object",
+        additionalProperties: false,
+        properties: { workflowName: { type: "string", minLength: 1 }, inputs: { type: "object", additionalProperties: true } },
+        required: ["workflowName"]
+      },
+      onIterationError: { enum: ["stop", "continue"] }
     },
     anyOf: [{ required: ["count"] }, { required: ["while"] }, { required: ["over"] }]
   },
@@ -11555,9 +11929,33 @@ var manualDef = {
     additionalProperties: false,
     properties: { prompt: { type: "string" }, schema: { type: "object" } }
   },
-  run: async (_ctx, p) => {
+  // 人工确认（2026-10-03 用户拍板「真暂停 + 恢复」）：
+  //   交互式运行（HTTP /run）→ 登记挂起并等 POST /run/resume；确认后 out.value = 用户备注。
+  //   非交互路径（CLI /workflow 工具、subflow 子工作流内部）→ 无人可点，自动通过 + warning 留痕
+  //   （旧实现是 v0.1 空壳：任何场景都立即返回 success，用户反馈「人工确认节点没作用」）。
+  run: async (ctx, p) => {
     const { startedAt, t0 } = startedEnded();
-    return finish(t0, startedAt, { out: { prompt: p.prompt, awaitingUser: true } });
+    const prompt = String(p.prompt ?? "");
+    const nodeId = ctx.currentNodeId ?? "";
+    const confirmedAt = (/* @__PURE__ */ new Date()).toISOString();
+    if (!ctx.interactive || !ctx.runId) {
+      ctx.logger?.warn("manual \u8282\u70B9\u5728\u975E\u4EA4\u4E92\u73AF\u5883\u81EA\u52A8\u901A\u8FC7\uFF08\u65E0\u4EBA\u53EF\u786E\u8BA4\uFF09", { nodeId, prompt: prompt.slice(0, 120) });
+      return finish(t0, startedAt, { out: { prompt, confirmed: true, autoPassed: true, value: "", confirmedAt } });
+    }
+    ctx.onAwaiting?.({ runId: ctx.runId, nodeId, prompt });
+    try {
+      const r = await waitForManual({ runId: ctx.runId, nodeId, prompt, createdAt: confirmedAt }, ctx.signal);
+      return finish(t0, startedAt, {
+        out: { prompt, confirmed: true, value: r.value, confirmedAt: (/* @__PURE__ */ new Date()).toISOString() }
+      });
+    } catch (e) {
+      return {
+        ...makeResult("failed", { error: { code: "MANUAL_CANCELLED", message: `\u4EBA\u5DE5\u786E\u8BA4\u672A\u5B8C\u6210\uFF1A${e.message}` } }),
+        durationMs: Date.now() - t0,
+        startedAt,
+        endedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+    }
   },
   describe: () => ({ label: "\u624B\u52A8\u786E\u8BA4", category: "control" })
 };

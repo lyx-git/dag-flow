@@ -1,0 +1,57 @@
+{
+  "name": "146",
+  "version": 1,
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "params": {
+        "_label": "Python_ndic"
+      },
+      "next": "190589",
+      "label": "start",
+      "onError": "continue"
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "params": {},
+      "label": "end"
+    },
+    {
+      "id": "190589",
+      "type": "python",
+      "params": {
+        "code": "",
+        "timeoutMs": 30000
+      },
+      "next": "end",
+      "label": "Python_ndic"
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "190589"
+    },
+    {
+      "from": "190589",
+      "to": "end"
+    }
+  ],
+  "layout": {
+    "190589": {
+      "x": 394,
+      "y": 0
+    },
+    "start": {
+      "x": 98,
+      "y": 0
+    },
+    "end": {
+      "x": 690,
+      "y": 0
+    }
+  },
+  "inputs": {}
+}

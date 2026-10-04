@@ -229,7 +229,25 @@ const bigDef: any = {
   },
 };
 
-const initialDef: any = params.has('big') ? bigDef : params.has('vars') ? varsDef : params.has('jump') ? jumpDef : params.has('chips') ? chipsDef : params.has('stale') ? staleDef : params.has('many') ? manyDef : params.has('loop') ? loopDef : params.has('branch') ? branchDef : {
+/** ?goto=1：失败策略「回跳不生效」告警夹具（2026-10-04 轮 5）
+ *  形状：start → boom(失败策略 = 跳到 start，**start 在它之前** → 引擎按"停止这条支路"处理)
+ *  → 断言问题面板给出 warn（提前显形，不必等运行）。 */
+const gotoWarnDef: any = {
+  name: wfName,
+  version: 1,
+  nodes: [
+    { id: 'start', type: 'start', params: {} },
+    { id: 'boom', type: 'python', label: '会失败的步骤', params: { code: 'import sys\nsys.exit(1)' }, onError: { goto: 'start' } },
+    { id: 'tail', type: 'log', label: '后续', params: { level: 'info', message: 'tail' } },
+    { id: 'end', type: 'end', params: {} },
+  ],
+  edges: [
+    { from: 'start', to: 'boom' }, { from: 'boom', to: 'tail' }, { from: 'tail', to: 'end' },
+  ],
+  layout: { start: { x: 60, y: 200 }, boom: { x: 340, y: 200 }, tail: { x: 620, y: 200 }, end: { x: 900, y: 200 } },
+};
+
+const initialDef: any = params.has('goto') ? gotoWarnDef : params.has('big') ? bigDef : params.has('vars') ? varsDef : params.has('jump') ? jumpDef : params.has('chips') ? chipsDef : params.has('stale') ? staleDef : params.has('many') ? manyDef : params.has('loop') ? loopDef : params.has('branch') ? branchDef : {
   name: wfName,
   version: 1,
   nodes: [

@@ -10,6 +10,7 @@ import { checkWorkflowParams, formatParamProblems } from '../registry/params-che
 import type { DshLogger } from '../adapter/logger.js';
 import { writeRunRecord } from './record.js';
 import { topoSort } from './topo.js';
+import { normalizeDef } from './normalize.js';
 import { newRunId } from './awaiting.js';
 import { resolveParams, extractRefs, DataflowError } from './dataflow.js';
 
@@ -33,11 +34,42 @@ function invalidParamsSummary(def: WorkflowDef, problems: string[]): { summary: 
   return { summary, record: summary };
 }
 
+/**
+ * ★ 单节点运行日志（2026-10-04 用户需求：「参数传递是否正常、下个节点接收参数是否正常都没有日志，
+ *   节点之间的交互情况也没有，工作流执行黑盒」）。
+ *   phase='resolved'：模板**已展开**的入参 + 原始入参（带 {{}}）+ 引用了哪些上游；
+ *   phase='done'：出参 / 错误 / 容错 / 耗时。两条通知由 api 层合并成一条日志。
+ */
+export interface NodeRunDetail {
+  id: string;
+  type: string;
+  phase: 'resolved' | 'done';
+  status?: 'running' | 'success' | 'failed' | 'skipped';
+  /** 模板已展开的入参（节点真正收到的东西） */
+  params?: Record<string, JsonValue>;
+  /** 原始入参（保留 {{nodeId.out}} 引用，便于对照「引用 → 实际值」） */
+  rawParams?: Record<string, JsonValue>;
+  refs?: { nodeRefs: string[]; varsUsed: string[]; inputsUsed: string[] };
+  out?: JsonValue;
+  error?: { code: string; message: string; stack?: string };
+  tolerated?: boolean;
+  durationMs?: number;
+  startedAt?: string;
+  endedAt?: string;
+}
+
+/** 提取 params 的引用关系（日志采集专用：失败也不影响主流程） */
+function safeRefs(params: Record<string, JsonValue>): NodeRunDetail['refs'] {
+  try { return extractRefs(params) as NodeRunDetail['refs']; } catch { return undefined; }
+}
+
 export interface RunOptions {
   logger: DshLogger;
   cwd: string;
   inputs?: Record<string, JsonValue>;
   onNodeDone?: (id: string, result: NodeResult) => void;
+  /** ★ 运行日志通知（见 NodeRunDetail）：节点解析完入参、跑完各回调一次 */
+  onNodeLog?: (detail: NodeRunDetail) => void;
   /** ★ 节点**开始**执行的通知（2026-10-03 用户需求「画布按运行路径依次显示状态，不要最后一次性显示」）：
    *  API 层据此把该节点标成「运行中」，画布轮询 /run/status 就能依次点亮节点。 */
   onNodeStart?: (id: string) => void;
@@ -80,217 +112,16 @@ export async function runWorkflow(defInput: unknown, opts: RunOptions): Promise<
     return invalidParamsSummary(def, formatParamProblems(paramProblems, (id) => nodeTag(def.nodes.find((n) => n.id === id), id)));
   }
 
-  // DAG 模式：若显式提供 edges（DAG 唯一连接表示），走拓扑分层并行执行器
-  if (def.edges && def.edges.length > 0) {
-    return runDag(def, opts);
+  // ★ 2026-10-04 起 **只有一套执行语义**（用户拍板「合并顺序模式，只保留一套 DAG 语义」）：
+  //   轮 1 归一化（没有 edges 的定义先由 next 补出等价 edges）→ 轮 2/3 把 stop/continue/goto 搬进 DAG →
+  //   轮 4 删除 legacy 递归执行器。这里不再有任何模式分派，一律走 runDag。
+  //   映射表（next → edges）与唯一例外见 src/executor/normalize.ts 文件头；
+  //   已删除的回退开关 DAG_FLOW_LEGACY_EXEC 不再被读取。
+  const norm = normalizeDef(def);
+  if (norm.added > 0) {
+    opts.logger.info('workflow exec: normalized next → edges (dag)', { name: def.name, added: norm.added });
   }
-  // 否则回退旧递归模式（node.next 推导）
-
-  const runId = opts.runId ?? newRunId();
-  const startedAt = new Date().toISOString();
-  const t0 = Date.now();
-
-  const ctx: Context = {
-    inputs: { ...(def.inputs ?? {}), ...(opts.inputs ?? {}) },
-    vars: {},
-    results: {},
-    _depth: opts._depth ?? 0,
-    signal: opts.signal,
-    runId,
-    interactive: opts.interactive === true,
-    onAwaiting: opts.onAwaiting,
-    logger: opts.logger,
-  };
-
-  const start = def.nodes.find((n) => n.type === 'start')!;
-
-  // 上游索引（merge 节点收集上游输出用）：优先 edges，其次 next 反推
-  const upstreamMap = new Map<string, string[]>();
-  if (def.edges?.length) {
-    for (const e of def.edges) {
-      const list = upstreamMap.get(e.to) ?? [];
-      list.push(e.from);
-      upstreamMap.set(e.to, list);
-    }
-  } else {
-    for (const n of def.nodes) {
-      const refs = Array.isArray(n.next) ? n.next
-        : typeof n.next === 'string' ? [n.next]
-        : n.next ? Object.values(n.next) : [];
-      for (const to of refs) {
-        if (!to) continue;
-        const list = upstreamMap.get(to) ?? [];
-        list.push(n.id);
-        upstreamMap.set(to, list);
-      }
-    }
-  }
-  const withUpstreams = (nodeId: string): Context => ({
-    ...ctx,
-    currentNodeId: nodeId,
-    upstreams: { ...ctx.upstreams, [nodeId]: upstreamMap.get(nodeId) ?? [] },
-  });
-
-  let successCount = 0, failedCount = 0, skippedCount = 0;
-  let toleratedCount = 0;
-  let firstError: RunSummary['error'] | undefined;
-
-  /** ★ 容错判定（2026-10-03 用户拍板 A 方案）：勾了 tolerate 的节点失败时放行后续执行。
-   *  取消（RUN_CANCELLED）永远不算容错——用户主动取消必须真的停下来。 */
-  const isTolerated = (node: Node | undefined, r: NodeResult): boolean =>
-    r.status === 'failed' && node?.tolerate === true && r.error?.code !== 'RUN_CANCELLED';
-
-  // 记录哪些节点"被合流/被跳过的"
-  const scheduled = new Set<string>();
-
-  const cancelled = (): NodeResult => ({ ...makeResult('failed', { error: { code: 'RUN_CANCELLED', message: '运行已由用户取消' } }), durationMs: 0, startedAt: new Date().toISOString(), endedAt: new Date().toISOString() });
-
-  async function executeNode(node: Node): Promise<NodeResult> {
-    if (scheduled.has(node.id)) {
-      // 已执行（并行合流场景）→ 直接返回
-      return ctx.results[node.id]!;
-    }
-    scheduled.add(node.id);
-    if (opts.signal?.aborted) {
-      const r = cancelled();
-      ctx.results[node.id] = r;
-      return r;
-    }
-
-    const defReg = WorkflowNodeRegistry.get(node.type);
-    if (!defReg) {
-      const r: NodeResult = { ...makeResult('failed', { error: { code: 'UNKNOWN_NODE_TYPE', message: `节点类型 "${node.type}" 未注册（提供该节点的插件是否已安装？）` } }), durationMs: 0, startedAt: new Date().toISOString(), endedAt: new Date().toISOString() };
-      ctx.results[node.id] = r;
-      if (isTolerated(node, r)) { r.tolerated = true; toleratedCount++; } else failedCount++;
-      opts.onNodeDone?.(node.id, r);
-      return r;
-    }
-
-    opts.onNodeStart?.(node.id);   // ★ legacy 路径同样通知「开始执行」
-    const r = await safeNodeRun(async () => {
-      // 数据传递：解析 params 中的 {{nodeId.out}} 模板引用为上游实际输出
-      let resolved: Record<string, JsonValue> = node.params ?? {};
-      try {
-        // ★ loop 的 body.inputs 必须延迟到每轮迭代时再解析（里面会引用 {{vars.loopItem}}/{{vars.loopIndex}}，
-        //   运行前解析必然 DATAFLOW_REF）——这里把 body 原样透传，由 runLoop 自己逐轮 resolveParams。
-        const { body: rawBody, ...restParams } = (node.params ?? {}) as Record<string, JsonValue> & { body?: JsonValue };
-        resolved = node.type === 'loop' && rawBody !== undefined
-          ? ({ ...resolveParams(restParams, ctx, node.id), body: rawBody } as Record<string, JsonValue>)
-          : resolveParams(node.params ?? {}, ctx, node.id);
-      } catch (e) {
-        if (e instanceof DataflowError) {
-          return makeResult('failed', { error: { code: 'DATAFLOW_REF', message: e.message } });
-        }
-        throw e;
-      }
-      // merge 等节点需要知道自身 id 与上游列表（per-node ctx 视图，避免并发互踩）
-      return defReg.run(withUpstreams(node.id), resolved as never);
-    });
-    ctx.results[node.id] = r;
-    if (r.status === 'success') successCount++;
-    else if (r.status === 'failed') {
-      // ★ 容错：失败但勾了 tolerate → 不中断（记 tolerated，节点自身仍标 failed）
-      if (isTolerated(node, r)) { r.tolerated = true; toleratedCount++; } else failedCount++;
-    }
-    else skippedCount++;
-    opts.onNodeDone?.(node.id, r);
-    return r;
-  }
-
-  async function advance(fromNode: Node, fromResult: NodeResult): Promise<void> {
-    // 终止
-    if (fromNode.type === 'end') return;
-    // ★ 容错（tolerate）：失败但已放行 → 不进入 onError 分支，按成功语义继续推进 next
-    if (fromResult.status === 'failed' && !fromResult.tolerated) {
-      // onError 处理
-      if (fromNode.onError === 'continue') {
-        // 跳过 next 推进（认为该节点已"消费"）
-        return;
-      } else if (fromNode.onError && typeof fromNode.onError === 'object' && fromNode.onError.goto) {
-        const next = def.nodes.find((n) => n.id === fromNode.onError!.goto);
-        if (!next) throw new Error(`onError 跳转目标不存在：${fromNode.onError.goto}`);
-        const r2 = await executeNode(next);
-        return advance(next, r2);
-      } else {
-        // 默认 stop：不推进，记 firstError
-        if (!firstError) firstError = { code: fromResult.error?.code ?? 'NODE_FAILED', message: fromResult.error?.message ?? 'node failed', nodeId: fromNode.id };
-        return;
-      }
-    }
-
-    const next = fromNode.next;
-    if (next === undefined || next === null) return;
-    if (typeof next === 'string') {
-      const n = def.nodes.find((x) => x.id === next);
-      if (!n) throw new Error(`连线断裂：${fromNode.id} → ${next}（目标节点不存在）`);
-      const r = await executeNode(n);
-      return advance(n, r);
-    }
-    if (Array.isArray(next)) {
-      const ps = next.map((id) => def.nodes.find((x) => x.id === id)).filter(Boolean) as Node[];
-      const rs = await Promise.all(ps.map((n) => executeNode(n)));
-      // 任意失败 → 不继续推进（除非 onError）
-      const anyFailed = rs.some((r) => r.status === 'failed' && !r.tolerated);
-      if (anyFailed) {
-        if (!firstError) firstError = { code: 'PARALLEL_FAILED', message: '一个或多个并行分支失败', nodeId: fromNode.id };
-        return;
-      }
-      // 并行合流后不主动推进（业务应在每个分支末端推到合流节点）
-    }
-    if (typeof next === 'object' && !Array.isArray(next)) {
-      // {true,false}（if）或泛化 case 映射（switch：按 out.matched 选分支，'*' 兜底）
-      let branch: string | undefined;
-      if ('true' in next || 'false' in next) {
-        const cond = ctx.results[fromNode.id]?.out;
-        branch = cond ? (next as { true: string; false: string }).true : (next as { true: string; false: string }).false;
-      } else {
-        const matched = String((ctx.results[fromNode.id]?.out as JsonValue & { matched?: string })?.matched ?? '');
-        branch = (next as Record<string, string>)[matched] ?? (next as Record<string, string>)['*'];
-      }
-      if (!branch) throw new Error(`连线断裂：${fromNode.id} 没有匹配的分支（${JSON.stringify(next)}）`);
-      const n = def.nodes.find((x) => x.id === branch);
-      if (!n) throw new Error(`连线断裂：${fromNode.id} → ${branch}（目标节点不存在）`);
-      const r = await executeNode(n);
-      return advance(n, r);
-    }
-  }
-
-  // 启动
-  const startR = await executeNode(start);
-  await advance(start, startR);
-
-  // 串行合流：从 start 推进的链上所有 end 节点（若 next 没指向 end 可能漏；
-  // 简化：扫描所有 end 节点若未执行则执行）
-  for (const endNode of def.nodes.filter((n) => n.type === 'end')) {
-    if (!scheduled.has(endNode.id)) {
-      const r = await executeNode(endNode);
-      if (r.status === 'success') successCount++;
-      else if (r.status === 'failed') {
-        if (isTolerated(endNode, r)) { r.tolerated = true; toleratedCount++; } else failedCount++;
-      }
-    }
-  }
-
-  const endedAt = new Date().toISOString();
-  const summary: RunSummary = {
-    runId,
-    workflowName: def.name,
-    status: failedCount === 0 ? 'success' : 'failed',
-    totalNodes: def.nodes.length,
-    successCount,
-    failedCount,
-    skippedCount,
-    ...(toleratedCount ? { toleratedCount } : {}),
-    totalDurationMs: Date.now() - t0,
-    startedAt,
-    endedAt,
-    results: ctx.results,
-    ...(firstError ? { error: firstError } : {}),
-  };
-  opts.logger.info('workflow done', { runId, name: def.name, status: summary.status, totalMs: summary.totalDurationMs });
-  // 落盘运行记录（SQLite/JSON，不阻塞主流程）
-  try { await writeRunRecord(summary); } catch (e) { opts.logger.warn('run record write failed', { error: (e as Error).message }); }
-  return { summary, record: summary };
+  return runDag(norm.def, opts);
 }
 
 /**
@@ -375,13 +206,94 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
   // 条件分支激活：被跳过（未激活分支）的节点集合
   const skipped = new Set<string>();
 
-  for (const layer of topo.layers) {
+  // ★ 2026-10-04 轮 2（用户拍板）：失败策略进 DAG，语义 = **只停该节点的下游，其它分支继续**。
+  //   为此把"跳过"从"逐源累加"改成**全局死边判定 + 传播**：
+  //     · deadEdges 记「这次运行不走的边」：条件分支未命中的边 / 失败节点的全部出边 / 被跳过节点的全部出边
+  //     · 一个节点只要有**任意一条活入边**就不跳过（旧实现逐源累加：目标被别的活边喂入时会被误跳过）
+  //     · 节点被跳过 ⇒ 它的出边全部变死（传递性），否则孙节点会被错误执行
+  //   失败策略（面板合并成一个下拉，底层仍是两个字段，零数据迁移）：
+  //     ignore = node.tolerate === true       下游照常跑，不计失败（原「失败不影响流程」）
+  //     skip   = node.onError === 'continue'  下游不走（出边死），不计失败（原「失败后继续执行下游」的意图版）
+  //     stop   = 默认 / onError === 'stop'     下游不走（出边死），计入失败 + 记 firstError
+  //     goto   = node.onError = {goto:'X'}   失败后跳到 X 继续（★ 轮 3 已实现：X 只执行一次，
+  //                                          且只在 X 所在层**还没跑到**时生效；已执行/已过层则
+  //                                          按 stop 处理，并把原因写进该节点的错误消息）
+  const policyOf = (node: Node | undefined): 'stop' | 'skip' | 'ignore' | 'goto' => {
+    if (node?.tolerate === true) return 'ignore';
+    const oe = node?.onError;
+    if (oe === 'continue') return 'skip';
+    if (oe && typeof oe === 'object' && (oe as { goto?: string }).goto) return 'goto';
+    return 'stop';
+  };
+  const edgeKey = (from: string, when: string | undefined, to: string): string => `${from}|${when ?? ''}|${to}`;
+
+  // ★ 2026-10-04 轮 3：把"跳过"改成**每层从零重算**（不动点），而不是增量累加。
+  //   原因：goto 要在失败后**复活**一个本来会被跳过的目标节点；若用增量（上一轮把目标记进 skipped
+  //   并把它的出边标死），复活时就必须反向撤销级联，很容易留下残留。改成"hardDead 是唯一事实来源、
+  //   skipped 每层重算"，goto 只需把目标放进 gotoTargets，级联自然重算干净。
+  //   hardDead = 条件分支未命中的边 + 失败节点（策略非 ignore）的全部出边；
+  //   skipped  = 入边全死（含"源被跳过"的传递）且未被 goto 指定、且尚未真正执行过的节点。
+  const hardDead = new Set<string>();
+  /** goto 指定的「本轮必须执行」目标（只对**尚未到达的层**生效，见下面的判定） */
+  const gotoTargets = new Set<string>();
+  const layerIndexOf = new Map<string, number>();
+  topo.layers.forEach((ids, i) => ids.forEach((id) => layerIndexOf.set(id, i)));
+
+  // ★ 2026-10-04 轮 5（性能）：跳过判定原本是"每层全量重算不动点"，链式/菱形图因此退化成
+  //   O(层数 × 节点数)——实测 2000 节点链 772ms、2000 节点"失败链"5003ms（tmp-test/bench-executor.mjs）。
+  //   两处优化，语义完全不变：
+  //     ①**内容版本号** deadGen：hardDead / gotoTargets 只增不减，任一新增就 +1；deadGen 没变说明
+  //       重算的输入没变 → 结果必然相同 → 整轮重算直接跳过（绝大多数层根本没有失败/分支，变成 O(1)）。
+  //     ②**预计算入/出边键**：不再每轮对每个节点做 `outEdges.filter(...)` 分配，改成建一次表 + Set 查表。
+  let deadGen = 0;
+  const markDead = (k: string): void => { if (!hardDead.has(k)) { hardDead.add(k); deadGen++; } };
+  const inKeys = new Map<string, string[]>();
+  const outKeys = new Map<string, string[]>();
+  for (const e of def.edges ?? []) {
+    const k = edgeKey(e.from, e.when, e.to);
+    const ik = inKeys.get(e.to);
+    if (ik) ik.push(k); else inKeys.set(e.to, [k]);
+    const ok2 = outKeys.get(e.from);
+    if (ok2) ok2.push(k); else outKeys.set(e.from, [k]);
+  }
+  let lastGen = -1;
+
+  const recomputeSkipped = (): void => {
+    if (deadGen === lastGen) return;   // ★ 输入没变 → 上一轮的结果依然成立（性能关键路径）
+    lastGen = deadGen;
+    skipped.clear();
+    const dead = new Set(hardDead);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const node of def.nodes) {
+        if (gotoTargets.has(node.id)) continue;              // goto 指定 → 永不跳过
+        const ins = inKeys.get(node.id);
+        if (!ins || ins.length === 0) continue;              // 无入边 = 入口节点，永不跳过
+        let allDead = true;
+        for (const k of ins) if (!dead.has(k)) { allDead = false; break; }
+        if (!allDead) continue;
+        const res = ctx.results[node.id];
+        if (res && res.status !== 'skipped') continue;        // 真执行过 → 不算跳过
+        if (!skipped.has(node.id)) { skipped.add(node.id); changed = true; }
+        // 传递性：被跳过节点的出边也作废（否则孙节点会带着空输入照跑）
+        for (const k of outKeys.get(node.id) ?? []) dead.add(k);
+      }
+    }
+  };
+
+  for (let layerIdx = 0; layerIdx < topo.layers.length; layerIdx++) {
+    const layer = topo.layers[layerIdx]!;
+    // ★ 每层开跑前从零重算"该跳过谁"（含 goto 复活的目标），保证级联与 hardDead 始终一致
+    recomputeSkipped();
     // 层内节点并行（跳过未激活分支节点）
     const results = await Promise.all(layer.map(async (id) => {
       if (skipped.has(id)) {
         // 跳过节点也写入 results（merge/前端可观测 skipped 状态）
         const sr = { ...makeResult('skipped', { out: null }), durationMs: 0, startedAt, endedAt: startedAt } as NodeResult;
         ctx.results[id] = sr;
+        // 跳过的节点也记一条日志（用户要知道"为什么没跑"）
+        opts.onNodeLog?.({ id, type: nodeById.get(id)?.type ?? '', phase: 'done', status: 'skipped', out: null, durationMs: 0, startedAt, endedAt: startedAt });
         return { id, r: sr, skip: true as const };
       }
       if (opts.signal?.aborted) {
@@ -409,40 +321,72 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
             : resolveParams(node.params ?? {}, ctx, id);
         } catch (e) {
           if (e instanceof DataflowError) {
+            // 入参解析失败也要留下日志（否则"参数传递出错"在黑盒里看不到）
+            opts.onNodeLog?.({
+              id, type: node.type, phase: 'resolved', rawParams: node.params as Record<string, JsonValue>,
+              refs: safeRefs((node.params ?? {}) as Record<string, JsonValue>),
+            });
+            opts.onNodeLog?.({ id, type: node.type, phase: 'done', status: 'failed', error: { code: 'DATAFLOW_REF', message: e.message } });
             return makeResult('failed', { error: { code: 'DATAFLOW_REF', message: e.message } });
           }
           throw e;
         }
+        // ★ 日志①：模板展开后的实际入参 + 原始引用（节点之间的数据流）
+        opts.onNodeLog?.({
+          id, type: node.type, phase: 'resolved',
+          params: resolved, rawParams: node.params as Record<string, JsonValue>,
+          refs: safeRefs((node.params ?? {}) as Record<string, JsonValue>),
+        });
         // merge 等节点需要自身 id 与上游列表（per-node ctx 视图）
         return defReg.run({ ...ctx, currentNodeId: id, upstreams: { ...ctx.upstreams, [id]: inEdgesMap.get(id) ?? [] } } as Context, resolved as never);
       });
       ctx.results[id] = r;
+      // （日志②不在这里发：tolerated 要等下面的"失败策略记账"才定稿，见那个循环末尾）
       opts.onNodeDone?.(id, r);
       return { id, r, skip: false as const };
     }));
 
-    // 条件分支激活：if 按真假；switch 按 out.matched 匹配 when（'*' 兜底）
+    // ① 本层的「边判定」：失败策略 + 条件分支（if 按真假 / switch 按 out.matched）→ 写入 hardDead
     for (const { id, r } of results) {
       const node = nodeById.get(id);
       const edges = outEdges.get(id);
       if (!node || !edges) continue;
+
+      // —— 失败节点的出边：除「忽略失败」外一律作废 → 只停它的下游，其它分支继续 ——
+      if (r.status === 'failed') {
+        const policy = policyOf(node);
+        if (policy !== 'ignore') {
+          for (const e of edges) markDead(edgeKey(id, e.when, e.to));
+        }
+        // ★ 轮 3：onError:{goto:'X'} → 失败后跳到 X 继续（X 只执行一次）
+        if (policy === 'goto') {
+          const target = String((node.onError as { goto?: string })?.goto ?? '');
+          const tLayer = layerIndexOf.get(target);
+          if (tLayer !== undefined && tLayer > layerIdx) {
+            // 目标还没跑到 → 指定它必跑（recomputeSkipped 里会豁免它，级联随之重算干净）
+            gotoTargets.add(target);
+            deadGen++;   // ★ 让"输入变了"的版本号感知到这次新增（否则下一层会跳过重算）
+          } else if (target) {
+            // 目标已经过去（已执行 / 已跳过 / 同层）→ 按"只执行一次"语义不重复执行，并**写明**原因，
+            // 让悬浮卡与失败详情能看出"跳转没生效"，而不是静默当没配置过。
+            const why = tLayer === undefined ? '目标不存在' : (ctx.results[target] ? '目标已执行过' : '目标已过层');
+            if (r.error) r.error = { ...r.error, message: `${r.error.message ?? ''}（onError.goto 指向 "${target}"：${why}，未重复执行——目标只执行一次）` };
+          }
+        }
+        continue;
+      }
+
       const isIf = node.type === 'if';
       const isSwitch = node.type === 'switch';
       if (!isIf && !isSwitch) continue;
-      if (r.status !== 'success') {
-        // 失败/跳过的条件节点：激活所有出边由全局 stop 语义接管（默认失败即终止后续层）
-        continue;
-      }
+      if (r.status !== 'success') continue;   // 跳过的条件节点：出边已在 recomputeSkipped 里变死
       const outVal = (r.out as JsonValue & { matched?: string }) ?? null;
       const truthy = Boolean(outVal);
       const matched = String((outVal as JsonValue & { matched?: string })?.matched ?? '');
       const hasExact = edges.some((e) => e.when === matched);
-      // ★ 一个目标只要**有任意一条**激活入边就不该被跳过（2026-10-03 修）：
-      //   旧实现逐条未激活边就 `skipped.add(e.to)`，于是 switch 的多个 case 指向同一节点时
-      //   （如 quick→log_mode 且 image→log_mode）——激活的那条 + 未激活的另一条 → 目标被错误跳过。
-      //   演示工作流补 image case 后 log_mode 被跳过即此因。现在先收集「激活目标」再决定跳过。
-      const activated = new Set<string>();
-      const deactivated: string[] = [];
+      // ★ 判定规则（2026-10-04 轮 2 改为全局死边，修掉"逐源累加"的跨源误跳过）：
+      //   只把**未命中的边**记成死边，目标是否跳过交给 recomputeSkipped 统一判定——
+      //   于是「一个目标被另一条活边喂入时必须执行」（2026-10-03 修的同类问题）在跨源时也成立。
       for (const e of edges) {
         let active = true;
         if (isIf) {
@@ -453,9 +397,8 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
           else if (e.when === '*') active = !hasExact;
           else active = false;
         }
-        if (active) activated.add(String(e.to)); else deactivated.push(String(e.to));
+        if (!active) markDead(edgeKey(id, e.when, e.to));
       }
-      for (const t of deactivated) if (!activated.has(t)) skipped.add(t);
     }
 
     // ★ 解构必须带 id（2026-10-02 真机 500「id is not defined」根因：此循环此前只解构
@@ -464,11 +407,12 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
       if (skip) { skippedCount++; continue; }
       if (r.status === 'success') successCount++;
       else if (r.status === 'failed') {
-        // ★ 容错（2026-10-03 用户拍板 A 方案）：勾了「失败不影响流程」的节点失败**不计入 failedCount**
-        //   → 既不触发下面的 break（后续层照常跑），也不写 firstError/把汇总判为 failed；
-        //   节点自身仍保留 failed + tolerated=true（界面据此标「已容错」+ 悬浮看错误详情）。
+        // ★ 容错/跳过支路（2026-10-04 轮 2 起统一由 policyOf 判定）：
+        //   策略为「忽略失败(ignore)」或「跳过这条支路(skip)」→ 不计入 failedCount、不写 firstError，
+        //   节点自身仍保留 failed + tolerated=true（界面标「⚠ 已容错」+ 悬浮看错误详情）。
         //   取消（RUN_CANCELLED）永远不算容错。
-        if (r.error?.code !== 'RUN_CANCELLED' && nodeById.get(id)?.tolerate === true) {
+        const policy = policyOf(nodeById.get(id));
+        if (r.error?.code !== 'RUN_CANCELLED' && (policy === 'ignore' || policy === 'skip')) {
           r.tolerated = true;
           toleratedCount++;
         } else {
@@ -478,10 +422,20 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
         }
       }
       else skippedCount++;
+      // ★ 日志②（出参 / 错误 / 容错 / 耗时）在**状态定稿之后**发：tolerated 是上面按失败策略标出来的，
+      //   早发会导致日志里少了「已容错」（2026-10-04 由 test/run-log 的 D3 断言抓到）
+      opts.onNodeLog?.({
+        id, type: nodeById.get(id)?.type ?? '', phase: 'done',
+        status: r.status, out: r.out as JsonValue, error: r.error as NodeRunDetail['error'],
+        tolerated: r.tolerated, durationMs: r.durationMs, startedAt: r.startedAt, endedAt: r.endedAt,
+      });
     }
 
-    // 失败即终止后续层（默认 stop 语义）
-    if (failedCount > 0) break;
+    // ③ 取消：立刻停止后续层（取消与失败策略无关，永远中断）
+    //    ★ 2026-10-04 轮 2：这里**不再**因 failedCount>0 而 break ——
+    //    失败只停该节点的下游（hardDead），其它分支照常跑完；整轮是否算失败仍由 failedCount 决定。
+    //    （轮 3：跳过判定改为**每层开跑前** recomputeSkipped() 从零重算，故此处无需再传播。）
+    if (opts.signal?.aborted) break;
   }
 
   const endedAt = new Date().toISOString();

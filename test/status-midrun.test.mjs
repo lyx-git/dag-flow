@@ -99,6 +99,64 @@ console.log('== C. 契约不变 ==');
 const none = await fetch(`${base}/run/status`);
 t('C1. 既不带 name 也不带 runId → 404（既有语义不变）', none.status === 404, `HTTP ${none.status}`);
 
+// ===== D. 定时触发的运行同样可见（2026-10-03 用户真机反馈：「定时任务执行，工作流的状态不会变化」）=====
+//   根因：状态轮询只挂在手动点运行那条路径上，而定时是宿主调度器直跑、不进登记表 → 画布毫无反应。
+//   修法：定时运行登记到**同一张表**（runRegistry），并在结束后按工作流名留一份「最近一次完成」供收敛。
+console.log('== D. 定时触发的运行也要能点亮画布 ==');
+const schedDef = {
+  name: 'sched-visible', version: 1,
+  nodes: [
+    { id: 'start', type: 'start' },
+    { id: 'slow', type: 'python', params: { code: 'import time\ntime.sleep(1.5)\nprint("SLOW-DONE", end="")' } },
+    { id: 'end', type: 'end' },
+  ],
+  edges: [{ from: 'start', to: 'slow' }, { from: 'slow', to: 'end' }],
+};
+const saved = await fetch(`${base}/workflows/save`, {
+  method: 'POST', headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ name: schedDef.name, def: schedDef }),
+});
+t('D1. 工作流已保存（定时项按名字跑）', saved.status === 200, `HTTP ${saved.status}`);
+
+const mk = await fetch(`${base}/schedules/save`, {
+  method: 'POST', headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ workflow: schedDef.name, cron: '* * * * *', enabled: true }),
+});
+const mkBody = await mk.json().catch(() => ({}));
+t('D2. 建了一条定时项', mk.status === 200 && !!mkBody?.item?.id, `HTTP ${mk.status} ${JSON.stringify(mkBody).slice(0, 160)}`);
+// 先确认「没跑时」查不到在跑的实例（避免后面的断言是假阳性）
+const idle = await fetch(`${base}/run/status?name=${encodeURIComponent(schedDef.name)}`);
+t('D3. 还没跑时 /run/status?name= 查不到运行（404）', idle.status === 404, `HTTP ${idle.status}`);
+
+// 触发「立即运行一次」但**不等它**（该请求会 hold 到跑完），同时轮询状态 —— 这正是定时到点时的时序
+const schedRunPromise = fetch(`${base}/schedules/run`, {
+  method: 'POST', headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ id: mkBody.item.id }),
+}).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
+
+let hostMid = null;
+for (let i = 0; i < 60 && !hostMid; i++) {
+  await sleep(100);
+  const r = await fetch(`${base}/run/status?name=${encodeURIComponent(schedDef.name)}`);
+  if (!r.ok) continue;
+  const j = await r.json();
+  if (j.status === 'running') hostMid = j;
+}
+t('D4. 定时运行在跑时，/run/status?name= 能看到「运行中」（此前完全看不到 → 画布不动）', !!hostMid, hostMid ? '' : '60 次轮询内没见到 running');
+t('D5. 该运行被标为定时来源 origin=schedule', hostMid?.origin === 'schedule', String(hostMid?.origin));
+t('D6. 运行中带正在执行的节点（画布据此点亮「运行中」）', (hostMid?.running ?? []).includes('slow'), JSON.stringify(hostMid?.running));
+
+const schedDone = await schedRunPromise;
+t('D7. 「立即运行一次」返回成功', schedDone.status === 200 && schedDone.body?.ok === true, JSON.stringify(schedDone.body).slice(0, 200));
+const after = await fetch(`${base}/run/status?name=${encodeURIComponent(schedDef.name)}`);
+const afterBody = await after.json().catch(() => ({}));
+t('D8. 跑完后按名字仍能查到**最近一次完成**（客户端据此收敛到终态，而不是 404 卡住）',
+  after.status === 200 && afterBody?.status === 'completed', `HTTP ${after.status} status=${afterBody?.status}`);
+t('D9. 收敛用的结果里 slow 节点是 success 且带 out',
+  afterBody?.results?.slow?.status === 'success' && String(afterBody?.results?.slow?.out ?? '') === 'SLOW-DONE',
+  JSON.stringify(afterBody?.results?.slow));
+t('D10. 定时项已回写上次执行结果', !!schedDone.body?.item?.lastRun?.at, JSON.stringify(schedDone.body?.item?.lastRun));
+
 server.close();
 console.log(`\n=== status-midrun：${pass} passed, ${fail} failed ===`);
 if (fail > 0) process.exit(1);

@@ -17,10 +17,54 @@ import { toRF, fromRF, type RFNode, type RFEdge } from './util/flowDef';
 import { applyAutoLayout } from './util/layout';
 import { Canvas } from './Canvas';
 import { disposeCanvasNode } from './flowgram/FlowGramCanvas';
+// ★ 失败策略显形（2026-10-04 轮 7）：def 里的策略同步进 store，卡片订阅后显示 chip
+import { failPolicyStore } from './flowgram/failPolicyStore';
 import { JsonView } from './JsonView';
 import { normalizeWorkflowName } from '../name-rule';
 import { ensurePickerStyles } from './workflow-picker';
 import { startResize8, readStoredJSON, saveJSON, clampNum, type RightGeom } from './util/edge-drag';
+// ★ 定时任务（⏰，2026-10-03 用户拍板方案 v1，docs/SCHEDULE-PLAN.md §6）：cron 校验/中文预览
+//   直接复用宿主同一个纯模块 —— 面板预览与宿主实际执行必然同一套语义。
+import { cronError, describeCron } from '../adapter/cron';
+
+// ================= 定时任务：显示用小工具 =================
+
+/** 本机时间简写：今天 09:00 / 明天 09:00 / 10-07 09:00 */
+function fmtWhen(iso?: string | null): string {
+  if (!iso) return '—';
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '—';
+  const d = new Date(t);
+  const now = new Date();
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const dayDiff = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+    - new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) / 86400000);
+  if (dayDiff === 0) return `今天 ${hm}`;
+  if (dayDiff === 1) return `明天 ${hm}`;
+  if (dayDiff === -1) return `昨天 ${hm}`;
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${hm}`;
+}
+
+/** 「12s 前」这类相对时间（调度器心跳显示用） */
+function fmtAgo(iso?: string | null): string {
+  if (!iso) return '还没跑过';
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '还没跑过';
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return `${s}s 前`;
+  if (s < 3600) return `${Math.round(s / 60)}min 前`;
+  return `${Math.round(s / 3600)}h 前`;
+}
+
+/** 上次运行结果的中文摘要（含耗时与失败原因） */
+function fmtLastRun(lastRun?: { status?: string; durationMs?: number; error?: string } | null): string {
+  if (!lastRun) return '还没跑过';
+  const dur = typeof lastRun.durationMs === 'number' ? `（${(lastRun.durationMs / 1000).toFixed(1)}s）` : '';
+  if (lastRun.status === 'success') return `✓ 成功${dur}`;
+  if (lastRun.status === 'failed') return `✗ 失败${dur}${lastRun.error ? '：' + lastRun.error : ''}`;
+  if (lastRun.status === 'skipped') return '⏭ 本次跳过（上一次还没跑完）';
+  return `⚠ 出错${dur}${lastRun.error ? '：' + lastRun.error : ''}`;
+}
 
 // ★ 必填标识（2026-10-02 用户需求：必填输入框名称前加红星；纯视觉标识，不改校验语义）
 const reqMark = () => createElement('span', { className: 'dsh-wf-req-mark', title: '必填' }, '*');
@@ -140,6 +184,55 @@ const TABS: { id: ViewTab; label: string; emoji: string }[] = [
   // ——ThumbView/FormView/ManageView/AiGenView.tsx 保留未引用（esbuild 不打包）
 ];
 
+// ================= 运行日志（2026-10-04 用户需求：「工作流执行黑盒」） =================
+// 用户原话：「现在每个节点的执行情况没有日志打印，参数传递是否正常，下个节点接收参数是否正常
+//           都没有日志可以看到，无法判断流程中间执行日志情况，节点之间的交互情况也没有，工作流执行黑盒」。
+// 展示口径：每个节点一条——原始入参（含 {{}} 引用）→ 实际入参（模板已展开）→ 引用了哪些上游
+//           （= 节点之间的交互）→ 出参 / 错误 / 耗时。数据来自 host 的 GET /api/dag-flow/run/log。
+/** 日志值 → 可读文本（对象 JSON 缩进，字符串原样） */
+function fmtLogValue(v: unknown): string {
+  if (v === undefined) return '（无）';
+  if (v === null) return 'null';
+  if (typeof v === 'string') return v;
+  try { return JSON.stringify(v, null, 2) ?? String(v); } catch { return String(v); }
+}
+
+/** 引用关系 → 一行文字（节点/变量/工作流输入） */
+function fmtRefs(refs: { nodeRefs?: string[]; varsUsed?: string[]; inputsUsed?: string[] } | undefined): string {
+  if (!refs) return '';
+  const parts = [
+    ...(refs.nodeRefs ?? []).map((x) => `节点 ${x}`),
+    ...(refs.varsUsed ?? []).map((x) => `变量 ${x}`),
+    ...(refs.inputsUsed ?? []).map((x) => `输入 ${x}`),
+  ];
+  return parts.join('、');
+}
+
+/** 状态 → 中文标签 */
+function logStatusLabel(s?: string): string {
+  return s === 'success' ? '成功' : s === 'failed' ? '失败' : s === 'skipped' ? '跳过' : s === 'running' ? '运行中' : (s || '—');
+}
+
+/** 单节点日志 → 纯文本（📋 复制用） */
+function logEntryText(e: { id?: string; type?: string; status?: string; durationMs?: number; refs?: { nodeRefs?: string[]; varsUsed?: string[]; inputsUsed?: string[] }; rawParams?: unknown; params?: unknown; out?: unknown; error?: { code?: string; message?: string }; tolerated?: boolean; truncated?: string[] }): string {
+  const L: string[] = [];
+  L.push(`【${e?.id ?? '?'}${e?.type ? ` (${e.type})` : ''} · ${e?.status ?? '运行中'}${typeof e?.durationMs === 'number' ? ` · ${e.durationMs}ms` : ''}】`);
+  const refs = fmtRefs(e?.refs);
+  if (refs) L.push(`引用上游：${refs}`);
+  if (e?.rawParams !== undefined) L.push(`原始参数（含模板引用）：\n${fmtLogValue(e.rawParams)}`);
+  if (e?.params !== undefined) L.push(`实际入参（模板已展开）：\n${fmtLogValue(e.params)}`);
+  if (e?.out !== undefined) L.push(`出参：\n${fmtLogValue(e.out)}`);
+  if (e?.error) L.push(`错误：[${e.error.code ?? ''}] ${e.error.message ?? ''}`);
+  if (e?.tolerated) L.push('（该节点失败但已容错放行）');
+  if (Array.isArray(e?.truncated) && e.truncated.length) L.push(`（字段已截断：${e.truncated.join('、')}）`);
+  return L.join('\n');
+}
+
+/** 整份日志 → 纯文本 */
+function runLogText(entries: unknown[]): string {
+  return (entries ?? []).map((e) => logEntryText(e as never)).join('\n\n');
+}
+
 export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   const [tab, setTab] = useState<ViewTab>('canvas');
   const [def, setDef] = useState<WorkflowDef>(() => ctx.workflow ?? DEFAULT_WORKFLOW);
@@ -198,6 +291,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     [def],
   );
 
+  // 装饰节点的编辑桥 + 新建：**必须放在 handleDefChange 之后**（它依赖那个 const；
+  //   本项目踩过"后置 const 引用 → TDZ：Cannot access before initialization"的坑）
   // JsonView / FormView 直接修改 def
   const handleDefChange = useCallback((next: WorkflowDef) => {
     setDef(next);
@@ -403,7 +498,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     try { localStorage.removeItem('dag-flow:manual-wait'); } catch { /* 忽略 */ }
   }, []);
 
-  const handleRun = useCallback(async () => {
+  const handleRun = useCallback(async (runOpts?: { confirmed?: boolean }) => {
     if (dirty) handleSave();
     // AI 节点必须选模型：未选 → 不执行，给出引导
     const noModel = (def.nodes ?? []).filter((n) => n.type === 'subagent' && !String(n.params?.model ?? '').trim());
@@ -412,7 +507,48 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       setRunDlgOpen(true);
       return;
     }
+
+    // ===== 第一段（2026-10-04 用户拍板）：点运行 → **先自检**，按钮显示「🔍 自检中…」，此阶段不执行 =====
+    if (!runOpts?.confirmed) {
+      setSelfcheckState({ phase: 'checking' });
+      try {
+        const sr = await fetch('/api/dag-flow/selfcheck', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ def }),
+        });
+        const sd = await sr.json().catch(() => ({}));
+        if (!sr.ok) {
+          setSelfcheckState(null);
+          setRunResult({ status: 'error', error: sd?.error ?? `自检请求失败 HTTP ${sr.status}` });
+          setRunDlgOpen(true);
+          return;
+        }
+        const result = {
+          items: Array.isArray(sd.items) ? sd.items : [],
+          errorCount: Number(sd.errorCount ?? 0),
+          warnCount: Number(sd.warnCount ?? 0),
+          stats: sd.stats ?? { nodes: (def.nodes ?? []).length, edges: (def.edges ?? []).length },
+        };
+        if (result.errorCount > 0) {
+          // 有问题 → 逐条「报错提示 + 解决办法」，人工确认「仍然运行」或「去修改」
+          setSelfcheckState(null);
+          setSelfcheckBlock(result);
+          return;
+        }
+        // 没问题 → 也要人工确认一次（用户要求：自检完成没问题后，手动确认再开始真正运行）
+        setSelfcheckState({ phase: 'ok', result });
+        return;
+      } catch (e) {
+        setSelfcheckState(null);
+        setRunResult({ status: 'error', error: `自检失败：${(e as Error).message}` });
+        setRunDlgOpen(true);
+        return;
+      }
+    }
+
+    // ===== 第二段：人工确认过了 → 真正开跑（带 skipSelfcheck:true，不再被 /run 里的自检拦一次）=====
+    setSelfcheckState(null);
     setRunning(true);
+    manualRunRef.current = true;   // 告诉后台监视让位（手动路径自己轮询并把终态落定）
     setRunResult(null);
     // ★ 2026-10-03 用户需求「画布每个节点都要有状态：待运行/运行中/完成/失败，按运行路径依次显示，
     //   不要最后一次性显示」：起跑先把所有节点置为「待运行」，随后每 600ms 轮询 host 的
@@ -449,11 +585,19 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       const res = await fetch('/api/dag-flow/run', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ def }),
+        body: JSON.stringify({ def, skipSelfcheck: true }),
         signal: ac.signal,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        // 兜底：绕过客户端自检直接调 /run 时，/run 里的自检仍会拦（409 blocked）
+        if (res.status === 409 && data?.blocked && data?.selfcheck) {
+          const sc = data.selfcheck;
+          setSelfcheckBlock({ items: Array.isArray(sc.items) ? sc.items : [], errorCount: Number(sc.errorCount ?? 0), warnCount: Number(sc.warnCount ?? 0), stats: sc.stats });
+          setRunning(false);
+          manualRunRef.current = false;
+          return;
+        }
         setRunResult({ status: 'error', error: data?.error ?? `HTTP ${res.status}` });
         setRunDlgOpen(true);
         return;
@@ -477,6 +621,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       if (pollTimer != null) window.clearTimeout(pollTimer);
       if (!keepRunning) {
         setRunning(false);
+        manualRunRef.current = false;   // 手动路径结束，后台监视恢复接管（定时运行照常点亮）
         runAbortRef.current = null;
       }
     }
@@ -506,6 +651,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     } finally {
       setManualBusy(false);
       setRunning(false);
+      manualRunRef.current = false;   // 人工确认路径结束 → 后台监视恢复接管
       runAbortRef.current = null;
     }
   }, [manualWait, manualNote, clearManualWait, applyRunSummary]);
@@ -515,6 +661,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     void fetch(`/api/dag-flow/run?name=${encodeURIComponent(def.name)}`, { method: 'DELETE', credentials: 'include' }).catch(() => {});
     runAbortRef.current?.abort();
     clearManualWait();
+    manualRunRef.current = false;
     setRunning(false);
     setRunResult({ status: 'error', error: '已取消本次运行' });
   }, [def.name, clearManualWait]);
@@ -776,21 +923,263 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     handleDefChange({ ...def, inputs });
   }, [def, handleDefChange]);
 
+  // ===== 定时任务弹窗（⏰，2026-10-03 用户拍板方案 v1）=====
+  //   与工作流参数弹窗同一套弹窗约定（右上 ✕ / hint 小字 / 行尾 ✕ / 底部虚线 ＋ / 改动即自动保存）；
+  //   配置存宿主侧 .dag-flow/schedules.json，到点由宿主调度器执行（dsh web 需常驻）。
+  const [schedOpen, setSchedOpen] = useState(false);
+  const [schedItems, setSchedItems] = useState<any[]>([]);
+  /** ★ 2026-10-04：schedItems 的**同步镜像**（列表唯一写入口是这里 + loadSchedules）。
+   *  补丁保存必须基于最新列表，不能读闭包里的 state（见 patchScheduleLocal 的注释）。 */
+  const schedItemsRef = useRef<any[]>([]);
+  const [schedInfo, setSchedInfo] = useState<any>(null);
+  const [schedNote, setSchedNote] = useState('');
+  const [schedBad, setSchedBad] = useState<Record<string, string>>({});
+  /** 本工作流里「人工确认」节点数（0 时不显示自动通过说明，避免噪音） */
+  const manualCount = (def.nodes ?? []).filter((n) => n.type === 'manual').length;
+  const schedTimers = useRef<Record<string, number>>({});
+  const loadSchedules = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/dag-flow/schedules?workflow=${encodeURIComponent(def.name)}`, { credentials: 'include' });
+      const data = await res.json();
+      const items = Array.isArray(data.items) ? data.items : [];
+      schedItemsRef.current = items;      // ★ 与 ref 镜像同步（唯一写入口）
+      setSchedItems(items);
+      setSchedInfo(data.scheduler ?? null);
+      setSchedNote(data.warning ? String(data.warning) : '');
+    } catch (e) {
+      setSchedNote('读取定时配置失败：' + (e as Error).message);
+    }
+  }, [def.name]);
+  const openSchedules = useCallback(() => {
+    ensurePickerStyles();
+    setSchedOpen(true);
+    void loadSchedules();
+  }, [loadSchedules]);
+  /** 保存一条（整条 body）——cron 非法时宿主会 400 且不落盘，这里把中文原因显示在该行下面 */
+  const saveSchedule = useCallback(async (item: any) => {
+    setSchedBad((m) => ({ ...m, [item.id ?? 'new']: '' }));
+    try {
+      const res = await fetch('/api/dag-flow/schedules/save', {
+        method: 'POST', credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(item),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSchedBad((m) => ({ ...m, [item.id ?? 'new']: String(data.error ?? '保存失败') })); return; }
+      await loadSchedules();
+    } catch (e) {
+      setSchedBad((m) => ({ ...m, [item.id ?? 'new']: (e as Error).message }));
+    }
+  }, [loadSchedules]);
+  /** 改动即保存（cron 输入走 1.2s 防抖，避免每键都打一次宿主） */
+  const patchScheduleLocal = useCallback((id: string, patch: any, opts: { debounce?: boolean } = {}) => {
+    // ★ 2026-10-04 sched-inline 修 bug：旧实现从**闭包里的 schedItems** 取当前条目（`schedItems.find(...)`），
+    //   而 cron 输入是 1.2s 防抖保存——于是"改完 cron、在防抖触发前点了启用/停用"时，防抖那次保存带的是
+    //   **旧的 enabled**，落盘后 loadSchedules 一刷新就把用户的开关**悄悄改回去**（真机表现为开关闪一下弹回）。
+    //   现在用 ref 保存列表的**最新同步值**：state 与 ref 一起更新，读的时候拿 ref。
+    const cur = schedItemsRef.current;
+    const item = { ...(cur.find((x) => x.id === id) ?? {}), ...patch, id };
+    const next = cur.map((x) => (x.id === id ? { ...x, ...patch } : x));
+    schedItemsRef.current = next;
+    setSchedItems(next);
+    if (cronError(String(item.cron ?? ''))) return;   // 非法 cron 不保存（等改对）
+    const fire = () => void saveSchedule({ id, workflow: item.workflow ?? def.name, cron: item.cron, enabled: item.enabled !== false, inputs: item.inputs });
+    if (!opts.debounce) { fire(); return; }
+    if (schedTimers.current[id]) window.clearTimeout(schedTimers.current[id]);
+    schedTimers.current[id] = window.setTimeout(fire, 1200);
+  }, [schedItems, saveSchedule, def.name]);
+  const addSchedule = useCallback(() => {
+    void saveSchedule({ workflow: def.name, cron: '0 9 * * *', enabled: true });
+  }, [saveSchedule, def.name]);
+  const removeSchedule = useCallback(async (id: string) => {
+    try {
+      await fetch('/api/dag-flow/schedules/delete', {
+        method: 'POST', credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      await loadSchedules();
+    } catch { /* 忽略 */ }
+  }, [loadSchedules]);
+  const [schedRunningId, setSchedRunningId] = useState('');
+  // ★ 2026-10-04 用户反馈：「立即运行一次」的二次确认原来是 window.confirm —— Windows 原生弹窗，
+  //   与插件风格割裂（而且 confirm 文案里没法排版）。改成**应用内确认弹窗**：这里存待确认的那一条，
+  //   下面用与其它弹窗同一套 dag-flow-picker 渲染。流程拆两步：askRunScheduleNow（弹确认）→ doRunScheduleNow（真发请求）。
+  const [schedConfirm, setSchedConfirm] = useState<any | null>(null);
+  // ★ 运行日志（2026-10-04）：🧾 弹窗的开关与数据（条目来自 GET /run/log，运行中自动刷新）
+  const [logOpen, setLogOpen] = useState(false);
+  const [logEntries, setLogEntries] = useState<any[]>([]);
+  const [logMeta, setLogMeta] = useState<{ runId?: string; live?: boolean; runStatus?: string; error?: string; at?: number } | null>(null);
+  const [logBusy, setLogBusy] = useState(false);
+  const [logFilter, setLogFilter] = useState('');
+  const [logExpanded, setLogExpanded] = useState<Record<string, boolean>>({});
+  const logLiveRef = useRef(false);
+  const fetchRunLog = useCallback(async (): Promise<void> => {
+    setLogBusy(true);
+    try {
+      const r = await fetch(`/api/dag-flow/run/log?name=${encodeURIComponent(def.name)}`);
+      const j: any = await r.json().catch(() => null);
+      if (!r.ok) {
+        logLiveRef.current = false;
+        setLogEntries([]);
+        setLogMeta({ error: j?.error ?? `HTTP ${r.status}`, at: Date.now() });
+        return;
+      }
+      logLiveRef.current = !!j?.live;
+      setLogEntries(Array.isArray(j?.entries) ? j.entries : []);
+      setLogMeta({ runId: j?.runId, live: !!j?.live, runStatus: j?.runStatus, at: Date.now() });
+    } catch (e) {
+      logLiveRef.current = false;
+      setLogMeta({ error: (e as Error).message, at: Date.now() });
+    } finally {
+      setLogBusy(false);
+    }
+  }, [def.name]);
+  /** 日志弹窗打开着时：运行中每 1.2s 自动刷新（用户要"逐节点看到彼此的交互"） */
+  useEffect(() => {
+    if (!logOpen) return undefined;
+    void fetchRunLog();
+    const timer = window.setInterval(() => { if (logLiveRef.current) void fetchRunLog(); }, 1200);
+    return () => window.clearInterval(timer);
+  }, [logOpen, fetchRunLog]);
+  /** 运行刚结束时补拉一次（拿到最终状态与耗时） */
+  const prevRunningRef = useRef(false);
+  useEffect(() => {
+    if (prevRunningRef.current && !running && logOpen) void fetchRunLog();
+    prevRunningRef.current = running;
+  }, [running, logOpen, fetchRunLog]);
+  /** 搜索过滤后的日志（按节点/参数/出参全文匹配） */
+  const logView = useMemo(() => {
+    const q = logFilter.trim().toLowerCase();
+    if (!q) return logEntries;
+    return logEntries.filter((e) => { try { return JSON.stringify(e ?? {}).toLowerCase().includes(q); } catch { return false; } });
+  }, [logEntries, logFilter]);
+  // ★ 运行前自检拦住（2026-10-04 轮 1）：存住 host 返回的问题清单（含解决办法），弹窗让用户人工确认
+  const [selfcheckBlock, setSelfcheckBlock] = useState<{ items: { level?: string; code?: string; nodeId?: string; message?: string; fix?: string }[]; errorCount: number; warnCount?: number; stats?: { nodes?: number; edges?: number } } | null>(null);
+  // 「点运行 → 先自检（按钮显示『自检中…』）→ 自检通过 → 人工确认 → 才真正开跑」的中间态
+  const [selfcheckState, setSelfcheckState] = useState<null | { phase: 'checking' } | { phase: 'ok'; result: { items: any[]; errorCount: number; warnCount: number; stats: { nodes?: number; edges?: number } } }>(null);
+  const askRunScheduleNow = useCallback((it: any) => { setSchedConfirm(it); }, []);
+  const doRunScheduleNow = useCallback(async (it: any) => {
+    setSchedRunningId(it.id);
+    try {
+      const res = await fetch('/api/dag-flow/schedules/run', {
+        method: 'POST', credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: it.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) setSchedBad((m) => ({ ...m, [it.id]: String(data.error ?? '运行失败') }));
+      else if (data.skipped) setSchedBad((m) => ({ ...m, [it.id]: '上一次运行还没结束，本次跳过了' }));
+      await loadSchedules();
+    } catch (e) {
+      setSchedBad((m) => ({ ...m, [it.id]: (e as Error).message }));
+    } finally {
+      setSchedRunningId('');
+    }
+  }, [loadSchedules]);
+
+  // ===== 后台运行监视（2026-10-03 用户真机反馈：「定时任务执行，工作流的状态不会变化」）=====
+  //   根因：逐节点状态轮询原来只挂在**手动点运行**那条路径上，而定时触发是宿主调度器直接跑，
+  //   客户端毫不知情 → 画布不点亮、头部也不显示运行态。
+  //   现在：面板挂载期间后台轮询 GET /run/status?name=<当前工作流>，**任何来源**（手动/定时）的运行
+  //   都会点亮画布；检测到在跑就切快档（600ms），跑完收敛到终态（宿主会回退到「最近一次完成的运行」），
+  //   若 ⏰ 弹窗开着则顺手刷新「上次/下次」。与手动路径互不干扰：手动跑时 running=true，这里让位。
+  const lastSigRef = useRef('');
+  // 手动点运行进行中（handleRun 自己轮询并落定终态）→ 后台监视让位，避免两套轮询互相覆盖
+  const manualRunRef = useRef(false);
+  const nodesRef = useRef<string[]>([]);
+  nodesRef.current = (def.nodes ?? []).map((n) => n.id);
+  useEffect(() => {
+    let stopped = false;
+    let timer: number | null = null;
+    const idleMs = 2500, fastMs = 600;
+    let fast = false;
+    const watch = async (): Promise<void> => {
+      if (stopped) return;
+      try {
+        if (!manualRunRef.current) {
+          const r = await fetch(`/api/dag-flow/run/status?name=${encodeURIComponent(def.name)}`);
+          if (r.ok) {
+            const j = (await r.json()) as {
+              status?: string; origin?: string; results?: Record<string, unknown>; running?: string[];
+            };
+            const sig = JSON.stringify([j.status, j.results ?? {}, j.running ?? []]);
+            if (sig !== lastSigRef.current) {
+              lastSigRef.current = sig;
+              setRunResults(progressToStatusMap(nodesRef.current, { results: j.results as never, running: j.running }));
+            }
+            const active = j.status === 'running' || j.status === 'awaiting';
+            // 定时/宿主侧发起的运行：让头部也进入运行态（手动路径自己会置位，这里不抢）
+            setRunning(active);
+            if (!active && fast) {
+              fast = false;
+              if (schedOpen) void loadSchedules();   // 刚跑完：刷新 ⏰ 弹窗的上次/下次
+            }
+            fast = active;
+          }
+        }
+      } catch { /* 轮询失败不打扰用户，下一轮再试 */ }
+      if (!stopped) timer = window.setTimeout(() => { void watch(); }, fast ? fastMs : idleMs);
+    };
+    void watch();
+    return () => {
+      stopped = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [def.name, schedOpen, loadSchedules]);
+
+  // ★ 失败策略显形（2026-10-04 轮 7）：把 def 里每个节点的失败策略同步进 failPolicyStore，
+  //   画布卡片据此在底部显示一枚小 chip（默认 stop **不入表** = 不显示，避免噪音）。
+  //   goto 额外带上目标节点的显示名，让"看不见的跳转"在画布上可读。
+  useEffect(() => {
+    const labelOf = (id: string): string => {
+      const t = (def.nodes ?? []).find((x) => x.id === id);
+      return t ? String(t.label ?? t.id) : id;
+    };
+    const map: Record<string, { kind: 'skip' | 'ignore' | 'goto'; target?: string; targetLabel?: string }> = {};
+    for (const n of def.nodes ?? []) {
+      if (n.tolerate === true) map[n.id] = { kind: 'ignore' };
+      else if (n.onError === 'continue') map[n.id] = { kind: 'skip' };
+      else if (n.onError && typeof n.onError === 'object' && n.onError.goto) {
+        map[n.id] = { kind: 'goto', target: n.onError.goto, targetLabel: labelOf(n.onError.goto) };
+      }
+    }
+    failPolicyStore.setAll(map);
+  }, [def]);
+
   // A4 失败策略（onError：stop/continue/goto）
   const handleNodeError = useCallback((id: string, onError: 'stop' | 'continue' | { goto: string }) => {
-    setDef((prev) => ({ ...prev, nodes: prev.nodes.map((n) => (n.id === id ? { ...n, onError } : n)) }));
+    setDef((prev) => ({
+      ...prev,
+      nodes: prev.nodes.map((n) => {
+        if (n.id !== id) return n;
+        const next = { ...n, onError };
+        delete next.tolerate;   // ★ 轮 2：策略互斥——写 onError 就清掉 tolerate，避免两个字段打架
+        return next;
+      }),
+    }));
     setDirty(true);
   }, []);
 
-  // ★ 容错开关（2026-10-03 用户拍板 A 方案：节点级「失败不影响流程」）
-  //   勾选 → 写 node.tolerate=true；取消 → **删掉键**（不落 `tolerate:false`，与 handleNodeChange 的 null 语义一致）
-  const handleNodeTolerate = useCallback((id: string, tolerate: boolean) => {
+  // ★ 2026-10-04 轮 2（用户要求「失败策略和失败不影响流程合并到一起，避免歧义」）：
+  //   面板上只剩一个「🛟 本节点失败后」下拉；**底层仍是两个既有字段**（零数据迁移），写入时互斥清理。
+  //     停止(stop)   → onError:'stop' + 删 tolerate
+  //     跳过(skip)   → onError:'continue' + 删 tolerate（下游不走，且不计运行失败）
+  //     忽略(ignore) → tolerate:true + 删 onError（下游照常跑，不计运行失败）
+  //   goto 本轮不提供选项（引擎侧待轮 3）；旧数据若已设 goto，面板显示为只读的当前项，不丢数据。
+  const handleNodeFailPolicy = useCallback((id: string, policy: 'stop' | 'skip' | 'ignore') => {
     setDef((prev) => ({
       ...prev,
       nodes: prev.nodes.map((n) => {
         if (n.id !== id) return n;
         const next = { ...n };
-        if (tolerate) next.tolerate = true; else delete next.tolerate;
+        if (policy === 'ignore') {
+          next.tolerate = true;
+          delete next.onError;
+        } else {
+          delete next.tolerate;
+          next.onError = policy === 'skip' ? 'continue' : 'stop';
+        }
         return next;
       }),
     }));
@@ -904,16 +1293,24 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       createElement(
         'button',
         {
-          className: `dsh-wf-btn dsh-wf-btn-success${running ? ' is-running' : ''}`,
+          className: `dsh-wf-btn dsh-wf-btn-success${running ? ' is-running' : ''}${selfcheckState?.phase === 'checking' ? ' is-checking' : ''}`,
           onClick: () => void handleRun(),
-          disabled: running,
-          title: running ? '工作流正在运行（点右侧「⏹ 取消」可中止）' : '运行工作流',
+          disabled: running || selfcheckState?.phase === 'checking',
+          title: running
+            ? '工作流正在运行（点右侧「⏹ 取消」可中止）'
+            : selfcheckState?.phase === 'checking'
+              ? '正在做运行前自检…'
+              : '运行工作流（先自检，通过后确认再执行）',
         },
         running
           ? createElement('span', { className: 'dsh-wf-run-label' },
               createElement('span', { className: 'dsh-wf-run-ring' }),
               '运行中')
-          : '▶',
+          : selfcheckState?.phase === 'checking'
+            ? createElement('span', { className: 'dsh-wf-run-label' },
+                createElement('span', { className: 'dsh-wf-run-ring' }),
+                '自检中…')
+            : '▶',
       ),
       // ★ 取消按钮：运行中才出现，排在运行按钮**之后**，且红色
       running && createElement(
@@ -944,6 +1341,24 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         'button',
         { className: 'dsh-wf-btn', onClick: () => void openVersions(), title: '历史版本（手动保存生成快照，可回载）' },
         '🕘',
+      ),
+      // ★ 定时任务（2026-10-03 用户拍板方案 v1，docs/SCHEDULE-PLAN.md §6）：加在「工作流参数/运行/保存/版本」
+      //   这一组**之后**（不打断用户 2026-10-02 定下的顺序）；每个工作流可配多条 cron 定时，执行由宿主调度器负责
+      createElement(
+        'button',
+        { className: 'dsh-wf-btn', onClick: openSchedules, title: '定时任务（cron 定时执行本工作流；dsh web 需常驻才会触发）' },
+        '⏰',
+      ),
+      // ★ 运行日志 🧾（2026-10-04 用户需求：「工作流执行黑盒」；用户 2026-10-04 明确要求
+      //   「运行日志按钮现在在底部，放到定时任务的后面」→ 必须留在**头部这一排**、紧跟 ⏰ 之后）
+      createElement(
+        'button',
+        {
+          className: `dsh-wf-btn dsh-wf-log-btn${logOpen ? ' primary' : ''}`,
+          title: '运行日志：每个节点的入参/引用/出参/错误/耗时（运行中自动刷新）',
+          onClick: () => setLogOpen((v) => !v),
+        },
+        '🧾',
       ),
       // 人工确认等待态（2026-10-03 方案 A）：accent 描边徽标，点击重开确认弹窗
       manualWait && createElement(
@@ -986,10 +1401,10 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       runResults, // 运行状态可视化（画布节点徽标）
       // 上次运行的真实输出（results.<id>.out）——面板用它反推「实际有哪些变量」，含用户自定义键
       runOuts: ((runResult?.summary as { results?: Record<string, unknown> } | undefined)?.results ?? {}),
-      // A4 失败策略（onError：节点失败时的行为；仅 legacy next 模式生效）
+      // A4 失败策略（onError：节点失败时的行为）
       onNodeError: handleNodeError,
-      // ★ A 方案容错开关（DAG 模式下的「失败不影响流程」，2026-10-03 用户拍板）
-      onNodeTolerate: handleNodeTolerate,
+      // ★ 2026-10-04 轮 2：失败策略与「失败不影响流程」已合并为面板上唯一的一个下拉
+      onNodeFailPolicy: handleNodeFailPolicy,
       onDefChange: handleDefChange,
       onRFChange: handleRFChange,
       onSelectNode: handleSelectNode,
@@ -1044,6 +1459,103 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
             className: 'dsh-wf-inputs-add', title: '添加一条参数',
             onClick: () => setInputsRows((rs) => [...rs, { k: '', v: '' }]),
           }, '+'),
+        ),
+      ),
+    ),
+    // ⏰ 定时任务弹窗（2026-10-03 用户拍板方案 v1，docs/SCHEDULE-PLAN.md §6）
+    schedOpen && createElement(
+      'div',
+      {
+        className: 'dag-flow-picker-overlay',
+        onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) setSchedOpen(false); },
+      },
+      createElement(
+        'div',
+        { className: 'dag-flow-picker dsh-wf-sched' },
+        createElement('div', { className: 'dag-flow-picker-title', style: { fontSize: 16 } },
+          '⏰ 定时任务',
+          createElement('span', { className: 'dsh-wf-sched-title-wf' }, def.name),
+          createElement('button', {
+            className: 'dag-flow-picker-close', title: '关闭',
+            onClick: () => setSchedOpen(false),
+          }, '✕'),
+        ),
+        createElement('div', { className: 'dag-flow-picker-body' },
+          // 黄色费用提示（无人值守真花钱，必须写明）
+          createElement('div', { className: 'dsh-wf-sched-warn' },
+            '⚠ 定时执行会真实运行工作流：AI / 图片 / 视频节点会产生费用；执行期间不等人确认（manual 节点自动通过）。'),
+          // ★ 2026-10-04 用户反馈「定时任务自动触发的运行，手动确认节点自动跳过」→ 拍板 A：保持自动通过，但**显形**。
+          //   只要本工作流含 manual 节点，就在弹窗里说清"不会停下来等确认"，并告诉用户哪种入口才会等。
+          manualCount > 0
+            ? createElement('div', { className: 'dsh-wf-sched-note' },
+                `⏭ 本工作流含 ${manualCount} 个「人工确认」节点：定时触发（含下方「▶ 立即运行一次」）不会停下来等确认，`
+                + 'manual 节点会自动通过（画布徽标与悬浮结果会标「⏭ 自动通过」）。要人工把关请在画布上点 ▶ 运行。')
+            : null,
+          // 调度器心跳：dsh web 不常驻就不会触发，必须让用户看见
+          createElement('div', { className: `dsh-wf-sched-beat${schedInfo?.running ? ' is-on' : ''}` },
+            schedInfo?.running
+              ? `● 调度器运行中（心跳 ${fmtAgo(schedInfo?.lastTickAt)}，每 ${Math.round((schedInfo?.tickMs ?? 20000) / 1000)}s 检查一次；本机时区）`
+              : '○ 调度器未运行——需要 dsh web 常驻，定时才会触发'),
+          schedNote ? createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11, opacity: 0.72 } }, schedNote) : null,
+          createElement('div', { className: 'dsh-wf-sched-list' },
+            schedItems.length
+              ? schedItems.map((it) => {
+                const bad = cronError(String(it.cron ?? ''));
+                const err = schedBad[it.id] || bad || '';
+                return createElement('div', { key: it.id, className: `dsh-wf-sched-item${it.enabled === false ? ' is-off' : ''}` },
+                  createElement('div', { className: 'dsh-wf-sched-row' },
+                    createElement('span', { className: 'dsh-wf-sched-ico' }, '⏰'),
+                    createElement('input', {
+                      className: 'dsh-wf-input dsh-wf-sched-cron',
+                      value: String(it.cron ?? ''),
+                      placeholder: '分 时 日 月 周，如 0 9 * * 1-5',
+                      title: '标准 5 字段 cron：分 时 日 月 周；支持 * , - /（不支持 L W # 与秒级）',
+                      onChange: (e: React.ChangeEvent<HTMLInputElement>) => patchScheduleLocal(it.id, { cron: e.target.value }, { debounce: true }),
+                      onBlur: () => patchScheduleLocal(it.id, {}, {}),
+                    }),
+                    // ★ 2026-10-04 用户要求：「▶ 立即运行一次」不要单独占第二行，放在 cron 表达式右边
+                    createElement('button', {
+                      className: 'dsh-wf-btn dsh-wf-sched-run',
+                      disabled: schedRunningId === it.id,
+                      title: '立刻真实执行一次（等价于到点触发，会花钱）',
+                      onClick: () => askRunScheduleNow(it),
+                    }, schedRunningId === it.id ? '运行中…' : '▶ 立即运行一次'),
+                    createElement('span', { className: 'dsh-wf-sched-preview' },
+                      bad ? '⚠ 表达式不合法' : describeCron(String(it.cron ?? ''))),
+                    createElement('label', { className: 'dsh-wf-sched-toggle', title: it.enabled === false ? '已停用（点开启）' : '已启用（点停用）' },
+                      createElement('input', {
+                        type: 'checkbox', checked: it.enabled !== false,
+                        onChange: (e: React.ChangeEvent<HTMLInputElement>) => patchScheduleLocal(it.id, { enabled: e.target.checked }, {}),
+                      }),
+                      it.enabled === false ? '停用' : '启用',
+                    ),
+                    createElement('button', {
+                      className: 'dsh-wf-btn', title: '删除该定时（不影响其它定时）',
+                      onClick: () => void removeSchedule(it.id),
+                    }, '✕'),
+                  ),
+                  err ? createElement('div', { className: 'dsh-wf-sched-bad' }, '⚠ ' + err) : null,
+                  createElement('div', { className: 'dsh-wf-sched-meta' },
+                    `上次 ${fmtLastRun(it.lastRun)}`,
+                    ' · ',
+                    `下次 ${it.nextRunAt ? fmtWhen(it.nextRunAt) : '—'}`,
+                    it.running ? ' · 运行中…' : (it.lastStartedAt && !it.lastRun ? ' · 正在运行…' : ''),
+                    it.orphan ? ' · ⚠ 工作流不存在（配置保留，等它回来）' : '',
+                  ),
+                );
+              })
+              : createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11.5, opacity: 0.72 } },
+                  '还没有定时任务。点下方「＋ 添加定时」加一条，默认「0 9 * * *」= 每天 09:00。'),
+          ),
+          // 底部虚线 ＋：加一条（宿主生成 id）
+          createElement('button', {
+            className: 'dsh-wf-inputs-add', title: '添加一条定时任务',
+            onClick: addSchedule,
+          }, '＋ 添加定时'),
+          createElement('div', { className: 'dsh-wf-sched-foot' },
+            '配置存在工作区 .dag-flow/schedules.json；cron 为**本机时区**的「分 时 日 月 周」。',
+            createElement('br'),
+            '同一工作流上一次没跑完时，本次会跳过并记「⏭ 本次跳过」；dsh 重启后不补跑错过的档期。'),
         ),
       ),
     ),
@@ -1196,6 +1708,231 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         ),
       ),
     ),
+    // ▶ 立即运行一次：**应用内**二次确认弹窗（2026-10-04 用户反馈：原来是 Windows 原生 confirm）
+    //   与其它弹窗同一套约定：右上 ✕、hint 小字浅色、底部左「取消」右「主操作」；费用提醒用黄色条。
+    schedConfirm && createElement(
+      'div',
+      {
+        className: 'dag-flow-picker-overlay',
+        onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) setSchedConfirm(null); },
+      },
+      createElement(
+        'div',
+        { className: 'dag-flow-picker dsh-wf-sched-confirm' },
+        createElement('div', { className: 'dag-flow-picker-title', style: { fontSize: 16 } },
+          '▶ 立即运行一次？',
+          createElement('button', {
+            className: 'dag-flow-picker-close', title: '关闭（不运行）',
+            onClick: () => setSchedConfirm(null),
+          }, '✕'),
+        ),
+        createElement('div', { className: 'dag-flow-picker-body' },
+          createElement('div', { className: 'dsh-wf-sched-warn' },
+            `⚠ 会真实执行工作流「${String(schedConfirm.workflow ?? def.name)}」：AI / 图片 / 视频节点会产生费用。`),
+          createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11.5, opacity: 0.8, lineHeight: 1.65 } },
+            '这次运行等价于「到点触发」一次：执行期间不等人确认（manual 节点自动通过）。',
+            createElement('br'),
+            '不会改变定时档期——下次仍按 ',
+            cronError(String(schedConfirm.cron ?? ''))
+              ? '（当前 cron 表达式不合法，改对之后才会自动触发）'
+              : describeCron(String(schedConfirm.cron ?? '')),
+            ' 触发。',
+          ),
+          createElement('div', { className: 'dsh-wf-manual-acts' },
+            createElement('button', {
+              className: 'dsh-wf-btn',
+              onClick: () => setSchedConfirm(null),
+            }, '✕ 取消'),
+            createElement('span', { className: 'dsh-wf-manual-grow' }),
+            createElement('button', {
+              className: 'dsh-wf-btn dsh-wf-btn-primary',
+              onClick: () => { const it = schedConfirm; setSchedConfirm(null); void doRunScheduleNow(it); },
+            }, '▶ 确认运行'),
+          ),
+        ),
+      ),
+    ),
+
+    // ✓ 运行前自检**通过**也要人工确认一次（2026-10-04 用户要求：「自检完成没问题后，手动确认，再开始真正运行」）
+    selfcheckState?.phase === 'ok' && createElement(
+      'div',
+      {
+        className: 'dag-flow-picker-overlay',
+        onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) setSelfcheckState(null); },
+      },
+      createElement(
+        'div',
+        { className: 'dag-flow-picker dsh-wf-selfcheck is-ok' },
+        createElement('div', { className: 'dag-flow-picker-title', style: { fontSize: 16 } },
+          '✓ 自检通过',
+          createElement('button', { className: 'dag-flow-picker-close', title: '关闭（不运行）', onClick: () => setSelfcheckState(null) }, '✕'),
+        ),
+        createElement('div', { className: 'dag-flow-picker-body' },
+          createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11.5, opacity: 0.8, lineHeight: 1.65 } },
+            `已检查 ${selfcheckState.result.stats?.nodes ?? 0} 个节点 / ${selfcheckState.result.stats?.edges ?? 0} 条边：结构、连线引用、必填参数、分支键、环路、循环与子工作流依赖都没问题。`,
+            selfcheckState.result.warnCount > 0 ? `另有 ${selfcheckState.result.warnCount} 条提醒（不影响运行，可先看看）：` : '点「开始运行」就真正执行，运行期间可以在头部取消。',
+          ),
+          selfcheckState.result.items.filter((i) => i.level === 'warn').length
+            ? createElement('div', { className: 'dsh-wf-selfcheck-list' },
+                selfcheckState.result.items.filter((i) => i.level === 'warn').map((it, i) =>
+                  createElement('div', {
+                    key: i,
+                    className: `dsh-wf-selfcheck-item is-warn${it.nodeId ? ' is-clickable' : ''}`,
+                    onClick: () => { if (it.nodeId) { setSelectedNodeId(it.nodeId); setSelfcheckState(null); } },
+                  },
+                    createElement('div', { className: 'dsh-wf-selfcheck-msg' }, `⚠ ${it.message ?? ''}`),
+                    it.fix ? createElement('div', { className: 'dsh-wf-selfcheck-fix' }, `👉 解决办法：${it.fix}`) : null,
+                  )),
+              )
+            : null,
+          createElement('div', { className: 'dsh-wf-manual-acts' },
+            createElement('button', { className: 'dsh-wf-btn', onClick: () => setSelfcheckState(null) }, '✕ 取消'),
+            createElement('span', { className: 'dsh-wf-manual-grow' }),
+            createElement('button', {
+              className: 'dsh-wf-btn dsh-wf-btn-primary',
+              onClick: () => { setSelfcheckState(null); void handleRun({ confirmed: true }); },
+            }, '▶ 开始运行'),
+          ),
+        ),
+      ),
+    ),
+    // ⚠ 运行前自检未通过（2026-10-04 轮 1 用户拍板）：逐条给「哪里不对 + 怎么改」，
+    //   并让用户**人工确认**——「去修改」（关弹窗并选中第一个出问题的节点）或「仍然运行」（带 skipSelfcheck 重发）。
+    selfcheckBlock && createElement(
+      'div',
+      {
+        className: 'dag-flow-picker-overlay',
+        onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) setSelfcheckBlock(null); },
+      },
+      createElement(
+        'div',
+        { className: 'dag-flow-picker dsh-wf-selfcheck' },
+        createElement('div', { className: 'dag-flow-picker-title', style: { fontSize: 16 } },
+          `⚠ 运行前自检未通过（${selfcheckBlock.errorCount} 项）`,
+          createElement('button', { className: 'dag-flow-picker-close', title: '关闭（不运行）', onClick: () => setSelfcheckBlock(null) }, '✕'),
+        ),
+        createElement('div', { className: 'dag-flow-picker-body' },
+          createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11.5, opacity: 0.8, lineHeight: 1.65 } },
+            '这些问题会让工作流跑不起来、或跑出意料之外的结果。建议先按下面的办法改掉；确认没问题也可以直接「仍然运行」。'),
+          createElement('div', { className: 'dsh-wf-selfcheck-list' },
+            selfcheckBlock.items.filter((i) => i.level === 'error').map((it, i) =>
+              createElement('div', {
+                key: i,
+                className: `dsh-wf-selfcheck-item${it.nodeId ? ' is-clickable' : ''}`,
+                onClick: () => { if (it.nodeId) { setSelectedNodeId(it.nodeId); setSelfcheckBlock(null); } },
+              },
+                createElement('div', { className: 'dsh-wf-selfcheck-msg' }, `✕ ${it.message ?? ''}`),
+                it.fix ? createElement('div', { className: 'dsh-wf-selfcheck-fix' }, `👉 解决办法：${it.fix}`) : null,
+              )),
+          ),
+          createElement('div', { className: 'dsh-wf-manual-acts' },
+            createElement('button', {
+              className: 'dsh-wf-btn',
+              onClick: () => {
+                const first = selfcheckBlock.items.find((i) => i.level === 'error' && i.nodeId);
+                setSelfcheckBlock(null);
+                if (first?.nodeId) setSelectedNodeId(first.nodeId);
+              },
+            }, '✕ 去修改'),
+            createElement('span', { className: 'dsh-wf-manual-grow' }),
+            createElement('button', {
+              className: 'dsh-wf-btn dsh-wf-btn-primary',
+              onClick: () => { setSelfcheckBlock(null); void handleRun({ confirmed: true }); },
+            }, '▶ 仍然运行'),
+          ),
+        ),
+      ),
+    ),
+    // 🧾 运行日志弹窗（2026-10-04）：每节点一条，可展开看「原始参数 → 实际入参 → 出参」，可搜索/复制
+    logOpen && createElement(
+      'div',
+      { className: 'dag-flow-picker-overlay', onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) setLogOpen(false); } },
+      createElement(
+        'div',
+        { className: 'dag-flow-picker dsh-wf-logdlg' },
+        createElement('div', { className: 'dag-flow-picker-title', style: { fontSize: 16 } },
+          '🧾 运行日志',
+          createElement('button', { className: 'dag-flow-picker-close', title: '关闭', onClick: () => setLogOpen(false) }, '✕'),
+        ),
+        createElement('div', { className: 'dag-flow-picker-body' },
+          createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11, opacity: 0.72 } },
+            logMeta?.error
+              ? `日志读取失败：${logMeta.error}（先运行一次工作流，或点「🔄 刷新」重试）`
+              : `工作流「${def.name}」${logMeta?.runId ? ` · ${logMeta.runId}` : ''} · 状态 ${logStatusLabel(logMeta?.runStatus)} · ${logEntries.length} 个节点${logMeta?.live ? ' · 运行中，自动刷新' : ''}`),
+          createElement('div', { className: 'dsh-wf-log-toolbar' },
+            createElement('button', { className: 'dsh-wf-btn', title: '重新拉取日志', onClick: () => void fetchRunLog() }, logBusy ? '⏳ 刷新中' : '🔄 刷新'),
+            createElement('input', {
+              className: 'dsh-wf-log-search',
+              value: logFilter,
+              placeholder: '搜索节点 / 参数 / 出参…',
+              onChange: (e: React.ChangeEvent<HTMLInputElement>) => setLogFilter(e.target.value),
+            }),
+            createElement('button', {
+              className: 'dsh-wf-btn',
+              title: '复制全部日志文本（便于反馈问题）',
+              disabled: logEntries.length === 0,
+              onClick: async () => {
+                try {
+                  await navigator.clipboard.writeText(runLogText(logView));
+                  setImportMsg({ ok: true, text: '全部日志已复制到剪贴板' });
+                } catch { setImportMsg({ ok: false, text: '复制失败——请手动选中文本复制' }); }
+              },
+            }, '📋 复制全部'),
+          ),
+          createElement('div', { className: 'dsh-wf-log-list' },
+            logView.length === 0
+              ? createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11.5, opacity: 0.6, padding: '14px 2px' } },
+                  logEntries.length === 0 ? '暂无日志——点「▶」跑一次工作流后回来看。' : '没有匹配的节点（清空搜索框试试）。')
+              : logView.map((e: any) => {
+                const open = !!logExpanded[e.id];
+                const st = e?.status ?? 'running';
+                const refs = fmtRefs(e?.refs);
+                const section = (label: string, v: unknown) => createElement('div', { className: 'dsh-wf-log-sec', key: label },
+                  createElement('div', { className: 'dsh-wf-log-sec-title' }, label),
+                  createElement('pre', { className: 'dsh-wf-log-pre' }, fmtLogValue(v)),
+                );
+                return createElement('div', { className: 'dsh-wf-log-item', key: e.id },
+                  createElement('div', {
+                    className: 'dsh-wf-log-head',
+                    onClick: () => setLogExpanded((m) => ({ ...m, [e.id]: !m[e.id] })),
+                    title: '点击展开/折叠该节点的参数与出参',
+                  },
+                    createElement('span', { className: 'dsh-wf-log-caret' }, open ? '▾' : '▸'),
+                    createElement('span', { className: `dsh-wf-log-dot is-${st}` }),
+                    createElement('span', { className: 'dsh-wf-log-id' }, e.id),
+                    e?.type ? createElement('span', { className: 'dsh-wf-log-type' }, e.type) : null,
+                    createElement('span', { className: `dsh-wf-log-status is-${st}` }, logStatusLabel(st)),
+                    typeof e?.durationMs === 'number' ? createElement('span', { className: 'dsh-wf-log-ms' }, `${e.durationMs}ms`) : null,
+                    e?.tolerated ? createElement('span', { className: 'dsh-wf-log-tol' }, '已容错') : null,
+                  ),
+                  refs ? createElement('div', { className: 'dsh-wf-log-refs' }, `↳ 引用上游：${refs}`) : null,
+                  e?.error ? createElement('div', { className: 'dsh-wf-log-err' }, `✗ [${e.error.code ?? ''}] ${e.error.message ?? ''}`) : null,
+                  open ? createElement('div', { className: 'dsh-wf-log-detail' },
+                    e?.rawParams !== undefined ? section('原始参数（含 {{}} 模板引用）', e.rawParams) : null,
+                    e?.params !== undefined ? section('实际入参（模板已展开 = 节点真正收到的）', e.params) : null,
+                    e?.out !== undefined ? section('出参', e.out) : null,
+                    st === 'skipped' ? createElement('div', { className: 'dsh-wf-log-sec-title' }, '（该节点未执行：所在分支未命中）') : null,
+                    Array.isArray(e?.truncated) && e.truncated.length
+                      ? createElement('div', { className: 'dsh-wf-log-sec-title' }, `（字段已截断：${e.truncated.join('、')}）`) : null,
+                    createElement('button', {
+                      className: 'dsh-wf-btn',
+                      style: { marginTop: 6 },
+                      title: '复制该节点日志',
+                      onClick: async () => {
+                        try {
+                          await navigator.clipboard.writeText(logEntryText(e));
+                          setImportMsg({ ok: true, text: `节点 ${e.id} 的日志已复制` });
+                        } catch { setImportMsg({ ok: false, text: '复制失败——请手动选中文本复制' }); }
+                      },
+                    }, '📋 复制本节点'),
+                  ) : null,
+                );
+              }),
+          ),
+        ),
+      ),
+    ),
+    // 🧾 运行日志（2026-10-04 用户需求：工作流执行黑盒 → 能看到节点之间的参数传递）
     // 运行失败详情弹窗（2026-10-02 用户需求：报错用弹窗提示，不再在 logo 后行内显示；
     // 头部失败徽标点击可再开本弹窗。统一弹窗模式：✕ 右上、hint 小字浅色）
     runDlgOpen && runResult && runResult.status !== 'success' && createElement(
@@ -1265,8 +2002,8 @@ function renderBody(p: {
   onDeleteNode: (id: string) => void;
   onNodeChange: (id: string, params: Record<string, unknown>) => void;
   onNodeError: (id: string, onError: 'stop' | 'continue' | { goto: string }) => void;
-  /** ★ 容错开关（DAG 模式「失败不影响流程」，2026-10-03 A 方案） */
-  onNodeTolerate: (id: string, tolerate: boolean) => void;
+  /** ★ 2026-10-04 轮 2：面板唯一的「🛟 本节点失败后」下拉（合并了旧的失败策略 + 失败不影响流程） */
+  onNodeFailPolicy: (id: string, policy: 'stop' | 'skip' | 'ignore') => void;
   rightMin?: boolean;
   onRightMin?: (v: boolean) => void;
   rightGeom?: RightGeom;
@@ -1376,7 +2113,7 @@ function renderBody(p: {
               onError: p.selectedNode.onError ?? 'stop',
               onNodeError: (onError) => p.onNodeError(p.selectedNode!.id, onError),
               tolerate: p.selectedNode.tolerate === true,
-              onTolerateChange: (v) => p.onNodeTolerate(p.selectedNode!.id, v),
+              onFailPolicyChange: (policy) => p.onNodeFailPolicy(p.selectedNode!.id, policy),
             })
           : createElement(
               'div',
@@ -1408,7 +2145,7 @@ function renderBody(p: {
 
 // 节点参数检查器（简化版：动态渲染 key-value）
 // subagent 节点额外提供模型下拉选择（DSH 配置 + 用户自定义模型）
-function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts = {}, workflowName = '', onDelete, onParamsChange, onError = 'stop', onNodeError, tolerate = false, onTolerateChange }: {
+function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts = {}, workflowName = '', onDelete, onParamsChange, onError = 'stop', onNodeError, tolerate = false, onFailPolicyChange }: {
   node: import('./types').ClientNode;
   defNodes?: import('./types').ClientNode[];
   edges?: RFEdge[];
@@ -1421,9 +2158,10 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
   onParamsChange: (params: Record<string, unknown>) => void;
   onError?: 'stop' | 'continue' | { goto: string };
   onNodeError?: (onError: 'stop' | 'continue' | { goto: string }) => void;
-  /** ★ 容错开关（2026-10-03 A 方案）：true = 本节点失败不中断后续层 */
+  /** ★ 容错（2026-10-03）：true = 本节点失败但下游照常执行（等价于合并后下拉的「忽略失败」项） */
   tolerate?: boolean;
-  onTolerateChange?: (v: boolean) => void;
+  /** ★ 2026-10-04 轮 2：合并后的唯一失败策略入口（stop=停止这条支路 / skip=跳过这条支路且不算失败 / ignore=忽略失败继续下游） */
+  onFailPolicyChange?: (policy: 'stop' | 'skip' | 'ignore') => void;
 }) {
   const meta = findMeta(node.type);
   const [models, setModels] = useState<{ id: string; name: string; kind: string; label?: string; providerLabel?: string; model?: string; input?: string[]; hasImage?: boolean }[]>([]);
@@ -1873,41 +2611,54 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
         createElement('span', { className: 'dsh-wf-copy-toast-text' }, `已复制 ${copied.text}`)),
       document.body,
     ),
-    // #A4 失败策略（onError：节点失败时的行为）
-    createElement('div', { className: 'dsh-wf-panel-row' },
-      createElement('label', { className: 'dsh-wf-panel-label' }, '🛟 失败策略'),
-      createElement('select', {
-        className: 'dsh-wf-input',
-        value: typeof onError === 'string' ? onError : 'goto',
-        onChange: (e: React.ChangeEvent<HTMLSelectElement>) => {
-          const v = e.target.value;
-          if (v === 'goto') onNodeError?.({ goto: (typeof onError === 'object' && onError.goto) || (defNodes.find((n) => n.id !== node.id)?.id ?? '') });
-          else onNodeError?.(v as 'stop' | 'continue');
-        },
-      },
-        createElement('option', { value: 'stop' }, '⛔ 停止后续节点（默认）'),
-        createElement('option', { value: 'continue' }, '⏭ 失败后继续执行下游'),
-        createElement('option', { value: 'goto' }, '↪ 失败后跳转到指定节点'),
-      ),
-    ),
-    // ★ A 方案容错开关（2026-10-03 用户拍板「确认使用 A：节点级失败不影响流程开关」）
-    //   为什么必须有这个开关：DAG 模式（def 带 edges）下**节点级 onError 完全不生效**，
-    //   一次抓取/发信失败就把整条流水线拖垮（用户今天已连撞两次：邮件节点、抓取节点）。
-    createElement('div', { className: 'dsh-wf-panel-row' },
-      createElement('label', { className: 'dsh-wf-panel-label' }, '🛟 失败不影响流程'),
-      createElement('label', { className: 'dsh-wf-tolerate' },
-        createElement('input', {
-          type: 'checkbox',
-          className: 'dsh-wf-tolerate-check',
-          checked: tolerate === true,
-          onChange: (e: React.ChangeEvent<HTMLInputElement>) => onTolerateChange?.(e.target.checked),
-        }),
-        createElement('span', { className: 'dsh-wf-tolerate-text' },
-          tolerate ? '已开启 —— 本节点失败也继续跑后续节点' : '未开启 —— 失败即中断后续节点'),
-      ),
-      createElement('div', { className: 'dsh-wf-panel-hint' },
-        '勾选后：失败只记在本节点（徽标变 ⚠ 已容错，鼠标悬浮节点可看错误详情），后续节点照常执行，运行汇总标注「N 个节点失败已容错」。DAG 工作流请用这个开关——上面的「失败策略」只在早期的 next 顺序模式生效。'),
-    ),
+    // ★ 2026-10-04 轮 2：失败策略「合并成一个下拉，避免歧义」（用户原话）。
+    //   旧的面板有两个入口——「🛟 失败策略」(onError) 与「🛟 失败不影响流程」(tolerate)，
+    //   文案还互相矛盾（一个说"失败后继续执行下游"、一个说"失败即中断后续节点"），
+    //   加上旧引擎只在 next 顺序模式读 onError，导致用户根本分不清该用哪个。
+    //   现在只剩这一个「本节点失败后」，三项分别对应一套**互斥**语义（写入时清掉另一个字段）：
+    //     ⛔ 停止这条支路      = 下游不走 + 计入运行失败（有错因）
+    //     ⏭ 跳过这条支路不算失败 = 下游不走 + 不计失败（节点仍标 ⚠ 已容错）
+    //     🛟 忽略失败继续下游   = 下游照常执行 + 不计失败（下游引用本节点输出仍会报"无输出"）
+    //   ★ 三者共同点：**只影响本节点的下游，其它分支照常跑**（2026-10-04 新语义）。
+    (() => {
+      const policy: 'stop' | 'skip' | 'ignore' | 'goto' =
+        tolerate === true ? 'ignore'
+          : onError === 'continue' ? 'skip'
+            : (typeof onError === 'object' && onError.goto !== undefined) ? 'goto'
+              : 'stop';
+      const hintOf: Record<string, string> = {
+        stop: '本节点的下游不再执行；这次失败计入运行结果（运行标 ✗ 失败，并给出出错节点与原因）。其它分支照常跑。',
+        skip: '本节点的下游不再执行，但这次失败「不计入」运行失败（节点自身仍标 ⚠ 已容错，悬浮可看错误详情）。适合"这条支路可有可无"的场景。',
+        ignore: '失败只记在本节点（标 ⚠ 已容错），后续节点照常执行。注意：下游若引用 {{本节点.out}} 仍会因"没有输出"失败。',
+        goto: `失败后跳过本节点的下游、直接跳到「${typeof onError === 'object' ? onError.goto : ''}」继续。目标只执行一次：它若排在更前面（已经跑过或已经过了它那一层），跳转不会生效、按「停止这条支路」处理（节点的错误详情里会写明原因）。`,
+      };
+      return [
+        createElement('div', { className: 'dsh-wf-panel-row', key: 'fail-policy' },
+          createElement('label', { className: 'dsh-wf-panel-label' }, '🛟 本节点失败后'),
+          createElement('select', {
+            className: 'dsh-wf-input dsh-wf-failpolicy',
+            value: policy,
+            onChange: (e: React.ChangeEvent<HTMLSelectElement>) => {
+              const v = e.target.value as 'stop' | 'skip' | 'ignore' | 'goto';
+              if (v === 'goto') {
+                // 切到 goto：保留已设目标，否则给一个默认（第一个非 start、非自身的节点）
+                const kept = typeof onError === 'object' && onError.goto ? onError.goto : '';
+                const fallback = defNodes.find((n) => n.id !== node.id && n.type !== 'start')?.id ?? '';
+                onNodeError?.({ goto: kept || fallback });
+              } else {
+                onFailPolicyChange?.(v);
+              }
+            },
+          },
+            createElement('option', { value: 'stop' }, '⛔ 停止这条支路（默认，算运行失败）'),
+            createElement('option', { value: 'skip' }, '⏭ 跳过这条支路，不算运行失败'),
+            createElement('option', { value: 'ignore' }, '🛟 忽略失败，下游照常执行'),
+            createElement('option', { value: 'goto' }, '↪ 失败后跳转到指定节点'),
+          ),
+        ),
+        createElement('div', { className: 'dsh-wf-panel-hint dsh-wf-failpolicy-hint', key: 'fail-hint' }, hintOf[policy] ?? ''),
+      ];
+    })(),
     typeof onError === 'object' && onError.goto !== undefined && createElement('div', { className: 'dsh-wf-panel-row' },
       createElement('label', { className: 'dsh-wf-panel-label' }, reqMark(), '↪ 跳转目标'),
       createElement('select', {
@@ -1915,9 +2666,13 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
         value: onError.goto,
         onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onNodeError?.({ goto: e.target.value }),
       },
-        defNodes.filter((n) => n.id !== node.id && n.type !== 'start').map((n) =>
-          createElement('option', { key: n.id, value: n.id }, `${n.label ?? n.id}（${n.type}）`),
-        ),
+        // ★ 轮 3：目标只对"还没跑到的层"生效——把**排在本节点之前**的候选标出来，
+        //   免得用户选了个永远不会生效的目标（引擎会在节点错误详情里写明"未重复执行"）。
+        defNodes.filter((n) => n.id !== node.id && n.type !== 'start').map((n) => {
+          const isUpstream = upstream.includes(n.id);
+          return createElement('option', { key: n.id, value: n.id },
+            `${n.label ?? n.id}（${n.type}）${isUpstream ? ' · ⚠ 在本节点之前执行，跳转不会生效' : ''}`);
+        }),
       ),
     ),
     // ★ loop 循环设置（P2，2026-10-03 用户拍板）

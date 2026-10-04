@@ -1,0 +1,1351 @@
+﻿
+> dag-flow@0.2.0 test:offline
+> node test/apply-host.test.mjs && node test/offline.test.mjs && node test/runtime.test.mjs && node test/storage-json.test.mjs && node test/storage-workspace.test.mjs && node test/api-e2e.test.mjs && node test/search.test.mjs && node test/params-check.test.mjs && node test/modality.test.mjs && node test/llm-config.test.mjs && node test/sessions.test.mjs && node test/expr-scope.test.mjs && node test/schema-next.test.mjs && node test/manual-await.test.mjs && node test/loop.test.mjs && node test/out-fields.test.mjs && node test/host-llm.test.mjs && node test/tolerate.test.mjs && node test/result-tip.test.mjs && node test/run-progress.test.mjs && node test/asset-naming.test.mjs && node test/status-midrun.test.mjs && node test/view-zoom.test.mjs && node test/cron.test.mjs && node test/schedules.test.mjs && node test/scheduler.test.mjs && node test/normalize.test.mjs && node test/fail-policy.test.mjs && node test/goto-edge.test.mjs && node test/flow-def.test.mjs && node test/selfcheck.test.mjs && node test/run-log.test.mjs
+
+  ✓ dist/index.js 导出 apply / name / inject
+  ✓ inject 必须声明 webServer + tools + workspaceRegistry + llm（apply 等服务就绪）
+
+[1] dsh 0.2.0 Proxy ctx（裸属性访问抛 inject 错）
+  ✓ 伪造 ctx 裸访问 ctx.webServer 抛 inject 错（复刻 0.2.0）
+  ✓ 伪造 ctx 裸访问 ctx.tools 抛 inject 错
+  ✓ apply(ctx) 注册 21 条路由（15 条既有 + 4 条定时任务 + 1 条自检 + 1 条运行日志；无一条静默失败）
+  ✓ 路由清单与源码一致
+  ✓ workflow 工具注册成功
+  ✓ 核心能力探测全部通过（drift 不含 tools/webServer/fs/effect）
+  ✓ safeMode = false（不再被 inject 误判拖入安全模式）
+  ✓ getDriftReport().details 无核心能力条目
+  ✓ 三条 effect 已挂载（工具 + 路由 + 定时调度器 disposer）
+  ✓ effect 标签可辨识
+  ✓ 加载日志同时报告 tool / api 的注册结果
+  ✓ 加载日志不再声称 safe mode
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-apply-2nO7qD\.dag-flow\workflow (2 files)
+  ✓ dag-flow 自己的文件日志已落盘
+  ✓ 文件日志含路由注册条数与 loaded 行
+  ✓ storage 根解析为宿主工作区（host-ctx）
+  ✓ POST /workflows/save → 200（修复前此处 404 not found）
+  ✓ 响应 { ok:true, name:"test-folw" }
+  ✓ 工作流 JSON 已落盘
+  ✓ GET /workflows → 200 且列出 test-folw
+  ✓ GET /workflows/test-folw（prefix 路由）→ 200 且返回工作流本体
+  ✓ GET /nodes → 200 且列出内置节点类型
+  ✓ 未注册路径仍 404（不吞掉 fallback 语义）
+
+[2] 热重载（patchReload:"live"）：先注销再重载
+  ✓ 旧 fiber 卸载后路由全部注销
+  ✓ 旧 fiber 卸载后工具注销
+  ✓ 重载后 21 条路由全部重新注册
+  ✓ 重载后无 duplicate / 注册失败告警
+  ✓ 重载后 workflow 工具仍只有 1 个
+  ✓ 重载后新 fiber 挂载 3 条 effect
+  ✓ 再次卸载后回到 0 路由
+
+[3] 降级：宿主只有 tools，没有 webServer
+  ✓ webServer 缺失时 /workflow 工具仍注册（按能力解耦）
+  ✓ 路由被跳过且原因可读
+  ✓ webServer.register 出现在 drift 中
+  ✓ tools.register 未误报 drift
+  ✓ 仅 tools 漂移时不进安全模式（safeMode 只看 tools+effect）
+
+[4] 旧宿主兼容：普通对象 ctx（无 get / effect）
+  ✓ 旧宿主仍注册 21 条路由（属性访问兜底）
+  ✓ 旧宿主仍注册 workflow 工具
+  ✓ 无 ctx.effect 时不抛错（disposer 无处挂，降级为不注销）
+  ✓ 旧宿主加载日志报告全部 registered
+
+[5] 极端降级：空 ctx
+  ✓ apply 绝不抛错（fail-soft）
+  ✓ 无宿主能力时 0 路由 0 工具
+  ✓ 两个能力各自报告 skipped 原因
+  ✓ 空 ctx 下 safeMode = true（核心能力缺失）
+
+=== apply-host: 44 passed, 0 failed ===
+
+=== dag-flow offline contract tests ===
+
+  ✓ AC1 hello world: 3 nodes 合法
+  ✓ AC5 subagent: drift 时抛 Unavailable
+  ✓ AC5 subagent: 健康时正常
+  ✓ AC6 control flow: if + 分支
+  ✓ AC7 自定义节点: register/get/unregister
+  ✓ AC8 drift 探测: all-OK / empty / 字符串冒充
+  ✓ AC8 存储解析链: 无 host 线索且 cwd 不可用 → ~/.dsh/workflows 兜底
+  ✓ AC8 存储解析链: host ctx 提供工作区 → <工作区>/.dag-flow/workflow
+  ✓ AC8 存储解析链: cwd 可用（非 system32/主目录）→ <cwd>/.dag-flow/workflow
+  ✓ AC9 JSON 损坏: SyntaxError
+  ✓ Edge E1: 拒 name 含空格
+  ✓ Edge E1b: 中文名合法（2026-10-01 起 src/name-rule.ts）
+  ✓ Edge E2: 拒 next → 不存在 id
+  ✓ Edge E3: bash ENOENT → BASH_SPAWN
+  ✓ Edge E4: python ENOENT → PYTHON_SPAWN
+  ✓ Edge E5: subagent timeout 包装
+  ✓ Edge E6: 循环 maxIterations=1000
+  ✓ Edge E7: 未知节点类型返回 undefined
+  ✓ Edge E8: 并发 run id 唯一
+  ✓ NodeResult 契约字段齐全
+  ✓ Bash 安全: rm -rf / 拒绝
+  ✓ Bash 安全: echo 通过
+  ✓ Bash 安全: 显式 allow 通过
+  ✓ expr sandbox: 不存在路径得 undefined
+  ✓ 必须: 至少 1 个 start + 1 个 end
+  ✓ 必须: start 数量恰好 1
+  ✓ 必须: 节点 id 唯一
+  ✓ version 必须为 1
+
+=== Result: 28 passed, 0 failed ===
+
+=== runtime path resolution contract tests ===
+
+  ✓ detect: win32+x64 → win-x64
+  ✓ detect: darwin+arm64 → mac-arm64
+  ✓ detect: linux+x64 → linux-x64
+  ✓ detect: win32+arm64 → unknown
+  ✓ python path: win-x64 bundled = python.exe
+  ✓ python path: mac-arm64 = bin/python3.12
+  ✓ python path: linux-x64 user-cache 路径
+  ✓ bash path: win-x64 bundled = mingit64/usr/bin/bash.exe
+  ✓ bash path: mac-arm64 → 空（用系统）
+  ✓ bash path: linux-x64 → 空（用系统）
+  ✓ uv path: win-x64 = uv.exe
+  ✓ uv path: mac-arm64 = uv (无扩展名)
+  ✓ resolve: bundled 优先
+  ✓ resolve: 无 bundled → user-cache
+  ✓ resolve: 无 bundled/cache → system (macOS/Linux bash)
+  ✓ resolve: 全无 → missing
+  ✓ PYTHON_UNAVAILABLE 错误信息含 fetch 命令
+  ✓ BASH_UNAVAILABLE 错误信息含 fetch 命令
+  ✓ download URL: win-x64 PBS
+  ✓ download URL: mac-arm64 PBS
+  ✓ download URL: linux-x64 PBS
+  ✓ download URL: win-x64 MinGit busybox
+  ✓ download URL: win-x64 uv
+  ✓ R3 契约: python 节点不允许回退到系统 python（除非 bundled/cache 都没有）
+
+=== Result: 24 passed, 0 failed ===
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dsh-wf-test-VdDhfH\.dag-flow\workflow (2 files)
+[1] storage dir = C:\Users\lmz\AppData\Local\Temp\dsh-wf-test-VdDhfH\.dag-flow\workflow (source: process-cwd)
+[2] readWorkflow roundtrip = OK
+[3] raw JSON on disk: demo-flow | pretty-printed: yes
+[4] listWorkflows = ["demo-flow","测试","test"]
+[5] runs: ["run-abc-1"] | read: success
+[6] invalid name rejected: true
+[7] chinese name roundtrip: 每日简报
+
+✅ storage JSON 端到端全部通过
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dsh-ws-a-OjXuG7\.dag-flow\workflow (2 files)
+  ✓ 单一工作区 → <ws>/.dag-flow/workflow
+  ✓ 来源标记 workspace-registry
+  ✓ 目录已创建
+  ✓ 写工作流落到工作区目录
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dsh-ws-b-pcFB6M\.dag-flow\workflow (2 files)
+  ✓ 多工作区 → 取 updatedAt 最新
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → D:\workspace\pluginspace\dag-flow\.dag-flow\workflow (2 files)
+  ✓ 无 registry → 回退 process.cwd() 链
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → D:\workspace\pluginspace\dag-flow\.dag-flow\workflow (2 files)
+  ✓ 候选不存在 → 回退 cwd 链
+
+=== storage-workspace: 7 passed, 0 failed ===
+  ✓ apply(ctx) 完成且捕获到路由
+  ✓ GET /nodes → 200
+  ✓ 节点列表含 13 内置类型
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-e2e-PHLfto\.dag-flow\workflow (2 files)
+  ✓ POST /workflows/save → 200 且名称规范化
+  ✓ 工作流已落盘为工作区 JSON（.dag-flow/workflow/）
+  ✓ 落盘内容是 pretty JSON 且 name 规范化
+  ✓ GET /workflows → 200 且含 e2e-demo
+  ✓ 列表携带存储位置说明（.dag-flow/workflow）
+  ✓ 列表每项带落盘路径 path（指向该工作流自己的 .json）
+  ✓ GET /workflows/<name> 读回定义
+  ✓ POST /workflows/save 中文名 → 200 且原名保留
+  ✓ GET /workflows/每日简报 → 200 读回中文名工作流
+  ✓ GET /workflows 列表含中文名
+  ✓ 读取不存在的工作流 → 404
+  ✓ GET /models → 200 且 models 为数组
+  ✓ GET /sessions → 200 且 sessions 为数组
+  ✓ 读取不存在会话 → 404
+  ✓ POST /run → 200
+  ✓ start→end 工作流执行成功
+  ✓ 运行摘要含节点级结果
+  ✓ POST /run(python) → 200 且摘要状态合法
+  ✓ POST /run-node(python) → 200
+  ✓ 试跑摘要包含 target 节点结果
+  ✓ POST /run-node 未知类型 → 400
+  ✓ GET /workflows/<name>/versions → 200 且 ≥1 版本
+  ✓ GET /workflows/<name>/versions/<ts> 读回快照
+  ✓ 当前文件是最新内容（含 log 节点）
+[workflow] branch-b
+  ✓ switch+merge 流程 → 200
+  ✓ switch 激活 b 分支（lb success）
+  ✓ a 分支被跳过（skipped）
+  ✓ merge 合流输出含上游键
+[workflow] from-sub
+  ✓ subflow 调用子工作流成功且带 output
+  ✓ DELETE /workflows/<name> → 200
+  ✓ 删除后读取 → 404
+  ✓ GET /runs?workflowName → 200 且含记录
+npm.cmd : [workflow] fallback-path
+At line:1 char:129
++ ... ext.UTF8Encoding]::new($false); npm.cmd run test:offline *>&1 | Out-F ...
++                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([workflow] fallback-path:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  ✓ DAG 失败边：失败节点 failed
+  ✓ DAG 失败边：goto 目标执行成功
+  ✓ DAG 失败边：目标的下游继续跑
+[workflow] ok
+  ✓ 并行分支失败：firstError 指向具体节点（不再是 PARALLEL_FAILED）
+  ✓ 并行分支失败：另一分支照常跑完
+  ✓ 并行分支失败：失败节点的下游 end 仍执行（它有 ok 这条活入边）
+[workflow] A
+[workflow] B
+  ✓ 归一化：next-only 定义也走 DAG（分支自身的 next 被跟随 → merge 执行）
+  ✓ 归一化：merge 收到两条上游的输出
+  ✓ 归一化：扇出两条分支都执行成功
+  ✓ 归一化：汇总状态为成功
+[workflow] true 分支
+  ✓ 归一化：if 的 {true,false} → when 边，命中分支执行
+  ✓ 归一化：未命中分支被标 skipped（不再"凭空消失"）
+[workflow] quick 分支
+  ✓ 归一化：switch 的 case 映射 → when 边，命中 case 执行
+  ✓ 归一化：未命中的 case 被标 skipped
+  ✓ loop.over 迭代 3 项
+[workflow] hello-inputs
+  ✓ def.inputs 注入（{{inputs.greeting}} 解析）
+  ✓ 取消不存在的运行 → 404
+  ✓ image_generate → 200 且输出图片路径
+  ✓ 图片已落盘到 .dag-flow/ 根下
+  ✓ 图片文件真实存在
+  ✓ video_generate → 200 且轮询到 video_url
+  ✓ 视频已落盘（轮询 3 次完成）
+  ✓ 视频文件真实存在
+  ✓ file_save(text) → 200 且写入子目录（.dag-flow/ 下）
+  ✓ 文本资产真实存在
+  ✓ file_save(url) → 200 下载落盘
+  ✓ 路径穿越被拒绝或安全规范化
+[workflow] quick 分支
+  ✓ 10.1 switch case 映射 next（串行）→ 200 且不报结构校验未通过
+  ✓ 10.2 switch case 映射 next（串行）→ 命中 quick 分支、未走 full
+[workflow] quick 分支
+  ✓ 10.4 switch case 映射 next + edges（DAG）→ quick 执行、full skipped
+[workflow] true 分支
+  ✓ 10.5 if {true,false} next → 200 且 true 分支执行
+  ✓ 10.6 非法 next → 被自检拦下（409 + blocked + STRUCT_INVALID）
+  ✓ 10.7 拦下时仍给出折叠后的单条人话（含 显示名_id(类型)，不喷 9 条 ajv 原文）
+  ✓ 10.8 ★拦下的提示必须带「解决办法」（用户明确要求：报错提示 + 解决办法）
+  ✓ 10.9 仍然运行（skipSelfcheck:true）→ 绕开自检，走回引擎原路径（500 + error）
+  ✓ 11.1 POST /selfcheck → 200 且纯工作流通过（errorCount=0）
+  ✓ 11.2 /selfcheck 返回统计（节点/边数）供确认弹窗展示
+  ✓ 11.3 必填参数缺失 → /selfcheck 报 PARAM_REQUIRED（轮 2 新检查）
+  ✓ 11.4 ★每条问题都带「解决办法」（fix）
+  ✓ 11.5 缺 def → /selfcheck 400（不静默通过）
+  ✓ 11.6 ★/selfcheck 只自检不执行（把必填缺失的 def 发给它，不会真的跑起来）
+  ✓ 12.1 loop 无循环边界 → LOOP_NO_BOUND（error，运行必失败）
+  ✓ 12.2 subflow 依赖的工作流不存在 → SUBFLOW_MISSING（用真实工作区清单判定）
+  ✓ 12.3 merge 只有 1 条上游 → MERGE_NO_UPSTREAM（error）
+  ✓ 12.4 ★每条都带解决办法（fix）
+  ✓ 12.5 存值模型解析不到 → 只给 warn（不拦运行：LLM 服务此刻不可用属正常）
+  ✓ 13.1 含图片生成节点 → MEDIA_COST（warn，提醒会产生费用）
+  ✓ 13.2 大循环（60 次）→ BIG_LOOP（warn，提醒耗时/数据量放大）
+  ✓ 13.3 ★建议类一律不拦运行（这两个 def 的 errorCount 都是 0）
+
+=== api-e2e: 84 passed, 0 failed ===
+  ✓ A1. auto → 命中内置 bing 引擎并解析出结果
+  ✓ A2. bing 结果字段完整（title/url/snippet）
+  ✓ A3. count 钳制生效（count=5 → 最多 5 条）
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-search-vhXh38\.dag-flow\workflow (2 files)
+  ✓ A4. bing 无关缓存页 → 自动回退 ddg-lite
+  ✓ A5. ddg-lite uddg 跳转链接已解码
+  ✓ A6. provider=searxng → 公共实例 JSON 解析
+  ✓ A7. provider=ddg → HTML SERP 解析
+  ✓ A8. provider=anysearch → 匿名 JSON API 解析
+  ✓ A9. 引擎全挂 → 明确失败 SEARCH_FAILED（含聚合错误）
+  ✓ A10. query 留空 → 快失败 SEARCH_EMPTY_QUERY（不发网络请求）
+  ✓ A11. 空白 query 同样快失败且耗时极短
+  ✓ B1. 宿主有 web_search 工具 → auto 优先走宿主
+  ✓ B2. 宿主结果归一化（title/snippet 保留）
+  ✓ B3. 宿主调用抛错 → 静默回落内置链（bing）
+  ✓ B4. provider=host 且宿主未装插件 → 明确报错指引
+  ✓ C1. web_fetch HTML → 剥出正文文本
+  ✓ C2. 正文无标签/script/注释残留，保留可见文字
+  ✓ C3. web_fetch JSON → mode=json 且解析为对象
+  ✓ C4. raw=true → 返回原始响应体
+  ✓ C5. HTTP 500 → 明确失败 FETCH_FAILED（含状态码）
+  ✓ C6. maxChars 钳制正文长度
+  ✓ C7. url 留空 → 快失败 FETCH_NO_URL
+  ✓ D1. 搜索→抓取 全流程 success
+  ✓ D2. 搜索结果 URL 经 {{}} 引用传递给 web_fetch
+
+=== search tests: 24 passed, 0 failed ===
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ A1. python 空白 code → 预检拦截
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ A2. bash 空 code → 预检拦截
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-params-vjTIyK\.dag-flow\workflow (2 files)
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ A3. http 空 url → 预检拦截
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ A4. if 空白 condition → 预检拦截（防静默 false）
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ A5. log 空白 message → 预检拦截（防输出 undefined）
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ A6. manual 空 prompt → 预检拦截
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ A7. set_var 缺 vars → 预检拦截（防静默成功）
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ A8. switch 空 cases → 预检拦截（防分支全 skip）
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ A9. subflow 空白 workflowName → 预检拦截
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ A10. file_save 空 filename → 预检拦截
+  ✓ B1. DAG 模式预检生效
+  ✓ B2. 多问题一次性聚合（http + log 两处明细）
+  ✓ B3. 预检失败不进入执行（results 空）
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ C1. url 为 {{inputs.u}} 引用 → 预检通过（错误是执行期而非参数校验）
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ D1. subagent 空 model 仍为 MODEL_REQUIRED（语义保留在节点内）
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ D2. web_search 空 query 仍为 SEARCH_EMPTY_QUERY
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ D3. web_fetch 空 url 仍为 FETCH_NO_URL
+[dag-flow] 以下节点不可达（未连接到 start）: end
+[workflow] params-ok
+  ✓ E1. 合法参数 → 正常执行 success
+  ✓ E2. DAG 合法（set_var 有 vars）→ 正常执行不被预检拦截
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ F1. 必填缺失且未确认 → 409 + blocked（自检先拦，不进引擎）
+  ✓ F2. 拦截项带 PARAM_REQUIRED 错误码 + 指明节点
+  ✓ F3. ★拦截项带「解决办法」（fix）
+  ✓ F4. POST /selfcheck → 200 且只报告不执行（无 summary/runId）
+
+=== params-check: 23 passed, 0 failed ===
+  ✓ A1. 未标注 input 的模型 → hasImage=false（仅文本）
+  ✓ A2. 标注 input:[text,image] 的模型 → hasImage=true
+  ✓ B1. 纯文本模型 + prompt 引用图片 → 拦截 MODEL_MODALITY_MISMATCH
+  ✓ B2. 提示含模型名/缺失模态/修复指引
+  ✓ B3. 纯文本模型 + prompt 引用文件 → 拦截（file 模态）
+  ✓ B4. 引用视频 → 拦截（video 模态）
+  ✓ B5. 纯文本 prompt + 纯文本模型 → 通过模态校验并真实调用 LLM
+  ✓ B6. 图片模型 + prompt 引用图片 → 通过模态校验并调用 LLM
+  ✓ B7. kimi-vision（input: text,image）+ 引用 csv → 拦截（模型缺 file 模态）
+  ✓ C1. 缺 Key → 400 提示
+  ✓ C2. 组合可用 → ok:true 且注明已生成测试图
+  ✓ C3. 模型不存在（404）→ ok:false + 指引检查 baseURL/model
+  ✓ C4. Key 无效（401）→ ok:false + 指引
+
+=== modality tests: 13 passed, 0 failed ===
+  ✓ A1 数组 models 解析出 2 个端点
+  ✓ A2 refs 里的 key 生效
+  ✓ A3 providerName = provider:model
+  ✓ A4 input 标注透传（多模态）
+  ✓ A5 未标注 input 视为仅文本
+  ✓ A6 baseURL 透传
+  ✓ B1 对象 models 解析出 2 个端点
+  ✓ B2 name 字段兜底生效
+  ✓ B3 id 字段优先于 name
+  ✓ B4 key 缺 refs 时回环境变量
+  ✓ C1 简写形态出 1 个端点
+  ✓ C2 agent-default-model 生效
+  ✓ C3 providerName=llm-deepseek 且仅文本
+  ✓ D1 空对象 → 0 端点
+  ✓ D2 无关键名 → 0 端点
+  ✓ E1 默认落 ~/.dsh
+  ✓ E2 DSH_HOME 优先于 ~/.dsh
+  ✓ F1 未设环境变量 → null（不影响 dsh 首选）
+  ✓ F2 仅 BASEURL → 默认模型 + 尾斜杠规范 + 无 key
+  ✓ F3 三变量齐全 → 全部生效
+  ✓ G1 顶层数组解析（array，2+ 条目）
+  ✓ G2 llm-pi-ai 条目命中
+  ✓ G3 providers.custom-model 字段齐全
+  ✓ G4 models 数组 2 项且 id 生效
+  ✓ G5 models 项嵌套 input 数组完整
+  ✓ G6 同层多条目互不串扰
+  ✓ H1 仅 patch 源发现 2 个端点（pi-ai 1 + deepseek 简写 1）
+  ✓ H2 patch 条目 key 经 .credentials.yaml refs 生效
+  ✓ H3 patch 模型 input 透传
+  ✓ H4 llm-deepseek 简写从 patch 条目生效
+  ✓ H5 settings.yaml 优先：yaml-provider 在、patch-provider 让位
+  ✓ H6 同名键让位但缺键仍补：llm-deepseek 从 patch 补进
+  ✓ I1 anthropic-messages 协议 provider 标 viaHost（不再 OpenAI 直连）
+  ✓ I2 viaHost 端点带 hostProvider=provider 键名
+  ✓ I3 viaHost 端点 baseURL 允许保留（执行侧不再用它，仅展示）
+  ✓ I4 resolveLlmEndpoint 命中 viaHost 端点（走 host 路由）
+  ✓ I5 未匹配模型明确报错（不再静默换端点）
+  ✓ J1 providerLabel = provider 键名（同名消歧用，比内部串 pid:model 好认）
+  ✓ J2 name ≠ id → modelLabel = 显示名
+  ✓ J3 name === id → 不带 modelLabel（UI 回退 model id，不假装有显示名）
+  ✓ J4 无 name → 不带 modelLabel
+  ✓ J5 ★ 存值/路由字段不受显示名影响
+
+=== llm-config: 42 passed, 0 failed ===
+  ✓ S1 v4+v3+旧文件名+长标题+title事件夹具都能列出（5 个会话）
+  ✓ S2 v4 多帧 + 事件流可读（跨帧拼接、data.content 提取、tool/call 跳过）
+  ✓ S3 v3 文件名 + 新版目录转义可读
+  ✓ S4 旧文件名 + 旧转义目录可读（明文兜底）
+  ✓ S5 workspace 名对不上 → 全盘扫描兜底命中
+  ✓ S6 limit=1 只取最后 1 条
+  ✓ S7 v4 limit=1 跨帧取尾条
+  ✓ S8 不存在的会话 → null
+  ✓ S9a v4 会话标题=首条 user 消息摘要
+  ✓ S9b v3 会话标题
+  ✓ S9c 旧明文会话标题
+  ✓ S9d 超长首条消息截断 40 字 + …
+  ✓ S9e mtime 字段存在（ISO 串）
+  ✓ S9f session/title 事件优先且取 seq 最大者
+  ✓ S10 按最后活动倒序（最近会话排最前）
+
+=== sessions: 15 passed, 0 failed ===
+  ✓ X1 节点输出按 id 拍平（既有形态）
+  ✓ X2 results 命名空间同义（results.<id> = out）
+  ✓ X3 inputs/vars 对象保留
+  ✓ X4 拍平式条件可用
+  ✓ X5 results 命名空间条件可用（新）
+  ✓ X6 对象型 out 取字段
+  ✓ X7 裸 Number(不存在字段) → NaN 按 false（不抛错）
+  ✓ X8 NaN 触发告警且含表达式原文
+  ✓ X9 比较式含 .out 且结果 false → 笔误告警（不再静默）
+  ✓ X10 正确写法结果为 true 且不触发告警
+
+=== expr-scope: 10 passed, 0 failed ===
+
+[A] schema 接受的分支键形状
+  ✓ A1. switch case 映射 {quick,full} → 通过
+  ✓ A2. if {true,false} → 通过（oneOf 恰好命中一个分支，未被新分支撞车）
+  ✓ A3. case 含 "*" 兜底键 → 通过
+[dag-flow] 以下节点不可达（未连接到 start）: a, b
+  ✓ A4. string next → 通过
+  ✓ A5. array next → 通过
+[dag-flow] 以下节点不可达（未连接到 start）: a, b, end
+  ✓ A6. next: null → 通过
+  ✓ A7-detail. 演示文件校验无错
+  ✓ A7. 真实演示文件（画布保存过的 switch）→ 通过
+
+[B] 非法 next 的报错质量（折叠 + 显示名_id）
+  ✓ B1. 非对象/数组/字符串 → 报「结构不符合任一允许的形式」
+  ✓ B2. 带允许形式提示
+  ✓ B3. 位置带显示名_id(类型)
+  ✓ B4. 不再喷 9 条（单根因单条消息）
+  ✓ B5. 分支值非字符串 → 折叠报错
+  ✓ B6. 空对象 {} → 报错（minProperties 1）
+  ✓ B7. onError 非法 → 折叠 + onError 允许形式提示
+  ✓ B8. onError 与 next 两类错误分别成条（不互相吞）
+  ✓ B9. 非节点路径保留 JSON Pointer 原样（不伪造成「节点」）
+  ✓ B10. nodeTag：label=id 时退化为 id，缺 id 用 fallback
+
+=== schema-next: 18 passed, 0 failed ===
+[workflow] before-manual
+  ✓ A1. /run 撞上 manual → 202 awaiting
+  ✓ A2. 返回 runId + awaiting.nodeId/prompt
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-manual-GFwQrK\.dag-flow\workflow (2 files)
+  ✓ A3. /run/status 查回等待态
+  ✓ A4. status 带已完成节点结果（供画布徽标）
+[workflow] 已核对，图 2 需替换
+  ✓ B1. /run/resume → 200 且运行成功
+  ✓ B2. manual 节点 out 带用户备注
+  ✓ B3. 备注已透传到下游 {{manual1.out.value}}
+  ✓ B4. end 之后无 await 残留（status 变 completed）
+  ✓ B5. 重复 resume → 409（运行已结束）
+  ✓ C1. 未知 runId → 404（dsh 重启后的中断态依据）
+  ✓ C2. 未知 runId resume → 404
+  ✓ D1. next-only 定义同样会挂起（202）
+  ✓ D2. DELETE 取消等待中的运行 → 200
+  ✓ D3. 取消后 manual 节点转失败 MANUAL_CANCELLED
+  ✓ D4. 运行整体收敛为 failed
+  ✓ E1. run-node 试跑 manual → 直接 200（不挂起）
+  ✓ E2. 自动通过标记 autoPassed=true + confirmed=true
+  ✓ E3. 自动通过留了 warning 日志
+  ✓ E4. subflow 内含 manual → 父流程直接 200（不挂起）
+[workflow] plain
+  ✓ F1. 无 manual 的工作流 → 200 一次返回（未被改坏）
+
+=== manual-await: 20 passed, 0 failed ===
+  ✓ apply(ctx) 捕获到路由
+
+== A. count 固定次数 ==
+  ✓ count=3 → count 3
+  ✓ count=3 → items=[0,1,2]
+  ✓ count=3 → 状态 success
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-loop-QaKa7J\.dag-flow\workflow (2 files)
+  ✓ count=0 → 0 次（不报错）
+
+== B. over 遍历上游数组（模板解析）==
+  ✓ over={{start.out.items}} → count 3
+  ✓ over 逐项收集（顺序保真）
+[workflow] b
+  ✓ over 元素为对象 → 下游可索引 {{lp.out.items.1.t}}
+
+== C. maxIterations 截断 / 边界优先级 ==
+  ✓ over 4 项 + maxIterations=2 → 截断到 2
+  ✓ 截断取前 N 项
+  ✓ over 与 count 同时给 → over 优先（count 被忽略）
+
+== D. while 条件 ==
+  ✓ while=false → 0 次且 success
+  ✓ while=true 达上限且未授权 → failed
+  ✓ 错误码 LOOP_MAX_ITER
+  ✓ 错误消息含 maxIterations 与 dangerouslyAllowInfinite
+  ✓ while=true + dangerouslyAllowInfinite → 跑满 3 次 success
+  ℹ while 自引用实测：{"status":"failed","code":"UNCAUGHT"}
+  ✓ while 引用自身 out → failed（能力边界已锁定）
+  ✓ while 自引用错误码当前为 UNCAUGHT（待改进为专属码）
+  ✓ 错误消息点明 undefined variable
+  ℹ while 只能看运行前已完成的节点；循环体内部状态无法反映到条件里（v0.1 限制）
+
+== E. 无边界守卫 ==
+  ✓ count/while/over 全缺 → failed
+  ✓ 错误码 LOOP_NO_BOUND
+
+== E2. /run-node 单节点测试通路（客户端「测试节点」按钮）==
+  ✓ POST /run-node loop count=2 → 200 ok:true
+  ✓ /run-node 目标节点 out.count=2
+  ✓ /run-node 无边界 loop → ok:false + LOOP_NO_BOUND
+  ✓ /run-node 的 over 引用上游 → 失败（单节点无上游，已知边界）
+  ℹ 单节点测试的 over 引用上游：undefined
+
+== G. 循环体 = 子工作流（方案 A，2026-10-03 用户拍板）==
+  ✓ G0. 循环体子工作流已落盘
+  ✓ G1. 循环体跑满 3 轮且节点 success
+  ✓ G2. 每轮结果依次收进 out.items（含注入的项与序号）
+  ✓ G3. over 模式：item 与序号都注入到位
+  ✓ G4. 循环体不存在 → WORKFLOW_NOT_FOUND
+  ✓ G5. 默认 stop：某轮失败 → LOOP_BODY_FAILED
+  ✓ G6. 失败时 out.items 保留已完成轮次（便于排查）
+  ✓ G7. continue：失败轮写占位并继续跑完
+
+== H. switch 多 case 共用一个目标节点（2026-10-03 log_mode 被误跳过回归锁）==
+  ✓ H1. 命中 case a：共享目标 t 正常执行（不被未激活的 b 连带跳过）
+  ✓ H2. 未命中的 case c 目标 u 仍被跳过
+  ✓ H3. switch 输出 matched 与 target 可观测
+  ✓ H4. end 汇总成功（两条分支都没把整图带崩）
+  ✓ H5. 命中 case b：同一个共享目标 t 同样执行
+  ✓ H6. 命中 case c：t 被正确跳过、u 执行
+
+== F. 演示工作流接线回归锁（全节点演示-技术简报）==
+  ✓ 演示含 2 个 loop 节点（固定次数 + 遍历上游数据）
+  ✓ loop_demo 存在且边界/循环体配置齐全（自洽，不锁具体次数）
+  ✓ loop_over 存在
+  ✓ loop_over 以 over 遍历上游搜索结果为数组
+  ✓ loop_over 带 maxIterations 上限
+  ✓ 边：web_search1 → loop_over
+  ✓ 边：loop_over → end_final
+  ✓ 边：prep_vars → loop_demo → end_final（原有循环仍在链路上）
+  ✓ end_final 汇总 loop_demo.out.count
+  ✓ end_final 汇总 loop_over.out.count
+  ℹ 演示工作流数据体检：边无重复 / 无孤儿线 / 每个 case 都有连线
+  ℹ 演示里 switch_mode 存在「多 case 同目标」形态：log_mode（语义锁在 H 段）
+  ✓ 演示 loop_demo 原样定义可跑通（out.count 与文件配置自洽）
+  ✓ 演示 end_final 的 {{loop_demo.out.count}} 能解析
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ 自检门：loop 无边界 → 409 + LOOP_NO_BOUND（不必等运行时才失败）
+  ✓ 自检门：拦下时给出解决办法（fix）
+[dag-flow] 以下节点不可达（未连接到 start）: end
+  ✓ 自检门：循环体子工作流不存在 → 409 + LOOP_BODY_MISSING（提前报，不等每轮失败）
+
+=== loop 专项：54 passed, 0 failed ===
+== A. 标量 / 空值：不给字段（只该整取引用）==
+  ✓ A1. 字符串输出 → 无字段（actual=[] expected=[]）
+  ✓ A2. 数字输出 → 无字段（actual=[] expected=[]）
+  ✓ A3. 布尔输出 → 无字段（actual=[] expected=[]）
+  ✓ A4. null 输出 → 无字段（actual=[] expected=[]）
+  ✓ A5. 空对象 → 无字段（actual=[] expected=[]）
+  ✓ A6. 空数组 → 无字段（actual=[] expected=[]）
+== B. 对象 / 嵌套：给点路径 + 类型 + 样例 ==
+  ✓ B1. 逐层展开到 maxDepth（status/body/body.count/body.list）（actual=["status","body","body.count","body.list"] expected=["status","body","body.count","body.list"]）
+  ✓ B2. 字段带 kind + sample（actual={"path":"status","kind":"number","sample":"200"} expected={"path":"status","kind":"number","sample":"200"}）
+  ✓ B3. 数组字段 kind=array（actual="array" expected="array"）
+  ✓ B4. 数组样例显示项数（actual="[2 项]" expected="[2 项]"）
+== C. 数组只展开第 1 个元素（对应 {{id.out.results.0.url}} 写法）==
+  ✓ C1. 只展开第 1 个元素的键（不展开第 2 个）（actual=["results","results.0.title","results.0.url","results.0.snippet","count"] expected=["results","results.0.title","results.0.url","results.0.snippet","count"]）
+  ✓ C2. 深层字段带样例值（actual="https://a.example" expected="https://a.example"）
+  ✓ C3. 元素是标量的数组不展开（actual=["list"] expected=["list"]）
+== D. 用户自定义 / 动态键：真跑过才能知道有哪些键，抽出来即可用 ==
+  ✓ D1. set_var 风格的键全抽出来（含中文键）（actual=["topic","words","主题"] expected=["topic","words","主题"]）
+  ✓ D2. 自定义值给样例（actual="AI 日报" expected="AI 日报"）
+  ✓ D3. merge 风格（键=上游节点 id）也能抽（actual=["py_gate","http1","http1.status"] expected=["py_gate","http1","http1.status"]）
+== E. 无法引用的键名要跳过并计数（否则复制过去解析失败）==
+  ✓ E1. 含点/空白/方括号/花括号的键不进字段（actual=["ok"] expected=["ok"]）
+  ✓ E2. 被跳过的键路径记进 skipped（面板可提示）（actual=["[k]","a.b","k{k}","x y"] expected=["[k]","a.b","k{k}","x y"]）
+== F. 上限与深度：面板不能被大对象撑爆 ==
+  ✓ F1. 默认最多 30 条（实际 30）
+  ✓ F2. maxFields 可调（实际 5）
+  ✓ F3. 默认只到第 3 层（a.b.c，不含 a.b.c.d）（actual=["a","a.b","a.b.c"] expected=["a","a.b","a.b.c"]）
+  ✓ F4. maxDepth 可调（actual=["a","a.b","a.b.c","a.b.c.d"] expected=["a","a.b","a.b.c","a.b.c.d"]）
+== G. sampleOf / kindOf 预览口径 ==
+  ✓ G1. 长字符串截断加省略号（actual=true expected=true）
+  ✓ G2. 多行/多余空白折叠成一行（actual="a b" expected="a b"）
+  ✓ G3. 空串有明确文案（actual="（空字符串）" expected="（空字符串）"）
+  ✓ G4. 对象样例给键数（actual="{2 个键}" expected="{2 个键}"）
+  ✓ G5. null 明确显示（actual="null" expected="null"）
+  ✓ G6. kindOf 覆盖各类型（actual=["null","array","object","string","number","boolean"] expected=["null","array","object","string","number","boolean"]）
+
+=== out-fields：28 passed, 0 failed ===
+
+== A. finish { kind:stop } + text-delta → 正常成功 ==
+  ✓ A1. 有文本 → success 且 out=你好
+  ✓ A2. 传给宿主的是 provider/model（不带 dsh:llm: 前缀）
+  ✓ A3. messages[0].content 是内容块数组（非字符串）
+
+== B. finish { kind:error, failure } → 必须是失败，且**带出宿主的 failure 详情** ==
+  ✓ B1. 空文本 + finish:error → failed
+  ✓ B2. 错误消息带出 failure.message
+  ✓ B3. 错误消息带出 failure.code 与 HTTP 状态
+
+== C. finish { kind:aborted, failure } → 失败 ==
+  ✓ C1. aborted → failed 且带出原因
+
+== D. 空流（一个 chunk 都没有）→ 不许静默成功 ==
+[dag-flow] host llm.stream 空流：provider=probe-provider model=probe-model chunks=[（host 一个 chunk 都没产出）]
+  ✓ D1. 零 chunk → failed（不再 success+空串）
+  ✓ D2. 错误消息说明"一个 chunk 都没产出"
+
+== E. finish { kind:stop } 但无文本 → 空输出守卫 ==
+[dag-flow] host llm.stream 空流：provider=probe-provider model=probe-model chunks=[finish:{"kind":"stop"}]
+  ✓ E1. 正常结束但无文本 → failed[SUBAGENT_EMPTY_OUTPUT]
+
+== F. 旧形态兼容：reason 直接是字符串 'error' → 仍判失败 ==
+  ✓ F1. reason 为字符串 error → failed
+
+== G. /models 带出显示名 + 按 provider:model 去重（2026-10-03 用户要求）==
+  ✓ G1. /models 每项带 label（模型显示名）
+  ✓ G2. label = 宿主 listModels 的 name（不是内部 providerName）
+  ✓ G3. 带 providerLabel（提供方显示名，重名消歧用）
+  ✓ G4. ★ 存值/执行仍是 id：id 字段未被显示名污染
+  ✓ G5. 旧字段 name（内部 providerName）保持不变，向后兼容
+  ✓ G6. 同一 provider:model 只出现一次（去重生效）
+  ✓ G7. 保留的是 host 发现那条（带 dsh:llm: 前缀 + 显示名）
+  ✓ G8. settings 直读那条被去重掉（不再出现 dsh:probe-provider:probe-model）
+
+== H. 模态不匹配报错用「显示名」（2026-10-03 与下拉文案同口径）==
+  ✓ H1. 引用图片 + 纯文本模型 → MODEL_MODALITY_MISMATCH
+  ✓ H2. 报错里是模型显示名，不是内部 id
+  ✓ H3. 内部串（llm:provider:model）不再出现在报错里
+  ✓ H4. 拦在调用前（未发起 LLM 请求，不浪费额度）
+
+=== host-llm 契约：23 passed, 0 failed ===
+  ✓ apply(ctx) 捕获到路由
+
+== ① 默认（不勾 tolerate）→ 下游停止 + 运行记失败（2026-10-04 轮 2：只停下游，不再中止全图）==
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-tol-nwF8PB\.dag-flow\workflow (2 files)
+  ✓ HTTP 200（不是 500）
+  ✓ 汇总 status=failed
+  ✓ failedCount=1
+  ✓ toleratedCount 缺省（不写 0）
+  ✓ 失败节点没被标 tolerated
+  ✓ 下游 lg 被标「跳过（未执行）」
+  ✓ firstError.nodeId=fail1
+
+== ② 勾选 tolerate → 记失败但不中断，后续层照常执行 ==
+[workflow] 跑到了下游
+  ✓ 汇总 status=success（容错失败不计入 failedCount）
+  ✓ failedCount=0
+  ✓ toleratedCount=1
+  ✓ 无 firstError（不弹失败详情）
+  ✓ 节点自身仍是 failed（不伪装成功）
+  ✓ 节点被标记 tolerated=true
+  ✓ 下游 lg 已执行
+  ✓ 末端 end 已执行
+  ✓ 容错节点的 error.code 可读
+  ✓ 容错节点的 error.message 可读
+  ✓ 容错节点没有 out（与硬失败一致，不凭空造输出）
+
+== ③ 混合场景：容错失败不该掩盖真失败 ==
+  ✓ 汇总 status=failed（真失败仍然报错）
+  ✓ failedCount=1（只数真失败）
+  ✓ toleratedCount=1
+  ✓ firstError 指向真失败节点 fail2（不是容错那个）
+  ✓ 真失败后面的 end 未被「执行」
+
+== ④ next-only 写法（无 edges、只有 next → 归一化后走 DAG）==
+  ✓ next-only 不勾 → 下游不执行（标 skipped）
+  ✓ next-only 不勾 → status=failed
+[workflow] 跑到了下游
+  ✓ next-only 勾选 → 下游照常执行
+  ✓ next-only 勾选 → toleratedCount=1
+  ✓ next-only 勾选 → status=success
+
+== ⑤ tolerate 通过执行前结构校验（host WORKFLOW_SCHEMA）==
+[workflow] x
+  ✓ 带 tolerate（含 false）的结构校验通过 → 能执行
+
+=== tolerate 容错开关：30 passed, 0 failed ===
+== A. 没跑过 / 成功 ==
+  ✓ A1. 无运行结果 → 不弹（null）（actual=null expected=null）
+  ✓ A2. 成功徽标含耗时（actual="✓ 成功 · 120ms" expected="✓ 成功 · 120ms"）
+  ✓ A3. badgeKind=ok（actual="ok" expected="ok"）
+  ✓ A4. 标题=显示名 · 节点id（actual="取日期 · py_date" expected="取日期 · py_date"）
+  ✓ A5. 只有输出一行（actual=1 expected=1）
+  ✓ A6. 输出行 kind=code（actual="code" expected="code"）
+  ✓ A7. 字符串 out 原样展示（python/bash 的 out 就是纯文本）（actual="hello" expected="hello"）
+  ✓ A8. 无 durationMs 时不写耗时（actual="✓ 成功" expected="✓ 成功"）
+  ✓ A9. 成功但无输出 → 明确写「本次无输出」
+== B. 失败 / 失败但已容错（A 方案开关）==
+  ✓ B1. 硬失败徽标（actual="✕ 失败 · 3400ms" expected="✕ 失败 · 3400ms"）
+  ✓ B2. badgeKind=err（actual="err" expected="err"）
+  ✓ B3. 首行是错误行（actual="err" expected="err"）
+  ✓ B4. 错误行 = code：message
+  ✓ B5. 未容错时不写「已容错」
+  ✓ B6. 已容错 → badgeKind=warn（琥珀，不是红色）（actual="warn" expected="warn"）
+  ✓ B7. 徽标写明「已容错」
+  ✓ B8. 有一行 warn 说明
+  ✓ B9. 容错说明写清后果（没有中断工作流）
+  ✓ B10. 容错失败且无 error 信息 → 只有容错说明行（actual=["warn"] expected=["warn"]）
+== C. 跳过 ==
+  ✓ C1. skipped → muted（actual="muted" expected="muted"）
+  ✓ C2. 徽标写「跳过（未执行）」
+  ✓ C3. 说明为什么没跑（分支未激活/上游失败被跳过）
+== C2. 人工确认「自动通过」（非交互运行）要显形 ==
+  ✓ C2a. 悬浮卡写明「⏭ 自动通过」（实际：⏭ 自动通过：这次是非交互运行（定时触发 / 「立即运行一次」/ CLI / 子工作流内部），没人能确认，manual 节点被直接放行——不是失败，也不代表有人）
+  ✓ C2b. 说明原因：这次是非交互运行（定时/立即运行一次/CLI/子工作流内部）
+  ✓ C2c. 明确"不是失败、也不代表有人确认过"（避免误判成确认节点坏了）
+  ✓ C2d. 给出正确做法（要人工把关就手动运行）
+  ✓ C2e. 自动通过不等于容错（不串标签）
+  ✓ C2f. 自动通过仍是成功态（不是失败/警告）（actual="ok" expected="ok"）
+  ✓ C2g. 有人真确认过时不写「自动通过」
+== D. 输出预览（截断 / JSON / 循环次数）==
+  ✓ D1. undefined → 空串（actual="" expected=""）
+  ✓ D2. null → 空串（actual="" expected=""）
+  ✓ D3. 对象 → 2 空格缩进 JSON（可读）
+  ✓ D4. 超长输出截断并注明总字数
+  ✓ D5. 截断时给出去哪儿看完整内容
+  ✓ D6. loop 节点的实际迭代次数也进悬浮卡
+  ✓ D7. out=0 正常展示（不误判为空）（actual="0" expected="0"）
+== E. 📋 复制全文（2026-10-03 用户反馈「无法把鼠标移动到浮窗上复制错误」）==
+  ✓ E1. 全文首行是标题
+  ✓ E2. 带状态徽标（含耗时）
+  ✓ E3. 完整错误码+消息一行不丢（复制的是原文，不是截断预览）
+  ✓ E4. 行数 = 标题 + 徽标 + 各说明行（actual=3 expected=3）
+  ✓ E5. 超长输出仍走截断口径（复制内容与卡片所见一致）
+
+=== resultTip 悬浮卡内容模型：41 passed, 0 failed ===
+== A. 起跑瞬间（还没有任何结果）==
+  ✓ A1. 每个节点都有状态（不再是空白）（actual=5 expected=5）
+  ✓ A2. 一律 pending=待运行（actual="pending" expected="pending"）
+  ✓ A3. results/running 为 null 也不炸（actual="pending" expected="pending"）
+== B. 运行路径依次点亮 ==
+  ✓ B1. 已完成的 → success（actual="success" expected="success"）
+  ✓ B2. 正在执行的 → running（画布显示「运行中…」）（actual="running" expected="running"）
+  ✓ B3. 还没轮到的 → pending（「待运行」）（actual="pending" expected="pending"）
+  ✓ B4. 下游同样 pending（actual="pending" expected="pending"）
+  ✓ B5. 耗时透传（徽标要显示 ms）（actual=30 expected=30）
+== C. 失败 / 跳过 / 容错 / 循环次数 透传 ==
+  ✓ C1. 失败状态保留（actual="failed" expected="failed"）
+  ✓ C2. 错误码透传（悬浮卡要看）（actual="FETCH_FAILED" expected="FETCH_FAILED"）
+  ✓ C3. 容错标记透传（actual=true expected=true）
+  ✓ C4. 跳过状态保留（actual="skipped" expected="skipped"）
+  ✓ C5. loop/汇总的 out.count 透传（徽标「循环 N 次」）（actual=7 expected=7）
+  ✓ C6. out 整体透传（悬浮卡展示输出）（actual={"count":7} expected={"count":7}）
+== D. 边界 ==
+  ✓ D1. def 里没有的 id 不输出（画布不会渲染幽灵状态）
+  ✓ D2. 结果优先于 running（避免刚完成又显示运行中）（actual="success" expected="success"）
+  ✓ D3. 结果项缺 status → 仍算 pending（actual="pending" expected="pending"）
+  ✓ D4. 空节点列表 → 空映射（actual={} expected={}）
+== E. 过程态判定 ==
+  ✓ E1. pending/running 是过程态
+  ✓ E2. 终态不是过程态
+  ✓ E3. undefined 不是过程态
+== F. 运行中就能带出节点输出（2026-10-03 用户反馈：不该等全部跑完才显示）==
+  ✓ F1. 运行中的 out 透传（对象型）（actual={"topic":"AI 日报","words":3} expected={"topic":"AI 日报","words":3}）
+  ✓ F2. 运行中的 error 透传（失败节点跑完即可见错因）（actual="FETCH_FAILED" expected="FETCH_FAILED"）
+  ✓ F3. 被宿主截断的 out（字符串）原样透传（actual="{\"count\":9,\"items\":[" expected="{\"count\":9,\"items\":["）
+  ✓ F4. out 被截断成字符串时，迭代次数取自宿主显式 count 字段（actual=9 expected=9）
+  ✓ F5. 没有 count 的节点不凭空造字段（actual=undefined expected=undefined）
+  ✓ F6. out.count 回退路径保持兼容（最终 summary 形状）（actual=4 expected=4）
+
+=== runProgress 运行进度映射：27 passed, 0 failed ===
+== A. 文本保存：同名自动改名、绝不覆盖 ==
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\df-asset-name-3uhFMU\.dag-flow\workflow (2 files)
+  ✓ A1. 首次保存 → 报告.md
+  ✓ A2. 返回值是实际路径（.dag-flow/报告.md）
+  ✓ A3. absolutePath 同步（邮件节点靠它找文件）
+  ✓ A4. 再次同名 → 报告-2.md
+  ✓ A5. 旧文件内容**没有被覆盖**（方案 A 的核心）（actual="第一份" expected="第一份"）
+  ✓ A6. 新内容写进 -2.md（actual="第二份" expected="第二份"）
+  ✓ A7. 返回的是实际写入的路径（-2.md）
+  ✓ A8. 第三次 → 报告-3.md（序号递增）
+== B. 子目录 / 无扩展名 / 二进制 ==
+  ✓ B1. 子目录内同名也改名（\reports\日报-2026-10-03-2.md）
+  ✓ B2. 无扩展名 → noext-2（\noext-2）
+  ✓ B3. 二进制同样改名（\bin-2.dat）
+== C. 下载类产物同样适用（方案 A 覆盖两条写入路径）==
+  ✓ C1. data: URL 下载落盘 dl.txt
+  ✓ C2. 同名再次下载 → dl-2.txt（\dl-2.txt）
+  ✓ C3. 第一份下载内容保留（actual="hello" expected="hello"）
+== D. 文件名净化与路径穿越（既有安全语义未变）==
+  ✓ D1. ../ 被净化，仍在 .dag-flow 内
+  ✓ D2. 净化后的同名同样走改名
+== E. 目标目录里文件数符合预期（每份都在）==
+  ✓ E1. 三份报告都在磁盘上（报告-2.md, 报告-3.md, 报告.md）
+
+=== 产出文件同名策略（方案 A）：17 passed, 0 failed ===
+  ✓ apply(ctx) 捕获到路由
+== A. 运行中（流程未结束）就已完成的节点带 out ==
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-midrun-wqpefL\.dag-flow\workflow (2 files)
+  ✓ A1. 抓到了「运行中 + a 已完成」的窗口
+  ✓ A2. 运行中 a 的结果带 out 且内容正确
+  ✓ A3. 同一时刻 b 正在执行（running 列表含 b）
+  ✓ A4. 运行中状态仍是 running（不是等跑完才给结果）
+  ✓ A5. 运行中未轮到的节点不在 results 里（不会伪造结果）
+  ✓ A6. 运行中 a 的 durationMs 也在（徽标要显示耗时）
+== B. 最终 summary：链式数据传递 ==
+[workflow] C-SAW:B-GOT:HELLO-A
+  ✓ B0. 整条流程成功
+  ✓ B1. a.out = HELLO-A
+  ✓ B2. b 执行时拿到了上游 a 的结果（{{a.out}} 被解析）
+  ✓ B3. c 又拿到 b 的结果（链式传递）
+  ✓ B4. 最终结果的 out 未被裁剪（短输出原样）
+== C. 契约不变 ==
+  ✓ C1. 既不带 name 也不带 runId → 404（既有语义不变）
+== D. 定时触发的运行也要能点亮画布 ==
+  ✓ D1. 工作流已保存（定时项按名字跑）
+  ✓ D2. 建了一条定时项
+  ✓ D3. 还没跑时 /run/status?name= 查不到运行（404）
+  ✓ D4. 定时运行在跑时，/run/status?name= 能看到「运行中」（此前完全看不到 → 画布不动）
+  ✓ D5. 该运行被标为定时来源 origin=schedule
+  ✓ D6. 运行中带正在执行的节点（画布据此点亮「运行中」）
+  ✓ D7. 「立即运行一次」返回成功
+  ✓ D8. 跑完后按名字仍能查到**最近一次完成**（客户端据此收敛到终态，而不是 404 卡住）
+  ✓ D9. 收敛用的结果里 slow 节点是 success 且带 out
+  ✓ D10. 定时项已回写上次执行结果
+
+=== status-midrun：23 passed, 0 failed ===
+== A. 进画布默认缩放：自适应但夹在 [75%,100%] ==
+  ✓ A1. 大图 fit 只有 0.45 → 抬到 75%（看得清优先，不再塞成一片小点）（actual=0.75 expected=0.75）
+  ✓ A2. 正好 0.75 → 保持（actual=0.75 expected=0.75）
+  ✓ A3. 小图 fit 到 1.2 → 压到 100%（不放大糊掉）（actual=1 expected=1）
+  ✓ A4. 正好 1 → 保持（actual=1 expected=1）
+  ✓ A5. 量不到内容尺寸 → 用下限（不返回 NaN 把画布弄坏）（actual=0.75 expected=0.75）
+  ✓ A6. 非法值 0 → 用下限（actual=0.75 expected=0.75）
+  ✓ A7. 负值 → 用下限（actual=0.75 expected=0.75）
+  ✓ A8. 下限常量就是 75%（actual=0.75 expected=0.75）
+== B. 「⤢ 适应画布」：夹在 [50%,100%] ==
+  ✓ B1. 23 节点全图 fit ~0.32 → 兜到 50%（宁可看不全也别看不清）（actual=0.5 expected=0.5）
+  ✓ B2. 正好 0.5 → 保持（actual=0.5 expected=0.5）
+  ✓ B3. 0.85 在区间内 → 原样（能全图可见就优先全图）（actual=0.85 expected=0.85）
+  ✓ B4. 小图 1.6 → 压到 100%（actual=1 expected=1）
+  ✓ B5. 非法值 → 用可读下限兜底（actual=0.75 expected=0.75）
+  ✓ B6. 适应画布下限常量就是 50%（actual=0.5 expected=0.5）
+  ✓ B7. 默认视图比「适应画布」更"看得清"（75% > 50%）
+== C. 一键放大/缩小：按档位跳 ==
+  ✓ C1. 档位表 = 25/50/75/100/125/150/200%（actual="[0.25,0.5,0.75,1,1.25,1.5,2]" expected="[0.25,0.5,0.75,1,1.25,1.5,2]"）
+  ✓ C2. 100% 放大 → 125%（actual=1.25 expected=1.25）
+  ✓ C3. 100% 缩小 → 75%（actual=0.75 expected=0.75）
+  ✓ C4. 75% 缩小 → 50%（actual=0.5 expected=0.5）
+  ✓ C5. 非档位值（0.31）缩小 → 落到 25%（actual=0.25 expected=0.25）
+  ✓ C6. 非档位值（0.31）放大 → 落到 50%（actual=0.5 expected=0.5）
+  ✓ C7. 已到最大档 → 停在 200%（不超界）（actual=2 expected=2）
+  ✓ C8. 已到最小档 → 停在 25%（actual=0.25 expected=0.25）
+  ✓ C9. 档位之间（1.4）放大 → 150%（actual=1.5 expected=1.5）
+  ✓ C10. 非法当前值 → 按 100% 处理，缩到 75%（actual=0.75 expected=0.75）
+  ✓ C11. 落在档位上 → 给出档位文案（actual="100%" expected="100%"）
+  ✓ C12. 不在档位上 → null（工具栏不误标）（actual=null expected=null）
+== D. 取景 C：整图居中后把入口节点带进可视区（最少平移、缩放不变）==
+  ✓ D1. 图放得下且入口可见 → 不移动（不做多余取景）（actual=false expected=false）
+  ✓ D2. 不移动时不产生目标框（actual=null expected=null）
+  ✓ D3. ★入口在可视区外 → 平移把它带进来（actual=true expected=true）
+  ✓ D4. 平移量 = 刚好把入口左边缘拉到可视左边缘（最少移动）（actual=-1170 expected=-1170）
+  ✓ D5. 纵向不需要动就不动（actual=0 expected=0）
+  ✓ D6. 目标框宽度 = 视口 - 面板遮挡（660）
+  ✓ D7. ★入口落在右侧面板底下（看似可见实则被盖） → 也要平移（actual=true expected=true）
+  ✓ D8. 平移量 = 把入口右边缘拉到可视右边缘（dx>0 = 内容左移，从面板下拉出来）（actual=270 expected=270）
+  ✓ D9. 平移量随缩放换算（zoom=0.5 → 660/0.5=1320 可视宽，dx=-840）（actual=-840 expected=-840）
+  ✓ D10. 没有入口节点 → 不移动（actual=false expected=false）
+  ✓ D11. 视口尺寸为 0（未就绪）→ 不移动（actual=false expected=false）
+
+=== viewZoom 画布缩放策略：38 passed, 0 failed ===
+== A. 5 字段合法解析 ==
+  ✓ A1. 分 `*` → 0-59 共 60 个（actual=60 expected=60）
+  ✓ A2. 时 `*` → 0-23 共 24 个（actual=24 expected=24）
+  ✓ A3. 日 `*` → 1-31 共 31 个（actual=31 expected=31）
+  ✓ A4. 月 `*` → 1-12 共 12 个（actual=12 expected=12）
+  ✓ A5. 周 `*` → 0-6 共 7 个（actual=7 expected=7）
+  ✓ A6. 单值 5 9 1 3 2 逐字段就位（actual="[[5],[9],[1],[3],[2]]" expected="[[5],[9],[1],[3],[2]]"）
+  ✓ A7. 范围 `1-5` → [1,2,3,4,5]（actual="[1,2,3,4,5]" expected="[1,2,3,4,5]"）
+  ✓ A8. 步长 `*/15` → [0,15,30,45]（actual="[0,15,30,45]" expected="[0,15,30,45]"）
+  ✓ A9. 逗号列表 `1,3,5`（actual="[1,3,5]" expected="[1,3,5]"）
+  ✓ A10. 范围步长 `1-5/2` → [1,3,5]（actual="[1,3,5]" expected="[1,3,5]"）
+  ✓ A11. 周 `1-5`（工作日）（actual="[1,2,3,4,5]" expected="[1,2,3,4,5]"）
+  ✓ A12. 列表出现在「时」字段（actual="[9,12]" expected="[9,12]"）
+== B. 去重升序与周日 0/7 归一化 ==
+  ✓ B1. 乱序+重复 → 去重升序 [1,3,5]（actual="[1,3,5]" expected="[1,3,5]"）
+  ✓ B2. 步长与单值混写 → [0,10,20,40]（actual="[0,10,20,40]" expected="[0,10,20,40]"）
+  ✓ B3. 周日写 7 → 归一化为 0（actual="[0]" expected="[0]"）
+  ✓ B4. `0-7` → 0-6（7 折进 0，不重复）（actual="[0,1,2,3,4,5,6]" expected="[0,1,2,3,4,5,6]"）
+  ✓ B5. `5,7` → [0,5]（7 折成 0 后仍升序）（actual="[0,5]" expected="[0,5]"）
+== C. 非法表达式：字段数与空值 ==
+  ✓ C1. 4 个字段 → 报错并写明当前字段数 4（message=cron 表达式应为 5 个字段（分 时 日 月 周），当前 4 个——字段不足，应为「分 时 日 月 周」5 个：0 9 * *）
+  ✓ C2. 6 个字段 → 报错、写明 6、说明不支持秒级（message=cron 表达式应为 5 个字段（分 时 日 月 周），当前 6 个——不支持秒级（6 字段）等写法，本解析器只支持 5 字段分钟级（分 时 日 月 周）与语法 * , - /：0 9 * * * *）
+  ✓ C3. 空表达式 → 报错（提示应为 5 字段）（message=cron 表达式为空——应为 5 个字段（分 时 日 月 周），如「0 9 * * 1-5」）
+  ✓ C4. 纯空白表达式 → 报错（message=cron 表达式为空——应为 5 个字段（分 时 日 月 周），如「0 9 * * 1-5」）
+  ✓ C5. 逗号列表有空项 → 报错（message=cron「分」字段「1,,3」里存在空项——逗号列表不能有连续逗号或首尾逗号）
+== D. 非法表达式：越界 / 步长 / 范围 ==
+  ✓ D1. 分 60 越界 → 指出字段与合法范围（message=cron「分」字段取值 60 越界（原文「60」）——合法范围 0-59）
+  ✓ D2. 时 24 越界（message=cron「时」字段取值 24 越界（原文「24」）——合法范围 0-23）
+  ✓ D3. 日 32 越界（message=cron「日」字段取值 32 越界（原文「32」）——合法范围 1-31）
+  ✓ D4. 日 0 越界（下限 1）（message=cron「日」字段取值 0 越界（原文「0」）——合法范围 1-31）
+  ✓ D5. 月 13 越界（message=cron「月」字段取值 13 越界（原文「13」）——合法范围 1-12）
+  ✓ D6. 周 8 越界（并说明 7 也表示周日）（message=cron「周」字段取值 8 越界（原文「8」）——合法范围 0-6（7 也表示周日））
+  ✓ D7. 步长 0 → 报错（message=cron 步长必须是不小于 1 的整数（「分」字段「*/0」里的「0」））
+  ✓ D8. 范围步长 `/0` → 报错（message=cron 步长必须是不小于 1 的整数（「分」字段「1-5/0」里的「0」））
+  ✓ D9. 范围起点 > 终点 → 报错（message=cron 范围起点不能大于终点（「分」字段「5-1」里的「5-1」））
+  ✓ D10. 三段横线 → 格式非法（message=cron「分」字段「1-5-7」格式非法——只支持 *、单值（5）、范围（1-5）、步长（*/15）、范围步长（1-5/2）与逗号列表（1,3,5））
+  ✓ D11. 双重斜杠 → 步长非法（message=cron 步长必须是不小于 1 的整数（「分」字段「*/2/3」里的「2/3」））
+== E. 不支持的方言 ==
+  ✓ E1. `L` → 不支持（说明支持范围）（message=不支持 cron 方言「L」（「日」字段「L」）——本解析器只支持 5 字段分钟级（分 时 日 月 周）与语法 * , - /，不支持 L、W、#、? 与月份/星期英文名）
+  ✓ E2. `W` → 不支持（message=不支持 cron 方言「W」（「周」字段「1W」）——本解析器只支持 5 字段分钟级（分 时 日 月 周）与语法 * , - /，不支持 L、W、#、? 与月份/星期英文名）
+  ✓ E3. `#` → 不支持（message=不支持 cron 方言「#」（「周」字段「1#2」）——本解析器只支持 5 字段分钟级（分 时 日 月 周）与语法 * , - /，不支持 L、W、#、? 与月份/星期英文名）
+  ✓ E4. `?` → 不支持（message=不支持 cron 方言「?」（「日」字段「?」）——本解析器只支持 5 字段分钟级（分 时 日 月 周）与语法 * , - /，不支持 L、W、#、? 与月份/星期英文名）
+  ✓ E5. 英文星期名 MON → 不支持（message=不支持 cron 方言「M」（「周」字段「MON」）——本解析器只支持 5 字段分钟级（分 时 日 月 周）与语法 * , - /，不支持 L、W、#、? 与月份/星期英文名）
+  ✓ E6. 秒级 6 字段 → 报错并说明不支持秒级（message=cron 表达式应为 5 个字段（分 时 日 月 周），当前 6 个——不支持秒级（6 字段）等写法，本解析器只支持 5 字段分钟级（分 时 日 月 周）与语法 * , - /：0 0 12 * * ?）
+== F. isValidCron 与 cronError（不抛异常，UI 用） ==
+  ✓ F1. 合法表达式 → true（actual=true expected=true）
+  ✓ F2. 步长表达式 → true（actual=true expected=true）
+  ✓ F3. 越界 → false（actual=false expected=false）
+  ✓ F4. 字段数不足 → false（actual=false expected=false）
+  ✓ F5. 空串 → false（actual=false expected=false）
+  ✓ F6. 非字符串 → false（不抛）（actual=false expected=false）
+  ✓ F7. 合法 → cronError 返回 null（actual=null expected=null）
+  ✓ F8. 非法 → cronError 返回非 null（actual=true expected=true）
+  ✓ F9. 各种非法输入的中文原因齐备（无一为空/英文）
+  ✓ F10. 红字文案里带上了出错的取值 60（actual=true expected=true）
+== G. nextRunAt：严格晚于 from（本机时区） ==
+  ✓ * * * * *｜from=2026-06-03 10:20:30 → 2026-06-03 10:21（actual="2026-06-03 10:21" expected="2026-06-03 10:21"）
+  ✓ * * * * *｜from=2026-06-03 10:20:00 → 2026-06-03 10:21（actual="2026-06-03 10:21" expected="2026-06-03 10:21"）
+  ✓ */15 * * * *｜from=2026-06-03 10:07:00 → 2026-06-03 10:15（actual="2026-06-03 10:15" expected="2026-06-03 10:15"）
+  ✓ */15 * * * *｜from=2026-06-03 10:45:00 → 2026-06-03 11:00（actual="2026-06-03 11:00" expected="2026-06-03 11:00"）
+  ✓ 0 9 * * *｜from=2026-06-03 10:00:00 → 2026-06-04 09:00（actual="2026-06-04 09:00" expected="2026-06-04 09:00"）
+  ✓ G6. 结果落在一分钟整点（秒=0）（actual=0 expected=0）
+== H. nextRunAt：from 恰好落在触发点 → 取下一个 ==
+  ✓ 30 9 * * *｜from=2026-06-03 09:30:00 → 2026-06-04 09:30（actual="2026-06-04 09:30" expected="2026-06-04 09:30"）
+  ✓ 0 0 1 1 *｜from=2026-01-01 00:00:00 → 2027-01-01 00:00（actual="2027-01-01 00:00" expected="2027-01-01 00:00"）
+  ✓ 0 9 * * *｜from=2026-06-03 09:00:00 → 2026-06-04 09:00（actual="2026-06-04 09:00" expected="2026-06-04 09:00"）
+== I. nextRunAt：跨月 / 跨年 / 小月跳过 31 日 ==
+  ✓ 0 9 1 * *｜from=2026-01-15 00:00:00 → 2026-02-01 09:00（actual="2026-02-01 09:00" expected="2026-02-01 09:00"）
+  ✓ 0 9 * * *｜from=2026-12-31 10:00:00 → 2027-01-01 09:00（actual="2027-01-01 09:00" expected="2027-01-01 09:00"）
+  ✓ 0 9 1 1 *｜from=2026-03-05 00:00:00 → 2027-01-01 09:00（actual="2027-01-01 09:00" expected="2027-01-01 09:00"）
+  ✓ 0 9 31 * *｜from=2026-04-01 00:00:00 → 2026-05-31 09:00（actual="2026-05-31 09:00" expected="2026-05-31 09:00"）
+  ✓ 0 9 31 * *｜from=2026-05-31 10:00:00 → 2026-07-31 09:00（actual="2026-07-31 09:00" expected="2026-07-31 09:00"）
+  ✓ I6. 2 月 30 日永远不成立 → 找满 4 年后报错（message=未来 4 年内没有匹配的触发时间（cron：0 9 30 2 *）——请检查日/月/周字段是否永远无法同时成立）
+== J. nextRunAt：闰年 2 月 29 日 ==
+  ✓ 0 0 29 2 *｜from=2027-03-01 00:00:00 → 2028-02-29 00:00（actual="2028-02-29 00:00" expected="2028-02-29 00:00"）
+  ✓ 0 0 29 2 *｜from=2028-03-01 00:00:00 → 2032-02-29 00:00（actual="2032-02-29 00:00" expected="2032-02-29 00:00"）
+  ✓ 0 12 * * *｜from=2028-02-28 13:00:00 → 2028-02-29 12:00（actual="2028-02-29 12:00" expected="2028-02-29 12:00"）
+== K. nextRunAt：日的匹配规则（单边 AND / 双侧 OR） ==
+  ✓ 0 9 * * 1-5｜from=2026-06-06 15:00:00 → 2026-06-08 09:00（actual="2026-06-08 09:00" expected="2026-06-08 09:00"）
+  ✓ 0 12 * * 1｜from=2026-06-03 10:00:00 → 2026-06-08 12:00（actual="2026-06-08 12:00" expected="2026-06-08 12:00"）
+  ✓ 0 12 8 6 *｜from=2026-06-03 10:00:00 → 2026-06-08 12:00（actual="2026-06-08 12:00" expected="2026-06-08 12:00"）
+  ✓ 0 12 1 * 1｜from=2026-06-03 10:00:00 → 2026-06-08 12:00（actual="2026-06-08 12:00" expected="2026-06-08 12:00"）
+  ✓ 0 12 5 6 1｜from=2026-06-03 10:00:00 → 2026-06-05 12:00（actual="2026-06-05 12:00" expected="2026-06-05 12:00"）
+  ✓ 0 9 31 8 1｜from=2026-08-26 10:00:00 → 2026-08-31 09:00（actual="2026-08-31 09:00" expected="2026-08-31 09:00"）
+== L. nextRunAt：非法输入 ==
+  ✓ L1. 非法 cron → 抛中文错（不静默）（message=cron「分」字段取值 60 越界（原文「60」）——合法范围 0-59）
+  ✓ L2. 字段数错 → 抛中文错（message=cron 表达式应为 5 个字段（分 时 日 月 周），当前 4 个——字段不足，应为「分 时 日 月 周」5 个：0 9 * *）
+  ✓ L3. from 非法日期 → 抛中文错（message=nextRunAt 的起始时间非法——from 不是有效日期）
+== M. describeCron 中文预览 ==
+  ✓ M1. 工作日 09:00（actual="工作日 09:00" expected="工作日 09:00"）
+  ✓ M2. 每 30 分钟（actual="每 30 分钟" expected="每 30 分钟"）
+  ✓ M3. 每天 09:00（actual="每天 09:00" expected="每天 09:00"）
+  ✓ M4. 每月 1 日 09:00（actual="每月 1 日 09:00" expected="每月 1 日 09:00"）
+  ✓ M5. 每周一 08:30（actual="每周一 08:30" expected="每周一 08:30"）
+  ✓ M6. 每 15 分钟（actual="每 15 分钟" expected="每 15 分钟"）
+  ✓ M7. 每分钟（actual="每分钟" expected="每分钟"）
+  ✓ M8. 每小时整点（actual="每小时整点" expected="每小时整点"）
+  ✓ M9. 周末 09:00（周 0,6）（actual="周末 09:00" expected="周末 09:00"）
+  ✓ M10. 每周日 09:00（周日 0 归一化后仍显示周日）（actual="每周日 09:00" expected="每周日 09:00"）
+  ✓ M11. 每年 1 月 1 日 00:00（actual="每年 1 月 1 日 00:00" expected="每年 1 月 1 日 00:00"）
+  ✓ M12. 一天两个时间点（actual="每天 09:00、09:30" expected="每天 09:00、09:30"）
+  ✓ M13. 日/周双侧限定时体现 OR（actual="每月 1 日 或 每周一 09:00" expected="每月 1 日 或 每周一 09:00"）
+  ✓ M14. 非法表达式同样抛中文错（message=cron「分」字段取值 60 越界（原文「60」）——合法范围 0-59）
+
+=== cron 解析与下次时间：90 passed, 0 failed ===
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\df-sched-wFihVc\.dag-flow\workflow (2 files)
+schedules 路径 = C:\Users\lmz\AppData\Local\Temp\df-sched-wFihVc\.dag-flow\schedules.json
+  ✓ 配置文件落在 <工作区>/.dag-flow/schedules.json（与 workflow/ 同级）
+
+== A. 初始与落盘 ==
+  ✓ A1. 文件不存在时读为空列表（actual=0 expected=0）
+  ✓ A2. 文件不存在不算错误（不报 warning）（actual=undefined expected=undefined）
+  ✓ A3. 新建返回 sch_ 前缀 id（sch_8a0si5）
+  ✓ A4. 新建默认启用（actual=true expected=true）
+  ✓ A5. 并发策略固定为 skip（用户拍板 B）（actual="skip" expected="skip"）
+  ✓ A6. 新建即写入未来的 nextRunAt（2026-10-05T01:00:00.000Z）
+  ✓ A7. 配置文件已落盘
+  ✓ A8. 磁盘结构 { version, items }，1 条（actual=1 expected=1）
+  ✓ A9. version=1（actual=1 expected=1）
+  ✓ A10. 原子写不留 .tmp 残留（tmp+rename）
+
+== B. 写入前校验（不落盘）==
+  ✓ B. 越界的 cron 被拒绝（cron「分」字段取值 99 越界（原文「99」）——合法范围 0-59）
+  ✓ B. 步长 0的 cron 被拒绝（cron 步长必须是不小于 1 的整数（「分」字段「*/0」里的「0」））
+  ✓ B. 6 字段的 cron 被拒绝（cron 表达式应为 5 个字段（分 时 日 月 周），当前 6 个——不支持秒级（6 字段）等写法，本解析器只支持 5 字段分钟级（分 时 日 月 周）与语法 * , - /：0 9 * * 1-5 extra）
+  ✓ B. 不支持的 L的 cron 被拒绝（不支持 cron 方言「L」（「周」字段「L」）——本解析器只支持 5 字段分钟级（分 时 日 月 周）与语法 * , - /，不支持 L、W、#、? 与月份/星期英文名）
+  ✓ B. 缺 workflow 被拒绝且消息点名 workflow
+  ✓ B. 以上失败写入都没有落盘（条数不变）（actual=1 expected=1）
+
+== C. 更新、过滤与派生字段 ==
+  ✓ C1. 带 id 的写入是更新而不是新增（actual=1 expected=1）
+  ✓ C2. cron 已更新（actual="*/30 * * * *" expected="*/30 * * * *"）
+  ✓ C3. enabled 已更新（actual=false expected=false）
+  ✓ C4. 列表默认返回全部 3 条（actual=3 expected=3）
+  ✓ C5. ?workflow= 过滤生效（actual=1 expected=1）
+  ✓ C6. 工作流不存在 → orphan=true（提示用，不自动删）（actual=true expected=true）
+  ✓ C7. 工作流存在 → orphan=false（actual=false expected=false）
+  ✓ C8. 运行中 → running=true（派生自共享登记）（actual=true expected=true）
+  ✓ C9. 未运行 → running=false（actual=false expected=false）
+  ✓ C10. 取消登记后 isWorkflowRunning=false（actual=false expected=false）
+
+== D. 回写与预览 ==
+  ✓ D1. patchSchedule 回写 lastRun.status（actual="success" expected="success"）
+  ✓ D2. 回写 durationMs（actual=41230 expected=41230）
+  ✓ D3. 过期的 nextRunAt 在列表里被重算成未来时间（供面板显示）
+  ✓ D4. 读操作不落盘：磁盘上仍是那个过期值（预览是派生的）
+
+== E. 工作流改名联动 ==
+  ✓ E1. 改名联动改写 1 条定时项（actual=1 expected=1）
+  ✓ E2. 该定时项指向新名（actual=true expected=true）
+  ✓ E3. 旧名已无匹配 → 返回 0（幂等）（actual=0 expected=0）
+
+== F. 删除 ==
+  ✓ F1. 删除存在的条目 → true（actual=true expected=true）
+  ✓ F2. 删除后列表里没有它（actual=false expected=false）
+  ✓ F3. 删除不存在的 id → false（actual=false expected=false）
+  ✓ F4. 剩余条目 id 唯一（actual=2 expected=2）
+
+== G. 损坏降级 ==
+  ✓ G1. 文件损坏 → 降级为空列表（不抛）（actual=0 expected=0）
+  ✓ G2. 降级时带回中文原因（交调用方记日志）
+  ✓ G3. listSchedules 把原因放在 error 里（面板可提示）
+  ✓ G4. items 不是数组同样降级（actual=0 expected=0）
+  ✓ G5. 重新写入可恢复（原子写覆盖损坏文件）（actual=0 expected=0）
+  ✓ G6. 路径稳定
+  ✓ G7. newScheduleId 不重复
+
+=== schedules 定时配置存储：45 passed, 0 failed ===
+
+== A. 到点判据 ==
+  ✓ A1. 未到点 → 不触发（actual=0 expected=0）
+  ✓ A2. 执行器一次都没被调用（actual=0 expected=0）
+  ✓ A3. 没有执行中的 promise（actual=0 expected=0）
+
+== B. 到点触发 ==
+  ✓ B1. 到点 → 触发 1 次（actual=1 expected=1）
+  ✓ B2. 执行器被调用 1 次（actual=1 expected=1）
+  ✓ B3. interactive:false（无人值守；manual 节点自动通过）（actual=false expected=false）
+  ✓ B4. 定时项 inputs 透传给执行器（actual="每日" expected="每日"）
+  ✓ B5. timeoutMs 透传（actual=5000 expected=5000）
+  ✓ B6. 每次触发带独立 runId（run-1791103201491-xfsv9b）
+  ✓ B7. 触发后 nextRunAt 立刻推进到未来（防同一分钟重复触发）
+  ✓ B8. 跑完回写 lastRun.status=success（actual="success" expected="success"）
+  ✓ B9. 回写耗时取自 summary.totalDurationMs（actual=12 expected=12）
+  ✓ B10. lastRun 记的就是这次 runId（actual="run-1791103201491-xfsv9b" expected="run-1791103201491-xfsv9b"）
+
+== C. 失败与异常 ==
+  ✓ C1. 执行器报 failed → lastRun.status=failed（actual="failed" expected="failed"）
+  ✓ C2. 失败原因（summary.error.message）被记下（actual="节点炸了" expected="节点炸了"）
+  ✓ C3. 失败不影响后续档期（nextRunAt 照常推进）
+  ✓ C4. 执行器抛异常时 tick 本身不崩（仍返回报告）（actual=1 expected=1）
+  ✓ C5. 异常被记成 lastRun.status=error（actual="error" expected="error"）
+  ✓ C6. 异常消息落进 lastRun.error
+
+== D. 上一轮没跑完 → skip ==
+  ✓ D1. 该工作流正在跑 → 本次不触发（actual=0 expected=0）
+  ✓ D2. 记入 skipped（actual=1 expected=1）
+  ✓ D3. 执行器未被调用（不并发、不排队）（actual=0 expected=0）
+  ✓ D4. lastRun.status=skipped（面板可显示「本次跳过」）（actual="skipped" expected="skipped"）
+  ✓ D5. 跳过后 nextRunAt 照常推进
+
+== E. dsh 重启不补跑（用户拍板 C）==
+  ✓ E1. 启动场景下过期项不触发（不补跑）（actual=0 expected=0）
+  ✓ E2. 执行器没被调用（actual=0 expected=0）
+  ✓ E3. 只把 nextRunAt 重算到未来（下一次照常）
+
+== F. 异常配置 ==
+  ✓ F1. 缺 nextRunAt / cron 非法 / 工作流不存在 → 都不触发（actual=0 expected=0）
+  ✓ F2. 缺 nextRunAt 的条目被补算
+  ✓ F3. cron 非法与工作流不存在各记一条 invalid（actual=2 expected=2）
+  ✓ F4. 工作流不存在的提示说明「定时项保留」的语义
+
+== G. 多条与容错 ==
+  ✓ G1. 只有「启用且到点」的那条触发（actual=1 expected=1）
+  ✓ G2. 触发的是 wfA（actual="wfA" expected="wfA"）
+  ✓ G3. 配置读不出来时 tick 返回空报告（不抛）（actual=0 expected=0）
+  ✓ G4. 心跳照常计数（面板能看出调度器还活着）（actual=9 expected=9）
+
+== H. startScheduler 与心跳 ==
+  ✓ H1. 启动前 running=false（面板显示「调度器未运行」）（actual=false expected=false）
+  ✓ H2. startScheduler 返回 registered=true（actual=true expected=true）
+  ✓ H3. 返回 disposer（挂 ctx.effect）（actual="function" expected="function"）
+  ✓ H4. 心跳 running=true（actual=true expected=true）
+  ✓ H5. dispose 后 running=false（且已 clearInterval，不会拖住进程）（actual=false expected=false）
+  ✓ H6. tick 间隔 20s（面板文案用）（actual=20000 expected=20000）
+
+=== scheduler 定时调度器：41 passed, 0 failed ===
+== A. 单节点 next 四种形态 → edges ==
+  ✓ A1. 字符串 next → 一条普通边（省略 when，与客户端 toRF 一致）（actual=[{"from":"a","to":"b"}] expected=[{"from":"a","to":"b"}]）
+  ✓ A2. 数组 next → 两条并行的普通边（actual=[{"from":"a","to":"b"},{"from":"a","to":"c"}] expected=[{"from":"a","to":"b"},{"from":"a","to":"c"}]）
+  ✓ A3. {true,false} → when:true / when:false（if 分支）（actual=[{"from":"i","to":"y","when":"true"},{"from":"i","to":"n","when":"false"}] expected=[{"from":"i","to":"y","when":"true"},{"from":"i","to":"n","when":"false"}]）
+  ✓ A4. switch 的对象 next → when:case（含 * 兜底）（actual=[{"from":"s","to":"q","when":"quick"},{"from":"s","to":"f","when":"full"},{"from":"s","to":"d","when":"*"}] expected=[{"from":"s","to":"q","when":"quick"},{"from":"s","to":"f","when":"full"},{"from":"s","to":"d","when":"*"}]）
+  ✓ A5. 没有 next → 不出边（actual=[] expected=[]）
+  ✓ A6. next:null → 不出边（actual=[] expected=[]）
+  ✓ A7. 空字符串目标跳过（与客户端 toRF 的 if (!target) continue 一致）（actual=[{"from":"a","to":"y","when":"true"}] expected=[{"from":"a","to":"y","when":"true"}]）
+  ✓ A8. 数组里的空目标同样跳过（actual=[{"from":"a","to":"b"}] expected=[{"from":"a","to":"b"}]）
+== B. switch 非对象 next 的恒激活 shim（唯一例外，必须保留）==
+  ✓ B1. switch + 字符串 next → when:"*"（复现 legacy 的"无条件跟随"；否则 DAG 会判未激活而跳过）（actual=[{"from":"s","to":"x","when":"*"}] expected=[{"from":"s","to":"x","when":"*"}]）
+  ✓ B2. switch + 数组 next → 每条都是 when:"*"（并行且都激活）（actual=[{"from":"s","to":"x","when":"*"},{"from":"s","to":"y","when":"*"}] expected=[{"from":"s","to":"x","when":"*"},{"from":"s","to":"y","when":"*"}]）
+  ✓ B3. if + 字符串 next → 不带 when（DAG 对 if 的缺键边本来就恒激活，无需 shim）（actual=[{"from":"i","to":"x"}] expected=[{"from":"i","to":"x"}]）
+  ✓ B4. 普通节点 + 字符串 next → 不带 when（非 if/switch 的边一律激活）（actual=[{"from":"n","to":"x"}] expected=[{"from":"n","to":"x"}]）
+== C. normalizeDef 契约 ==
+  ✓ C1. 已有 edges → 一条都不补（actual=0 expected=0）
+  ✓ C2. 已有 edges → 返回的就是原对象（画布工作流零改动）
+  ✓ C3. next-only → 补 1 条边（actual=1 expected=1）
+  ✓ C4. 补出来的边内容正确（actual=[{"from":"a","to":"b"}] expected=[{"from":"a","to":"b"}]）
+  ✓ C5. ★不修改入参（原 def 仍然没有 edges，避免调用方被意外改写）
+  ✓ C6. 返回的是新对象
+  ✓ C7. nodes 数组原样复用（不做深拷贝，省内存）（actual=[{"id":"a","type":"log","next":"b"},{"id":"b","type":"log"}] expected=[{"id":"a","type":"log","next":"b"},{"id":"b","type":"log"}]）
+  ✓ C8. 幂等：对归一化结果再归一化不再补边（actual=0 expected=0）
+  ✓ C9. 既无 edges 也无 next → 不补边（交给 DAG 按"全部入度 0"处理）（actual=0 expected=0）
+  ✓ C10. 那种情况同样返回原对象
+  ✓ C11. switch shim 在 normalizeDef 里同样生效（actual=[{"from":"a","to":"b","when":"*"}] expected=[{"from":"a","to":"b","when":"*"}]）
+
+=== normalize 归一化：23 passed, 0 failed ===
+  ✓ apply(ctx) 捕获到路由
+
+== A. stop（默认）：失败节点的下游跳过；**其它分支继续**（旧实现是全图停）==
+[workflow] ok
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-failpol-Ish6Cm\.dag-flow\workflow (2 files)
+[workflow] ok
+  ✓ HTTP 200
+  ✓ A1. 失败节点 status=failed
+  ✓ A2. 它的直接下游被标 skipped
+  ✓ A3. ★另一条分支的下游**照常执行**（旧实现：全图停 → 这里什么都没有）
+  ✓ A4. ★汇合点 end 照常执行（它有 d_ok 这条活入边）
+  ✓ A5. 汇总 status=failed + failedCount=1
+  ✓ A6. firstError 指向失败节点（带错误码）
+  ✓ A7. skippedCount=1
+
+== B. skip：同样只停下游，但这次失败不计入运行失败 ==
+[workflow] ok
+[workflow] ok
+  ✓ B1. 下游同样被标 skipped（与 A 一致：只停下游）
+  ✓ B2. 其它分支照常执行
+  ✓ B3. 节点自身仍是 failed + tolerated=true（不伪装成功）
+  ✓ B4. 不计入 failedCount → 汇总 status=success
+  ✓ B5. toleratedCount=1 且无 firstError（不弹失败详情）
+
+== C. ignore：下游**照常执行**（与 B 的唯一区别就在这一条）==
+[workflow] ok
+[workflow] ok
+[workflow] ok
+  ✓ C1. ★下游照常执行（与 B 的 skipped 形成对照）
+  ✓ C2. end 照常执行
+  ✓ C3. 不计失败：status=success + toleratedCount=1
+  ✓ C4. skippedCount=0（没有节点被跳过）
+
+== D. 跨源：目标被另一条活边喂入时必须执行（旧"逐源累加"会误跳过）==
+[workflow] ok
+[workflow] ok
+  ✓ D1. ★T 有一条活入边（ok→T）→ 必须执行（不被 boom 的失败连带跳过）
+  ✓ D2. 下游 end 照常执行
+
+== E. 传递性：失败 → 中游跳过 → 孙节点也不能执行 ==
+  ✓ E1. 中游被跳过
+  ✓ E2. ★孙节点 deep 也被跳过（旧实现会执行它——空输入跑一遍）
+  ✓ E3. 末端 end 同样跳过（整条链都死了）
+  ✓ E4. skippedCount=3
+
+== F. 条件分支：switch 未命中 case 的下游（孙节点）也要跳过 ==
+[workflow] ok
+[workflow] ok
+  ✓ F1. 命中 case 的分支执行
+  ✓ F2. 未命中 case 的分支被跳过
+  ✓ F3. ★它的下游 tb2 也跳过（旧实现：只跳过 tb，tb2 会照跑）
+  ✓ F4. 汇合点 end 照常执行（ta2 那条活边）
+
+=== fail-policy DAG 失败策略：28 passed, 0 failed ===
+  ✓ apply(ctx) 捕获到路由
+
+== A. goto 到还没跑到的节点 → 目标执行（它本来会因失败节点的出边作废而被跳过）==
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-goto-SV6X2U\.dag-flow\workflow (2 files)
+[workflow] 兜底路径
+  ✓ HTTP 200
+  ✓ A1. ★goto 目标执行成功（失败边生效）
+  ✓ A2. 失败节点的正常下游仍被跳过
+  ✓ A3. 汇合点 end 执行（它有 T 这条活入边）
+  ✓ A4. 失败节点自身仍 failed
+  ✓ A5. 记入运行失败 + firstError 指向它（goto 不当成"已处理"）
+  ✓ A6. skippedCount=1（只跳过了正常下游）
+
+== B. 目标已经跑过 → 不重复执行（只执行一次）+ 错误详情写明原因 ==
+[workflow] 前面的节点
+  ✓ B1. pre 正常执行过一次
+  ✓ B2. 跳转不生效 → 按"停止这条支路"处理（end 跳过）
+  ✓ B3. ★错误消息写明"未重复执行"（不静默）
+  ✓ B4. 仍然计入运行失败
+
+== C. 目标在同一层（已过层）→ 不重复执行 ==
+[workflow] ok
+  ✓ C1. 同层兄弟节点正常执行（它有自己的活入边）
+  ✓ C2. 错误消息写明未重复执行
+  ✓ C3. boom 的下游 end 跳过
+
+== D. goto 目标的下游照常继续 ==
+[workflow] ok
+[workflow] ok
+  ✓ D1. 目标执行
+  ✓ D2. ★目标的下游继续执行
+  ✓ D3. 再下游 end 也执行
+
+== E. tolerate 优先于 goto（两个字段都写时以"忽略失败"为准）==
+[workflow] ok
+[workflow] ok
+  ✓ E1. tolerate=true → 走「忽略失败」：正常下游照常执行
+  ✓ E2. 不计入运行失败
+  ✓ E3. 目标也执行（它有活的入边）
+
+=== goto-edge DAG 失败跳转：21 passed, 0 failed ===
+== A. def → 画布 → def：字段不丢 ==
+  ✓ A1. ★tolerate 往返保留（旧实现会丢——这是本轮修的 bug）（actual=true expected=true）
+  ✓ A2. onError 往返保留（actual="continue" expected="continue"）
+  ✓ A3. label 往返保留（actual="日志A" expected="日志A"）
+  ✓ A4. params 往返保留（actual={"level":"info","message":"hi"} expected={"level":"info","message":"hi"}）
+  ✓ A5. onError:{goto} 往返保留（actual={"goto":"a"} expected={"goto":"a"}）
+  ✓ A6. 工作流级字段（name）不丢（actual="w" expected="w"）
+  ✓ A7. 节点数不变
+== B. 未知/未来字段也要保留（不再用白名单）==
+  ✓ B1. ★未登记的新字段也保留（白名单模式会丢）（actual={"keep":"me"} expected={"keep":"me"}）
+== C. 结构变更仍然生效（不能因为"保留"而变粘）==
+  ✓ C1. 连线改动写回 next（旧 next 被替换）（actual="end" expected="end"）
+  ✓ C2. edges 同步（actual=[{"from":"start","to":"end"}] expected=[{"from":"start","to":"end"}]）
+  ✓ C3. 失去入边的节点不再残留旧 next（actual=undefined expected=undefined）
+== D. 显式假值原样保留（不静默改写用户数据）==
+  ✓ D1. tolerate:false 原样保留（引擎只认 === true，行为等同未设置；但数据不被静默改写）（actual=false expected=false）
+
+=== flowDef 往返契约：12 passed, 0 failed ===
+== A. 干净工作流：通过 ==
+  ✓ A1. ok=true
+  ✓ A2. 无 error（actual=0 expected=0）
+  ✓ A3. stats 报告节点/边数（actual={"nodes":3,"edges":2} expected={"nodes":3,"edges":2}）
+== B. 结构不合法：转成 error 项并给出解决办法 ==
+  ✓ B1. 错误码 STRUCT_INVALID（缺 start/end）（actual=["STRUCT_INVALID"] expected=["STRUCT_INVALID"]）
+  ✓ B2. ok=false（会拦住运行）
+  ✓ B3. ★带解决办法（fix 非空）
+  ✓ B4. 结构错也返回 stats（节点数尽量给出）（actual=1 expected=1）
+== C. 模板引用指向不存在的节点 ==
+  ✓ C1. 错误码 REF_UNKNOWN（actual=["REF_UNKNOWN"] expected=["REF_UNKNOWN"]）
+  ✓ C2. 定位到引用方节点（actual="a" expected="a"）
+  ✓ C3. 消息里点出缺失的节点名
+  ✓ C4. ★解决办法指向具体操作（面板「上游变量」复制正确引用）
+  ✓ C5. {{inputs.*}} / {{vars.*}} 不算节点引用（不误报）
+== D. 不可达节点：warn（不拦运行），但要说清"会被当独立入口执行" ==
+[dag-flow] 以下节点不可达（未连接到 start）: orphan
+  ✓ D1. 只有 warn → ok 仍为 true（不拦）
+  ✓ D2. 错误码 UNREACHABLE（actual=["UNREACHABLE"] expected=["UNREACHABLE"]）
+  ✓ D3. warnCount=1（actual=1 expected=1）
+  ✓ D4. 消息点明真实后果（会被当独立入口执行，不是跳过）
+  ✓ D5. 带解决办法
+== E. 环路：error（引擎会直接拒绝，必须提前报） ==
+  ✓ E1. 错误码 CYCLE（actual=["CYCLE"] expected=["CYCLE"]）
+  ✓ E2. ok=false
+  ✓ E3. ★解决办法指向正路（要用 loop 的循环体，不要回边）
+  ✓ E4. 消息给出环路路径
+== F. 契约：所有项都带 fix / 纯函数不抛 ==
+[dag-flow] 以下节点不可达（未连接到 start）: orphan
+  ✓ F1. 多类问题同时报出（REF_UNKNOWN,UNREACHABLE）
+  ✓ F2. ★每一条都有非空解决办法
+  ✓ F3. level 只有 error/warn
+  ✓ F4. 每条都有稳定错误码
+  ✓ F5. ★对垃圾输入不抛异常（自检绝不阻断运行路径）
+== G. 轮 2：必填参数（与执行期同一个检查器，提前暴露）==
+  ✓ G1. 错误码 PARAM_REQUIRED（python 没写代码）（actual=["PARAM_REQUIRED"] expected=["PARAM_REQUIRED"]）
+  ✓ G2. 定位到该节点（actual="py" expected="py"）
+  ✓ G3. 消息指出是哪个节点/参数
+  ✓ G4. ★解决办法指向面板具体操作
+  ✓ G5. 属 error（会拦住运行）
+  ✓ G6. code/codePath 二选一：给了 codePath 即通过（不误报）
+== H. 轮 2：if/switch 出边缺分支键（恒激活 = 所有分支都跑）==
+  ✓ H1. 报 BRANCH_KEY_MISSING（现有 BRANCH_KEY_MISSING,SWITCH_CASE_NO_EDGE）
+  ✓ H2. 属 error（静默错误必须拦）
+  ✓ H3. ★解决办法：去线上点标签选分支键
+  ✓ H4. 有分支键就不报（不误伤）
+== I. 轮 2：switch cases ↔ 出边一致性（warn，不拦）==
+  ✓ I1. cases 有 "b" 但无出边 → 告警
+  ✓ I2. 出边键 "zzz" 不在 cases → 告警
+  ✓ I3. 只告警不拦运行（warn）
+  ✓ I4. 两类告警都带解决办法
+== J. 轮 2：goto 回跳（目标在前面/同层 → 永远不生效）==
+  ✓ J1. 报 GOTO_BACKWARD（现有 GOTO_BACKWARD）
+  ✓ J2. 属 warn（配置无害，只是不生效）
+  ✓ J3. ★解决办法指向正路（loop 循环体）
+  ✓ J4. 目标在后面的层 → 不报（正常 goto）
+== K. 轮 3：loop 循环边界（与引擎 LOOP_NO_BOUND 同判据）==
+  ✓ K1. 报 LOOP_NO_BOUND（无 count/while/over）
+  ✓ K2. 属 error（运行必失败，提前拦）
+  ✓ K3. ★解决办法指向面板「🔁 循环设置」
+  ✓ K4. 有 count → 不报（不误伤）
+  ✓ K5. 有 while 字符串 → 不报
+  ✓ K6. ★over 是模板引用（{{…}}）→ 不算无边界（不误报）
+  ✓ K7. count 为模板字符串 → 也不算无边界
+== L. 轮 3：循环体 / 子工作流依赖必须存在（需要宿主注入 knownWorkflows）==
+  ✓ L1. 循环体不存在 → LOOP_BODY_MISSING
+  ✓ L2. 消息点出缺失的工作流名，级别 error
+  ✓ L3. ★解决办法给出具体操作位置
+  ✓ L4. 循环体存在 → 不报
+  ✓ L5. subflow 依赖不存在 → SUBFLOW_MISSING（error）
+  ✓ L6. 没注入 knownWorkflows（离线/拿不到清单）→ 跳过这项，不误报
+== M. 轮 3：merge 上游 ≥2 / 存值模型可解析 ==
+  ✓ M1. merge 只有 1 条上游 → MERGE_NO_UPSTREAM（error）
+  ✓ M2. merge 两条上游 → 不报
+  ✓ M3. 存值模型解析不到 → warn（不拦运行）
+  ✓ M4. ★解决办法指向「选择模型」重选
+  ✓ M5. 说明存值不会被静默改写（在 fix 里）
+  ✓ M6. 模型能解析 → 不报
+== N. 轮 4：建议类（全部只提醒，不拦运行）==
+  ✓ N1. manual + 定时任务 → warn「会被自动放行」
+  ✓ N2. 建议类不拦运行（ok 仍为 true）
+  ✓ N3. ★解决办法说明：手动运行时才会真停下来等
+  ✓ N4. 没有定时任务 → 不提醒（不制造噪音）
+  ✓ N5. 数据源 skip + ≥2 下游引用 → warn
+  ✓ N6. 点明真实风险：整轮仍显示成功、像"什么都没做"
+  ✓ N7. ★建议改成「⛔ 停止这条支路」
+  ✓ N8. 只 1 个下游引用 → 不提醒
+  ✓ N9. 含媒体生成节点 → warn 会产生费用
+  ✓ N10. ★给出调试期做法（先设跳过/断开）
+  ✓ N11. 循环体 + 30 次 → warn（耗时/费用放大）
+  ✓ N12. 小循环（3 次）→ 不打扰
+
+=== selfcheck 工作流自检（轮 1+2+3+4）：75 passed, 0 failed ===
+  ✓ apply(ctx) 捕获到路由
+== A. 逐节点日志（入参 → 出参）==
+  ✓ A0. 工作流跑通（前置条件）
+  ✓ A1. GET /run/log 返回 200
+  ✓ A2. live=false（跑完的运行）
+  ✓ A3. 覆盖到执行的每个节点
+  ✓ A4. 同 id 只出现一条（resolved+done 已合并）
+  ✓ A5. 顺序 = 执行顺序（cfg 在 use 之前，use 在 gate 之前）
+  ✓ A6. cfg 出参可见（stdout 含 hello）
+  ✓ A7. cfg 状态 success
+  ✓ A8. cfg 耗时被记录
+== B. 参数传递（原始参数 vs 实际入参）+ 节点间引用 ==
+  ✓ B1. 原始参数保留 {{}} 引用
+  ✓ B2. 实际入参已展开（不再含 {{）
+  ✓ B3. 记录引用到的上游节点 cfg
+  ✓ B4. 出参可见（use 跑的是展开后的代码）
+  ✓ B5. cfg 无上游引用（nodeRefs 为空）
+== C. 未命中分支的节点也留痕（skipped）==
+  ✓ C1. true 分支的 yes 记 skipped
+  ✓ C2. false 分支的 no 真的跑了（status=success）
+  ✓ C3. gate 的出参是真假值（分支判定可见）
+  ✓ C4. gate 的实际入参含条件表达式（参数传递可核对）
+== D. 失败节点 + 容错在日志里可见 ==
+  ✓ D0. 容错失败不拖垮整条流程（summary=success）
+  ✓ D1. bad 记 failed
+  ✓ D2. bad 的错误原因进日志
+  ✓ D3. bad 标 tolerated（已容错放行）
+  ✓ D4. g2 实际入参已展开（B-A）
+  ✓ D5. g2 记录了引用了 g1
+  ✓ D6. 容错后下游 end 照常执行（日志里有 success 的 end）
+== E. 端点行为 ==
+  ✓ E1. ?node= 过滤只回一条
+  ✓ E2. 查无日志 → 404
+  ✓ E3. 条目数 = 工作流节点数（7：含 skipped 的 yes，不重复）
+
+=== run-log: 29 passed, 0 failed ===

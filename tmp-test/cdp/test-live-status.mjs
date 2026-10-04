@@ -4,6 +4,7 @@
 //
 // 手段：夹具控制口 POST /__run-mode {mode:'slow'} 让 /run 分阶段推进（每节点 500ms），
 //       画布每 600ms 轮询 /run/status?name= → 于是能观察到「待运行 → 运行中 → 完成」的中间态。
+import { confirmSelfcheck } from './driver.mjs';
 export async function run({ cdp, evaluate, waitFor, ok, eq, sleep, name, base }) {
   // 打开慢速运行模式
   const setMode = async (mode) => evaluate(cdp, `
@@ -20,6 +21,7 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, sleep, name, base })
 
   // ① 起跑 → **立刻**全部是「待运行」（不是空白，也不是等结束一次性出结果）
   await evaluate(cdp, `document.querySelector('.dsh-wf-btn-success').click(); true;`);
+  await confirmSelfcheck(cdp);   // ★ 越过运行前自检的人工确认
   await waitFor(cdp, `document.querySelectorAll('.dsh-wf-fg-badge.is-wait').length >= 1`, { timeout: 4000 });
   const waits = await evaluate(cdp, `document.querySelectorAll('.dsh-wf-fg-badge.is-wait').length`);
   ok(waits >= 2, `① 起跑后立刻显示「待运行」（${waits} / ${nodeCount} 个节点）`);
@@ -101,6 +103,7 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, sleep, name, base })
 
   // ⑪ 再跑一次慢速，等它自然跑完 → 恢复静态 ▶、全部完成态
   await evaluate(cdp, `document.querySelector('.dsh-wf-btn-success').click(); true;`);
+  await confirmSelfcheck(cdp);   // ★ 越过运行前自检的人工确认
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-fg-badge.is-run')`, { timeout: 6000 });
   await waitFor(cdp, `!document.querySelector('.dsh-wf-fg-badge.is-wait') && !document.querySelector('.dsh-wf-fg-badge.is-run')`, { timeout: 20000 });
   await waitFor(cdp, `(document.querySelector('.dsh-wf-btn-success')?.textContent ?? '').trim() === '▶'`, { timeout: 8000 });

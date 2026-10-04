@@ -1,8 +1,12 @@
-# dag-flow 定时任务方案（v1 · 待你拍板）
+# dag-flow 定时任务方案（v1 · 已实现）
 
 > 需求原话：「帮我出一个定时任务方案，实现每个工作流定时执行，独立执行，兼容 cron 表达式，有个按钮配置完之后，配置定时任务的地方，先出方案，我来拍板执行」
-> 状态：**只出方案，未写代码**。按你的规则，拍板后我先出弹窗 HTML 原型（2x 截图）再落地。
-> 前情：2026-10-02 这一轮曾**完整实现并全绿后按你指示整体回退**（schedules.ts / scheduler.ts / API / ⏰ 弹窗 / 重命名联动 / 测试）。本方案复用同一套骨架，并把回退清单保留在 §9，方便你决定差异点。
+> **状态（2026-10-03 深夜）：方案已按用户「之前的定时任务方案，实行了」的指示落地**（§7 的 1~4、6 步完成，第 5 步「真机端到端」由用户在真机确认）。
+> 落地清单：`src/adapter/cron.ts`（解析 + 下次时间 + 中文预览）、`src/adapter/schedules.ts`（配置原子写/改名联动/orphan）、
+> `src/adapter/scheduler.ts`（20s tick + skip + 不补跑 + 心跳）、`src/adapter/running.ts`（共享运行登记，避免定时与手动双跑）、
+> api.ts +4 条路由（15→19）、index.ts +1 条 effect（2→3，`dag-flow: scheduler`）、客户端头部 ⏰ 弹窗；
+> 测试：`test/cron.test.mjs` 90 断言、`test/schedules.test.mjs` 45、`test/scheduler.test.mjs` 41、`tmp-test/sched-e2e.mjs` 14（真执行器）、CDP `schedule-dialog`。
+> 前情：2026-10-02 这一轮曾**完整实现并全绿后按你指示整体回退**（schedules.ts / scheduler.ts / API / ⏰ 弹窗 / 重命名联动 / 测试）。本方案复用同一套骨架，回退清单保留在 §9。
 
 ## 0. 一句话结论
 **插件内自研分钟级 cron 调度器 + 工作流级定时配置**：每个工作流可配多条定时；到点由调度器按「独立运行」语义调用既有执行引擎（无交互、manual 节点自动通过、写进 `.dag-flow/runs/`）；配置入口 = 画布头部 **⏰ 定时任务** 按钮 → 「定时任务」弹窗；配置存工作区 `.dag-flow/schedules.json`。
@@ -53,12 +57,15 @@
 - 文件损坏 → 降级为空列表 + 日志，不阻塞插件加载。
 
 ## 4. API（复用 `route()` 注册，+4 条；现有 15 条 → 19 条）
+> 实现注记（2026-10-03）：宿主注册器按 (kind,path) 唯一（同路径重复注册会抛 duplicate 并被跳过），
+> 所以拆成 4 条**不同路径**（路径里不带方法语义，方法由 handler 判定）：
+> `GET /schedules`（列表 + 调度器心跳）、`POST /schedules/save`、`POST /schedules/delete`、`POST /schedules/run`。
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/api/dag-flow/schedules?workflow=` | 列表（不带参数=全部） |
-| POST | `/api/dag-flow/schedules` | 新增/更新一条（整条 body） |
-| DELETE | `/api/dag-flow/schedules?id=` | 删除 |
-| POST | `/api/dag-flow/schedules/run` | 立即执行一次（等价于真跑，UI 二次确认） |
+| GET | `/api/dag-flow/schedules?workflow=` | 列表（不带参数=全部）+ `scheduler` 心跳对象 |
+| POST | `/api/dag-flow/schedules/save` | 新增/更新一条（整条 body；cron 非法 → 400 且不落盘） |
+| POST | `/api/dag-flow/schedules/delete` | 删除（body `{id}`，也接受 `?id=`） |
+| POST | `/api/dag-flow/schedules/run` | 立即执行一次（等价于真跑，UI 二次确认；复用 tick 语义，hold 到跑完） |
 
 ## 5. 调度器（host 侧）
 - 新文件 `src/adapter/scheduler.ts`：`startScheduler(ctx)` → 返回 disposer；`setInterval(tick, 20000)`；tick 内挑 `enabled && nextRunAt<=now` 的条目 → 调既有 `runWorkflow(name, { inputs, interactive:false })` → 写回 `lastRun` + 重算 `nextRunAt`。

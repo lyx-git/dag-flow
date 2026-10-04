@@ -2,41 +2,49 @@
 // 画线松手不弹面板。根因：官方 Layer 把 position 透传给 renderer、定位是 renderer 职责——旧渲染器
 // 没用该 prop，面板作为图层流内静态块渲染，位置不随落点且可能被画布遮住）。
 // 修复后：渲染器 portal 到 body + position:fixed 落点坐标（视口钳位）。
-// ★ 合成事件必须派发到 elementFromPoint 的最深元素（真实鼠标语义）——派发到 editor 祖先时
-//   playground 内部监听收不到（hover 起不了线）；先 mousemove hover 端口再 mousedown 起线。
-export async function run({ cdp, evaluate, waitFor, ok }) {
+// ★ 2026-10-04 轮 7（做稳）：起线改用 driver 的**真实鼠标输入** `dragMouse`（CDP Input.dispatchMouseEvent）。
+//   此前靠页面内合成 MouseEvent（hover 三次 + 180ms 间隔）模拟拖拽，与 playground 的 hover/drag 状态机
+//   时序对不上 → 间歇性"起不了线、快选面板不弹"（同一份构建有时过有时挂）。真实输入走浏览器输入管线，
+//   等价于真人鼠标：hover / 按键状态 / 移动步数都由浏览器维护。
+import { goto, installHelpers, dragUntil } from './driver.mjs';
+
+export async function run({ cdp, evaluate, waitFor, ok, sleep }) {
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-fg-editor')`, { timeout: 20000 });
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-fg-card')`, { timeout: 15000 });
+  // ★ 2026-10-04 轮 7：等画布"热"起来再做第一次手势——页面刚渲染完时 FlowGram 的端口 hover 状态机
+  //   还没就绪，此时按下不会起线（诊断见 tmp-test/cdp/diag-port-hover.mjs）
+  await sleep(600);
 
-  const drop = await evaluate(cdp, `
-    (async () => {
-      const editor = document.querySelector('.dsh-wf-fg-editor');
-      const er = editor.getBoundingClientRect();
-      // 找开始节点的输出端口（端口 portal 渲染，不在 host 内，全画布找 output 类型）
-      const port = [...document.querySelectorAll('.workflow-port-render')]
-        .find((p) => p.getAttribute('data-port-entity-type') === 'output');
-      if (!port) return { error: 'output port not found' };
-      const pr = port.getBoundingClientRect();
-      // 空白落点：编辑器右下 1/4 处
-      const dropX = Math.round(er.left + er.width * 0.72), dropY = Math.round(er.top + er.height * 0.75);
-      const fire = (type, x, y) => {
-        const t = document.elementFromPoint(x, y) ?? editor;
-        t.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, view: window }));
-      };
-      const seq = [
-        ['mousemove', pr.left + pr.width / 2, pr.top + pr.height / 2],
-        ['mousemove', pr.left + pr.width / 2, pr.top + pr.height / 2],
-        ['mousemove', pr.left + pr.width / 2, pr.top + pr.height / 2], // hover 补一次（偶发时序抖动：hover 未消化则 mousedown 起不了线）
-        ['mousedown', pr.left + pr.width / 2, pr.top + pr.height / 2],
-        ['mousemove', (pr.left + dropX) / 2, (pr.top + dropY) / 2],
-        ['mousemove', dropX, dropY],
-        ['mouseup', dropX, dropY],
-      ];
-      for (const [type, x, y] of seq) { fire(type, x, y); await new Promise((r) => setTimeout(r, 180)); }
-      return { dropX, dropY };
-    })()
-  `);
-  ok(!drop.error, '起线序列执行' + (drop.error ? ' — ' + drop.error : ''));
+  /** 起线：算好起点（start 的输出端口中心）与落点，然后用**真实鼠标**拖过去 */
+  const dragFromPort = async (dropXRatio, dropYRatio) => {
+    const geo = await evaluate(cdp, `
+      (() => {
+        const editor = document.querySelector('.dsh-wf-fg-editor');
+        const er = editor.getBoundingClientRect();
+        // 输出端口 portal 渲染，不在 host 内，全画布找 output 类型
+        const port = [...document.querySelectorAll('.workflow-port-render')]
+          .find((p) => p.getAttribute('data-port-entity-type') === 'output');
+        if (!port) return { error: 'output port not found' };
+        const pr = port.getBoundingClientRect();
+        // 落点必须避开节点卡（拖到卡上会直接连成线、不弹快选面板）
+        const cards = [...document.querySelectorAll('.dsh-wf-fg-card')].map((c) => c.getBoundingClientRect());
+        let x = Math.round(er.left + er.width * ${dropXRatio});
+        let y = Math.round(er.top + er.height * ${dropYRatio});
+        for (let dx = 0; dx <= 0.3 && cards.some((c) => x > c.left - 60 && x < c.right + 60 && y > c.top - 60 && y < c.bottom + 60); dx += 0.05) {
+          x = Math.round(er.left + er.width * (${dropXRatio} + dx));
+          if (x > er.right - 30) break;
+        }
+        return { sx: Math.round(pr.left + pr.width / 2), sy: Math.round(pr.top + pr.height / 2), dropX: x, dropY: y };
+      })()
+    `);
+    ok(!geo.error, '起线序列执行' + (geo.error ? ' — ' + geo.error : ''));
+    // 手势最多重试 3 次（见 driver.dragUntil 的注释：落空≠功能坏了，重试后断言完全不变）
+    const r = await dragUntil(cdp, { x: geo.sx, y: geo.sy }, { x: geo.dropX, y: geo.dropY }, `!!document.querySelector('.dsh-wf-fg-quick')`);
+    ok(r.ok, `拖线后快选面板弹出（第 ${r.attempts} 次手势）`);
+    return { dropX: geo.dropX, dropY: geo.dropY };
+  };
+
+  const drop = await dragFromPort(0.72, 0.75);
 
   // 断言① 面板出现
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-fg-quick')`, { timeout: 5000 });
@@ -73,31 +81,7 @@ export async function run({ cdp, evaluate, waitFor, ok }) {
   ok(true, 'Esc 关闭快选面板');
 
   // ===== 断言⑤：重开面板选节点 → 新节点落在拖线松手点（2026-10-02 用户反馈：跑到画布中间）=====
-  const drop2 = await evaluate(cdp, `
-    (async () => {
-      const editor = document.querySelector('.dsh-wf-fg-editor');
-      const er = editor.getBoundingClientRect();
-      const port = [...document.querySelectorAll('.workflow-port-render')]
-        .find((p) => p.getAttribute('data-port-entity-type') === 'output');
-      const pr = port.getBoundingClientRect();
-      const dropX = Math.round(er.left + er.width * 0.68), dropY = Math.round(er.top + er.height * 0.7);
-      const fire = (type, x, y) => {
-        const t = document.elementFromPoint(x, y) ?? editor;
-        t.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, view: window }));
-      };
-      const seq = [
-        ['mousemove', pr.left + pr.width / 2, pr.top + pr.height / 2],
-        ['mousemove', pr.left + pr.width / 2, pr.top + pr.height / 2],
-        ['mousemove', pr.left + pr.width / 2, pr.top + pr.height / 2], // hover 补一次（偶发时序抖动：hover 未消化则 mousedown 起不了线）
-        ['mousedown', pr.left + pr.width / 2, pr.top + pr.height / 2],
-        ['mousemove', (pr.left + dropX) / 2, (pr.top + dropY) / 2],
-        ['mousemove', dropX, dropY],
-        ['mouseup', dropX, dropY],
-      ];
-      for (const [type, x, y] of seq) { fire(type, x, y); await new Promise((r) => setTimeout(r, 180)); }
-      return { dropX, dropY };
-    })()
-  `);
+  const drop2 = await dragFromPort(0.68, 0.7);
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-fg-quick')`, { timeout: 5000 });
   // 输入 python 过滤 → Enter 选第一项（创建节点并自动连线）
   await evaluate(cdp, `
@@ -137,32 +121,8 @@ export async function run({ cdp, evaluate, waitFor, ok }) {
   // ===== 断言⑥：会话输入节点也能自动连线（2026-10-02 用户反馈：选会话输入后连线没了）=====
   // 根因：session_input 注册 defaultPorts 只有 output、无 input → buildLine 的
   // inputPorts.length>0 门控静默跳过连线。修复后应有 input 端口并能连上。
-  const drop3 = await evaluate(cdp, `
-    (async () => {
-      const editor = document.querySelector('.dsh-wf-fg-editor');
-      const er = editor.getBoundingClientRect();
-      const port = [...document.querySelectorAll('.workflow-port-render')]
-        .find((p) => p.getAttribute('data-port-entity-type') === 'output');
-      const pr = port.getBoundingClientRect();
-      // 落点取左下空白区（避开 start 与上一轮 python 节点卡——拖到节点上会命中 toPort 直接连线、不弹面板）
-      const dropX = Math.round(er.left + er.width * 0.28), dropY = Math.round(er.top + er.height * 0.86);
-      const fire = (type, x, y) => {
-        const t = document.elementFromPoint(x, y) ?? editor;
-        t.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, view: window }));
-      };
-      const seq = [
-        ['mousemove', pr.left + pr.width / 2, pr.top + pr.height / 2],
-        ['mousemove', pr.left + pr.width / 2, pr.top + pr.height / 2],
-        ['mousemove', pr.left + pr.width / 2, pr.top + pr.height / 2], // hover 补一次（偶发时序抖动：hover 未消化则 mousedown 起不了线）
-        ['mousedown', pr.left + pr.width / 2, pr.top + pr.height / 2],
-        ['mousemove', (pr.left + dropX) / 2, (pr.top + dropY) / 2],
-        ['mousemove', dropX, dropY],
-        ['mouseup', dropX, dropY],
-      ];
-      for (const [type, x, y] of seq) { fire(type, x, y); await new Promise((r) => setTimeout(r, 180)); }
-      return { dropX, dropY };
-    })()
-  `);
+  // 落点取左下空白区（避开 start 与上一轮 python 节点卡——拖到节点上会命中 toPort 直接连线、不弹面板）
+  const drop3 = await dragFromPort(0.28, 0.86);
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-fg-quick')`, { timeout: 5000 });
   await evaluate(cdp, `
     (() => {

@@ -3,31 +3,20 @@
 //   如果有很多分支或者 chips 没展示出来，就在节点里面写明情况说明，先画线，再在线上选择需要的 case 分支，
 //   节点保持和其他的节点大小一致」。
 // 夹具：cdp-host.html?chips=1（sw_chips：4 个 case + 引擎兜底 '*' = 5 个出口，一行放不下 → 3 个 + 「+2」）
-import { goto, installHelpers } from './driver.mjs';
+import { goto, installHelpers, dragUntil } from './driver.mjs';
 
 const SW_CARD = `多路分支：运行模式`;
 
-/** 起线序列（对齐 test-line-drop-panel 的真实鼠标语义：先 hover 端口再 mousedown，事件派发到 elementFromPoint 最深元素） */
-function dragFrom(x, y, dropX, dropY) {
-  return `
-    (async () => {
-      const editor = document.querySelector('.dsh-wf-fg-editor');
-      const fire = (type, px, py) => {
-        const t = document.elementFromPoint(px, py) ?? editor;
-        t.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: px, clientY: py, button: 0, view: window }));
-      };
-      const seq = [
-        ['mousemove', ${x}, ${y}], ['mousemove', ${x}, ${y}], ['mousemove', ${x}, ${y}],
-        ['mousedown', ${x}, ${y}],
-        ['mousemove', (${x} + ${dropX}) / 2, (${y} + ${dropY}) / 2],
-        ['mousemove', ${dropX}, ${dropY}],
-        ['mouseup', ${dropX}, ${dropY}],
-      ];
-      for (const [t, px, py] of seq) { fire(t, px, py); await new Promise((r) => setTimeout(r, 180)); }
-      const el = document.elementFromPoint(${x}, ${y});
-      return { hitTag: el?.tagName ?? '', hitCls: typeof el?.className === 'string' ? el.className : (el?.className?.baseVal ?? '[svg]') };
-    })()
-  `;
+/** 起线（2026-10-04 轮 7 改造）：改用 driver 的 **真实鼠标输入**（CDP Input.dispatchMouseEvent）——
+ *  原实现派发合成 MouseEvent，与 playground 的 hover/drag 状态机时序对不上，是本案长期抖动的根因。
+ *  起线后等快选面板出现（手势最多重试 3 次）；返回的 hit 信息保持原样（失败时用于定位起点命中了谁）。 */
+async function dragFrom(cdp, evaluate, x, y, dropX, dropY) {
+  const hit = await evaluate(cdp, `(() => {
+    const el = document.elementFromPoint(${x}, ${y});
+    return { hitTag: el?.tagName ?? '', hitCls: typeof el?.className === 'string' ? el.className : (el?.className?.baseVal ?? '[svg]') };
+  })()`);
+  await dragUntil(cdp, { x, y }, { x: dropX, y: dropY }, `!!document.querySelector('.dsh-wf-fg-quick')`);
+  return hit;
 }
 
 /** 起线起点 = 卡片右边缘那个**可见端口圆点**的中心（switch 的所有出口端口重合在这一个点上，就是这个点）；
@@ -91,6 +80,9 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
   await goto(cdp, `${base}/cdp-host.html?name=${encodeURIComponent(name)}&chips=1`);
   await installHelpers(cdp);
   await waitFor(cdp, `[...document.querySelectorAll('.dsh-wf-fg-card')].some((c) => (c.textContent || '').includes(${JSON.stringify(SW_CARD)}))`, { timeout: 20000 });
+  // ★ 2026-10-04 轮 7：等画布"热"起来再做第一次手势（页面刚渲染完时端口 hover 状态机未就绪 →
+  //   按下不起线；诊断见 tmp-test/cdp/diag-port-hover.mjs）
+  await sleep(600);
 
   // ===== ① 端口行删除 + 卡片只剩一行 chips =====
   const info = await evaluate(cdp, `(() => {
@@ -170,7 +162,7 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
   `);
   await sleep(250);
   const geo = await evaluate(cdp, geoExpr('0.62'));
-  const hit = await evaluate(cdp, dragFrom(geo.x, geo.y, geo.dropX, geo.dropY));
+  const hit = await dragFrom(cdp, evaluate, geo.x, geo.y, geo.dropX, geo.dropY);
   const drawn = await drawLine({ cdp, evaluate, waitFor });
   ok(drawn.when === 'video', '③ 选中 video 后拉出的线自带分支键 video（when=' + JSON.stringify(drawn.when)
     + '；起点命中 ' + hit.hitTag + '.' + hit.hitCls + '；switch 输出端口元素 ' + geo.portCount + ' 个）');
@@ -179,8 +171,9 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
   await goto(cdp, `${base}/cdp-host.html?name=${encodeURIComponent(name)}b&chips=1`);
   await installHelpers(cdp);
   await waitFor(cdp, `[...document.querySelectorAll('.dsh-wf-fg-card')].some((c) => (c.textContent || '').includes(${JSON.stringify(SW_CARD)}))`, { timeout: 20000 });
+  await sleep(600);   // ★ 轮 7：每次 goto 到新页面后都要等画布热起来再起线（见文件头注释）
   const geo2 = await evaluate(cdp, geoExpr('0.62'));
-  const hit2 = await evaluate(cdp, dragFrom(geo2.x, geo2.y, geo2.dropX, geo2.dropY));
+  const hit2 = await dragFrom(cdp, evaluate, geo2.x, geo2.y, geo2.dropX, geo2.dropY);
   const drawn2 = await drawLine({ cdp, evaluate, waitFor });
   ok(drawn2.when === 'out', '④ 未选中 chip → 新线不带 case（when=' + JSON.stringify(drawn2.when)
     + '；起点命中 ' + hit2.hitTag + '.' + hit2.hitCls + '）');
@@ -202,8 +195,9 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
   await goto(cdp, `${base}/cdp-host.html?name=${encodeURIComponent(name)}c&chips=1`);
   await installHelpers(cdp);
   await waitFor(cdp, `[...document.querySelectorAll('.dsh-wf-fg-card')].some((c) => (c.textContent || '').includes(${JSON.stringify(SW_CARD)}))`, { timeout: 20000 });
+  await sleep(600);   // ★ 轮 7：同上（新页面 → 等画布热起来）
   const g1 = await evaluate(cdp, geoExpr('0.6'));
-  await evaluate(cdp, dragFrom(g1.x, g1.y, g1.dropX, g1.dropY));
+  await dragFrom(cdp, evaluate, g1.x, g1.y, g1.dropX, g1.dropY);
   const d1 = await drawLine({ cdp, evaluate, waitFor });
   ok(d1.when === 'out', '⑥ 第一条（未选中）→ out，实际 ' + JSON.stringify(d1.when));
   await evaluate(cdp, `
@@ -216,7 +210,7 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
   `);
   await sleep(250);
   const g2 = await evaluate(cdp, geoExpr('0.66'));
-  await evaluate(cdp, dragFrom(g2.x, g2.y, g2.dropX, g2.dropY));
+  await dragFrom(cdp, evaluate, g2.x, g2.y, g2.dropX, g2.dropY);
   const d2 = await drawLine({ cdp, evaluate, waitFor });
   ok(d2.when === 'full', '⑥ 第二条（选中 full）→ full，实际 ' + JSON.stringify(d2.when));
   ok(await evaluate(cdp, `

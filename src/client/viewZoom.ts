@@ -48,3 +48,51 @@ export function zoomStepLabel(current: number): string | null {
   const hit = ZOOM_STEPS.find((z) => Math.abs(z - current) < 0.02);
   return hit ? `${Math.round(hit * 100)}%` : null;
 }
+
+// ================= 取景 C：整图居中之后把「入口节点」带进可视区（2026-10-04 用户拍板）=================
+// 背景：进画布只设一次视图 = **整图内容居中**。图一大，入口（start）节点就可能落在视口边缘/外面，
+//   用户得先拖着找"从哪儿开始"。用户从 A（不改）/ B（一律对准入口）/ C（折中）里选了 **C**：
+//   保持整图居中，**仅当入口节点不在可视区内时**做一次**最少平移**把它带进来 —— 缩放不变。
+// ★ 为什么必须减掉右侧面板宽度：`.dsh-wf-right` 是绝对定位浮层（约 340px），会盖住画布右边；
+//   不减的话"以为可见、其实藏在面板底下"（2026-10-03 switch-chips 3/3 失败就是这个坑）。
+
+export interface WorldRect { x: number; y: number; width: number; height: number }
+
+/**
+ * 纯函数：算出"把 startBox 带进可视区"的最少平移量（世界坐标；单位与 box 相同）。
+ * @param graphBox 当前居中的整图包围盒（决定可视区在世界坐标里的位置）
+ * @param startBox 入口节点包围盒（null = 找不到入口，不移动）
+ * @param viewW/viewH 视口尺寸（屏幕像素）
+ * @param panelW 右侧浮层遮挡宽度（屏幕像素，0 = 无遮挡）
+ * @param zoom 当前缩放（世界 → 屏幕）
+ */
+export function ensureVisibleShift(opts: {
+  graphBox: WorldRect | null; startBox: WorldRect | null;
+  viewW: number; viewH: number; panelW?: number; zoom: number;
+}): { shifted: boolean; dx: number; dy: number; target: WorldRect | null } {
+  const { graphBox, startBox, viewW, viewH, zoom } = opts;
+  const panelW = Math.max(0, opts.panelW ?? 0);
+  const z = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  if (!startBox || !Number.isFinite(viewW) || !Number.isFinite(viewH) || viewW <= 0 || viewH <= 0) {
+    return { shifted: false, dx: 0, dy: 0, target: null };
+  }
+  // 真正能看的区域（世界坐标）：视口减掉右侧面板，整体除以 zoom
+  const safeW = Math.max(80, viewW - panelW) / z;
+  const safeH = Math.max(80, viewH) / z;
+  const base = graphBox ?? startBox;
+  const cx = base.x + base.width / 2;
+  const cy = base.y + base.height / 2;
+  const left = cx - safeW / 2;
+  const top = cy - safeH / 2;
+  const right = left + safeW;
+  const bottom = top + safeH;
+  // 最少平移：只把越界的那一侧拉回来
+  let dx = 0;
+  let dy = 0;
+  if (startBox.x < left) dx = startBox.x - left;
+  else if (startBox.x + startBox.width > right) dx = startBox.x + startBox.width - right;
+  if (startBox.y < top) dy = startBox.y - top;
+  else if (startBox.y + startBox.height > bottom) dy = startBox.y + startBox.height - bottom;
+  if (dx === 0 && dy === 0) return { shifted: false, dx: 0, dy: 0, target: null };
+  return { shifted: true, dx, dy, target: { x: left + dx, y: top + dy, width: safeW, height: safeH } };
+}

@@ -81,7 +81,11 @@ const serialDef = (name) => ({
   name, version: 1,
   nodes: [
     { id: 'start', type: 'start', next: 'manual1' },
-    { id: 'manual1', type: 'manual', label: '发布前确认', params: { prompt: '串行模式的确认' } },
+    // ★ 2026-10-04：补上 manual1 → after 的连线。原夹具漏了这一跳（manual1 没有 next，
+    //   于是 after/end 成了孤点），旧执行器不跑孤点所以"看着没事"；
+    //   归一化后所有定义都走 DAG（孤点会在第 0 层被当成入口执行），漏连线会直接触发
+    //   数据依赖预检 DATAFLOW_ORDER。夹具改正后，同一份定义在两种模式下都必须能挂起。
+    { id: 'manual1', type: 'manual', label: '发布前确认', params: { prompt: '串行模式的确认' }, next: 'after' },
     { id: 'after', type: 'log', params: { level: 'info', message: '{{manual1.out.value}}' }, next: 'end' },
     { id: 'end', type: 'end' },
   ],
@@ -119,12 +123,15 @@ let runId = '';
   t('C2. 未知 runId resume → 404', r2.status === 404, `status=${r2.status}`);
 }
 
-// ===== D. 串行（next 递归）模式：挂起 → 取消 =====
+// ===== D. next-only（串行写法）模式：挂起 → 取消 =====
+//   2026-10-04 轮 4：legacy 递归执行器已删除，**所有定义都走 DAG**（没有 edges 的先归一化），
+//   所以这里不再需要"两种模式对照"，只跑一遍即可（原先的 DAG_FLOW_LEGACY_EXEC 对照已撤除）。
 {
-  const r = await post('/run', { def: serialDef('m-serial') });
-  t('D1. 串行模式同样会挂起（202）', r.status === 202 && r.body?.status === 'awaiting', `status=${r.status} ${JSON.stringify(r.body)?.slice(0, 200)}`);
+  const wfName = 'm-serial';
+  const r = await post('/run', { def: serialDef(wfName) });
+  t('D1. next-only 定义同样会挂起（202）', r.status === 202 && r.body?.status === 'awaiting', `status=${r.status} ${JSON.stringify(r.body)?.slice(0, 200)}`);
   const id = String(r.body?.runId ?? '');
-  const c = await del(`/run?name=${encodeURIComponent('m-serial')}`);
+  const c = await del(`/run?name=${encodeURIComponent(wfName)}`);
   t('D2. DELETE 取消等待中的运行 → 200', c.status === 200 && c.body?.ok === true, JSON.stringify(c.body));
   const done = await waitDone(id);
   const m1 = done?.summary?.results?.manual1;
@@ -146,7 +153,8 @@ let runId = '';
     name: 'm-child', version: 1,
     nodes: [
       { id: 'start', type: 'start', next: 'manual1' },
-      { id: 'manual1', type: 'manual', label: '子流程确认', params: { prompt: '子流程内的确认' } },
+      // ★ 2026-10-04：补 manual1 → end 的连线（同上：漏连线会让 end 变成 DAG 里的第 0 层孤点）
+      { id: 'manual1', type: 'manual', label: '子流程确认', params: { prompt: '子流程内的确认' }, next: 'end' },
       { id: 'end', type: 'end' },
     ],
   } });

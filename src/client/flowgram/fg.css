@@ -246,6 +246,15 @@
   color: #fcd34d;
 }
 
+/* ★ 人工确认「自动通过」徽标（2026-10-04 用户拍板 A：保持自动通过但显形）：
+   非交互运行（定时 / 立即运行一次 / CLI / 子工作流内部）里 manual 节点被直接放行 → 青色「✓ … · ⏭ 自动通过」，
+   与"真的有人确认过"区分开（用户反馈原话：「定时任务自动触发的运行，手动确认节点自动跳过」）。 */
+.dsh-wf-fg-badge.is-auto {
+  background: color-mix(in srgb, #38bdf8 20%, var(--wf-panel, #101a2b));
+  border-color: color-mix(in srgb, #38bdf8 55%, transparent);
+  color: #7dd3fc;
+}
+
 /* ===== 节点「最终执行结果」悬浮卡（2026-10-03 用户需求：无论失败还是成功都能在节点上看结果）=====
    Portal 到 document.body + position:fixed：画布容器带 transform，留在卡片内会被缩放/裁切。 */
 .dsh-wf-fg-tip {
@@ -908,3 +917,22 @@ button.dsh-wf-fg-zoom:hover {
 .dsh-wf-fg-palette-resize.nw { top: 0; left: 0; width: 13px; height: 13px; cursor: nwse-resize; }
 .dsh-wf-fg-palette-resize.se { bottom: 0; right: 0; width: 13px; height: 13px; cursor: nwse-resize; }
 .dsh-wf-fg-palette-resize.sw { bottom: 0; left: 0; width: 13px; height: 13px; cursor: nesw-resize; }
+
+/* ★ 失败策略 chip（2026-10-04 轮 7 「fail 策略显形」）：默认 stop 不显示；三档各自配色 */
+.dsh-wf-fg-failchip {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  border: 1px solid currentColor;
+  opacity: .92;
+}
+.dsh-wf-fg-failchip.is-skip { color: #38bdf8; }     /* 跳过支路：青 */
+.dsh-wf-fg-failchip.is-ignore { color: #34d399; }   /* 忽略失败：绿（与「已容错」同色系） */
+.dsh-wf-fg-failchip.is-goto { color: #a78bfa; }     /* 失败跳转：紫（与循环标同色系） */

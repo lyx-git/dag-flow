@@ -5,11 +5,11 @@
 //   用户拍板方案 A：节点级开关，勾选后「失败不影响流程」。
 //
 // 契约（本文件钉死，改引擎前先看这里）：
-//   ① 默认（不勾）= 原语义：失败 → 后续层不执行 + summary.status='failed' + failedCount=1
+//   ① 默认（不勾）= 失败**只停该节点的下游**（下游标 skipped），summary.status='failed' + failedCount=1
 //   ② 勾选 → 节点自身仍是 status='failed' + tolerated=true，但**不计入** failedCount/firstError；
-//      后续层照常执行；summary.status='success' 且带 toleratedCount
+//      下游照常执行；summary.status='success' 且带 toleratedCount
 //   ③ 混合（容错失败 + 真失败）→ status='failed'，firstError.nodeId 指向**真失败**那个节点
-//   ④ legacy 路径（只写 next、没有 edges）同样生效
+//   ④ next-only 写法（只写 next、没有 edges → 归一化后走 DAG）同样生效
 //   ⑤ 容错节点的 out 仍是 {error:{code,message}}（下游能读到错因，不是空）
 //
 // 手段同 loop.test.mjs：伪造 cordis ctx → apply(dist/index.js) → 本地服务 → POST /run 读 summary。
@@ -69,7 +69,7 @@ const failNode = (id, tolerate, next = 'lg') => ({
 });
 
 // ───────────────────────── ① 默认不勾：原语义不受影响（红线：必须保持原逻辑）─────────────────────────
-console.log('\n== ① 默认（不勾 tolerate）→ 失败即中断，原语义不变 ==');
+console.log('\n== ① 默认（不勾 tolerate）→ 下游停止 + 运行记失败（2026-10-04 轮 2：只停下游，不再中止全图）==');
 {
   const { httpStatus, summary } = await run({
     name: 'tol-default__', version: 1,
@@ -88,7 +88,8 @@ console.log('\n== ① 默认（不勾 tolerate）→ 失败即中断，原语义
   t('failedCount=1', summary?.failedCount === 1, JSON.stringify(summary?.failedCount));
   t('toleratedCount 缺省（不写 0）', summary?.toleratedCount === undefined, JSON.stringify(summary?.toleratedCount));
   t('失败节点没被标 tolerated', summary?.results?.fail1?.tolerated === undefined, JSON.stringify(summary?.results?.fail1?.tolerated));
-  t('下游 lg 未执行（DAG 默认 stop 语义保持）', summary?.results?.lg === undefined, JSON.stringify(Object.keys(summary?.results ?? {})));
+  t('下游 lg 被标「跳过（未执行）」', summary?.results?.lg?.status === 'skipped',
+    '★ 2026-10-04 轮 2 行为变更：旧实现是"失败 → 后续层不跑 → 结果里没有 lg"；现在是"只停该节点的下游 → lg 明确标 skipped"（更透明，且其它分支不受影响）actual=' + JSON.stringify(summary?.results?.lg?.status));
   t('firstError.nodeId=fail1', summary?.error?.nodeId === 'fail1', JSON.stringify(summary?.error));
 }
 
@@ -141,14 +142,15 @@ console.log('\n== ③ 混合场景：容错失败不该掩盖真失败 ==');
   t('failedCount=1（只数真失败）', summary?.failedCount === 1, JSON.stringify(summary?.failedCount));
   t('toleratedCount=1', summary?.toleratedCount === 1, JSON.stringify(summary?.toleratedCount));
   t('firstError 指向真失败节点 fail2（不是容错那个）', summary?.error?.nodeId === 'fail2', JSON.stringify(summary?.error));
-  t('真失败后面的 end 未执行', summary?.results?.end === undefined, JSON.stringify(Object.keys(summary?.results ?? {})));
+  t('真失败后面的 end 未被「执行」', summary?.results?.end?.status === 'skipped',
+    '★ 2026-10-04 轮 2：失败只停下游 → end 明确标 skipped（旧实现是"后续层整体不跑"→ 结果里没有 end）actual=' + JSON.stringify(summary?.results?.end?.status));
 }
 
-// ───────────────────────── ④ legacy 路径（只写 next，没有 edges）同样生效 ─────────────────────────
-console.log('\n== ④ legacy 路径（无 edges、只有 next）==');
+// ───────────────────────── ④ next-only 写法（2026-10-04 轮 1 起归一化后也走 DAG）同样生效 ─────────────────────────
+console.log('\n== ④ next-only 写法（无 edges、只有 next → 归一化后走 DAG）==');
 {
   const off = await run({
-    name: 'tol-legacy-off__', version: 1,
+    name: 'tol-nextonly-off__', version: 1,
     nodes: [
       { id: 'start', type: 'start', params: {}, next: 'fail1' },
       failNode('fail1', false),
@@ -156,11 +158,12 @@ console.log('\n== ④ legacy 路径（无 edges、只有 next）==');
       { id: 'end', type: 'end', params: { outputs: {} } },
     ],
   });
-  t('legacy 不勾 → 下游不执行（原 onError=stop 语义不变）', off.summary?.results?.lg === undefined, JSON.stringify(Object.keys(off.summary?.results ?? {})));
-  t('legacy 不勾 → status=failed', off.summary?.status === 'failed', JSON.stringify(off.summary?.status));
+  t('next-only 不勾 → 下游不执行（标 skipped）', off.summary?.results?.lg?.status === 'skipped',
+    'actual=' + JSON.stringify(off.summary?.results?.lg?.status));
+  t('next-only 不勾 → status=failed', off.summary?.status === 'failed', JSON.stringify(off.summary?.status));
 
   const on = await run({
-    name: 'tol-legacy-on__', version: 1,
+    name: 'tol-nextonly-on__', version: 1,
     nodes: [
       { id: 'start', type: 'start', params: {}, next: 'fail1' },
       failNode('fail1', true),
@@ -168,9 +171,9 @@ console.log('\n== ④ legacy 路径（无 edges、只有 next）==');
       { id: 'end', type: 'end', params: { outputs: {} } },
     ],
   });
-  t('legacy 勾选 → 下游照常执行', on.summary?.results?.lg?.status === 'success', JSON.stringify(Object.keys(on.summary?.results ?? {})));
-  t('legacy 勾选 → toleratedCount=1', on.summary?.toleratedCount === 1, JSON.stringify(on.summary?.toleratedCount));
-  t('legacy 勾选 → status=success', on.summary?.status === 'success', JSON.stringify(on.summary?.status));
+  t('next-only 勾选 → 下游照常执行', on.summary?.results?.lg?.status === 'success', JSON.stringify(Object.keys(on.summary?.results ?? {})));
+  t('next-only 勾选 → toleratedCount=1', on.summary?.toleratedCount === 1, JSON.stringify(on.summary?.toleratedCount));
+  t('next-only 勾选 → status=success', on.summary?.status === 'success', JSON.stringify(on.summary?.status));
 }
 
 // ───────────────────────── ⑤ schema：tolerate 是合法节点字段（UI 保存/执行不再被「多余字段」拒）─────────────────────────

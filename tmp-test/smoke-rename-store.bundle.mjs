@@ -8,7 +8,11 @@ import { promises as fs } from "node:fs";
 import * as path2 from "node:path";
 import * as os2 from "node:os";
 
-// src/adapter/safety.ts
+// src/dsh-gate/host.ts
+var _host = null;
+function getHost() {
+  return _host;
+}
 function hostService(name, host = _host) {
   if (host == null) return void 0;
   const ctx = host;
@@ -28,12 +32,8 @@ function hostService(name, host = _host) {
     return void 0;
   }
 }
-var _host = null;
-function getHost() {
-  return _host;
-}
 
-// src/adapter/dsh-home.ts
+// src/dsh-gate/paths.ts
 import * as os from "node:os";
 import * as path from "node:path";
 function dshHome() {

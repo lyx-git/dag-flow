@@ -106,14 +106,6 @@ function evalCond(expr, scope) {
 }
 
 function makeResult(status, partial = {}) { return { status, durationMs: 0, startedAt: '...', endedAt: '...', ...partial }; }
-function advance(fromResult, onError) {
-  if (fromResult.status === 'failed') {
-    if (onError === 'continue') return { kind: 'skip-advance' };
-    if (onError && typeof onError === 'object' && onError.goto) return { kind: 'goto', target: onError.goto };
-    return { kind: 'stop', error: fromResult.error };
-  }
-  return { kind: 'normal', next: fromResult.next };
-}
 
 // ===== tests =====
 console.log('\n=== dag-flow offline contract tests ===\n');
@@ -237,22 +229,9 @@ await t('NodeResult 契约字段齐全', () => {
   assert.equal(r.out, 'x');
 });
 
-await t('执行器: onError=continue 不阻断', () => {
-  const r = advance({ status: 'failed', error: { code: 'X' } }, 'continue');
-  assert.equal(r.kind, 'skip-advance');
-});
-
-await t('执行器: onError.goto 跳转', () => {
-  const r = advance({ status: 'failed', error: { code: 'X' } }, { goto: 'cleanup' });
-  assert.equal(r.kind, 'goto');
-  assert.equal(r.target, 'cleanup');
-});
-
-await t('执行器: 默认 stop + firstError', () => {
-  const r = advance({ status: 'failed', error: { code: 'X', message: 'boom' } });
-  assert.equal(r.kind, 'stop');
-  assert.equal(r.error.code, 'X');
-});
+// ★ 2026-10-04 轮 4：原先这里有三条针对**测试内桩函数** `advance()` 的 onError 决策表断言
+//   （stop/continue/goto）。legacy 递归执行器已删除，桩函数随之删除——失败策略的真执行器覆盖在
+//   test/fail-policy.test.mjs（stop/continue/ignore 与传递性）与 test/goto-edge.test.mjs（失败边 goto）。
 
 await t('Bash 安全: rm -rf / 拒绝', () => {
   const r = checkBashSafe('rm -rf /', false);

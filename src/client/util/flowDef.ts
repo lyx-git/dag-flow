@@ -151,14 +151,19 @@ export function fromRF(def: WorkflowDef, rfNodes: RFNode[], rfEdges: RFEdge[]): 
 
     const nodeNext: NextRef | undefined = next[rn.id];
 
-    return {
-      id: rn.id,
-      type: rn.type,
-      params: paramsCopy,
-      ...(nodeNext !== undefined ? { next: nodeNext } : {}),
-      ...(rn.onError ?? tn?.onError ? { onError: rn.onError ?? tn?.onError } : {}),
-      ...(tn?.label !== undefined || rn.data.label !== undefined ? { label: (rn.data.label as string) ?? tn?.label } : {}),
-    };
+    // ★ 2026-10-04 轮 5 修 bug：旧实现**逐个字段白名单**重建节点 → `tolerate`（以及将来任何新字段）
+    //   会在一次画布编辑后就静默丢失（用户在面板上勾了「忽略失败」，拖一下节点就没了，
+    //   下次保存直接把它从工作流里抹掉）。改成**以模板节点为基础覆盖**：只显式处理
+    //   id/type/params/next/onError/label 这几项，其余字段原样保留。
+    const out: ClientNode = { ...(tn ?? { id: rn.id, type: rn.type }), id: rn.id, type: rn.type, params: paramsCopy };
+    delete (out as { next?: unknown }).next;
+    if (nodeNext !== undefined) out.next = nodeNext;
+    const onErrorVal = rn.onError ?? tn?.onError;
+    if (onErrorVal) out.onError = onErrorVal; else delete (out as { onError?: unknown }).onError;
+    const labelVal = (rn.data as { label?: string }).label ?? tn?.label;
+    if (labelVal !== undefined) out.label = labelVal;
+    else delete (out as { label?: unknown }).label;
+    return out;
   });
 
   // 同步 edges（when = 分支键）

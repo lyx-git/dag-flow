@@ -32,8 +32,48 @@ import { WorkflowNodeRegistry } from '../registry/external.js';
 import { checkWorkflowParams, formatParamProblems } from '../registry/params-check.js';
 import { runWorkflow, type RunSummary } from '../executor/run.js';
 import { newRunId, getAwaiting, resolveManual, rejectManual } from '../executor/awaiting.js';
-import { callSubagent, callSubagentStream, listAllEndpoints } from './subagent.js';
+import type { NodeRunDetail } from '../executor/run.js';
+// ★ 运行前自检（2026-10-04 轮 1）：判据唯一真源在 src/executor/selfcheck.ts
+import { selfcheck, type SelfcheckDeps, type SelfcheckResult } from '../executor/selfcheck.js';
+
+/**
+ * 跑自检并**注入宿主侧的外部事实**（2026-10-04 轮 3）：
+ *   · knownWorkflows：工作区现有工作流名 → 查 subflow 依赖 / loop 循环体是否存在（自检本身是纯函数，读盘交给这里）
+ *   · modelResolves：用**引擎同一个** `resolveLlmEndpoint` 预解析存值模型（只对 subagent 节点、按 id 去重）
+ * 任何一项拿不到就跳过该项检查（保守：宁可少报，不误报）。
+ */
+async function runSelfcheck(def: WorkflowDef): Promise<SelfcheckResult> {
+  const deps: SelfcheckDeps = {};
+  try {
+    deps.knownWorkflows = new Set(await createStorage().listWorkflows());
+  } catch { /* 拿不到工作流清单 → 跳过依赖类检查 */ }
+  try {
+    const ids = [...new Set((def.nodes ?? [])
+      .filter((n) => n.type === 'subagent')
+      .map((n) => String((n.params as { model?: unknown } | undefined)?.model ?? '').trim())
+      .filter(Boolean))];
+    if (ids.length) {
+      const okMap = new Map<string, boolean>();
+      for (const m of ids) {
+        try { await resolveLlmEndpoint(m); okMap.set(m, true); } catch { okMap.set(m, false); }
+      }
+      deps.modelResolves = (m) => okMap.get(m) ?? true;
+    }
+  } catch { /* 拿不到模型解析 → 跳过模型检查 */ }
+  // 轮 4：本工作流是否挂了定时任务（含 manual 节点时提醒"定时那次不会停下来等确认"）
+  try {
+    const sc = await listSchedules(def.name);
+    if (Array.isArray(sc.items)) deps.hasSchedule = sc.items.some((it) => it.workflow === def.name);
+  } catch { /* 拿不到定时配置 → 跳过这项 */ }
+  return selfcheck(def, deps);
+}
+
+import { callSubagent, callSubagentStream, listAllEndpoints, resolveLlmEndpoint } from './subagent.js';
 import { listSessions, readSessionContent } from './sessions.js';
+import { markRunning, unmarkRunning } from './running.js';
+import { listSchedules, upsertSchedule, deleteSchedule, renameScheduleWorkflow, readSchedules, writeSchedules } from './schedules.js';
+import { schedulerInfo, tickScheduler } from './scheduler.js';
+import { registerRun, finishRun, getRunByName, getRunById, getLastCompleted, nodeResultOf, mergeNodeLog, getLogTarget, type ActiveRun } from './runRegistry.js';
 import type { WorkflowDef, JsonValue } from '../types.js';
 
 const AI_SYSTEM_PROMPT = `你是一个工作流 JSON 生成器。
@@ -50,7 +90,7 @@ const AI_SYSTEM_PROMPT = `你是一个工作流 JSON 生成器。
     { "from": string, "to": string, "when"?: "true"|"false"|"always"|string（switch 的 case 值，'*' 为兜底分支） }
   ]
 }
-分支语义：if 节点 next 用 {true,false}；switch 节点 params.cases 为 {case值: 目标节点id}，next 用 {case值: 目标,...}（可含 "*"）；并行多分支用数组 next，合流用 merge 节点；节点失败策略用 onError: "stop"|"continue"|{goto}。
+分支语义：if 节点 next 用 {true,false}；switch 节点 params.cases 为 {case值: 目标节点id}，next 用 {case值: 目标,...}（可含 "*"）；并行多分支用数组 next，合流用 merge 节点；节点失败策略用 onError: "stop"|"continue"|{goto:"目标id"}（stop=只停本节点下游并算失败；continue=下游停且不算失败；goto=跳到目标继续，**目标必须排在该节点之后**，目标只执行一次）。
 不要解释，不要 markdown 代码块，只输出 JSON。
 
 【必填参数红线】每个节点的 params 必填字段必须完整，缺任何一个都会被直接拒绝：
@@ -232,51 +272,8 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
     //    语义：POST /run **不 hold 长连接**——要么跑完直接返回 summary（200），
     //    要么撞上 manual 节点返回 202 { status:'awaiting', runId, awaiting }，
     //    用户确认后 POST /run/resume（该请求 hold 到跑完，返回完整 summary）。
-    interface ActiveRun {
-      name: string;
-      runId: string;
-      ac: AbortController;
-      status: 'running' | 'awaiting' | 'completed';
-      promise: Promise<{ summary: RunSummary }>;
-      awaiting?: { nodeId: string; prompt: string; createdAt: string };
-      summary?: RunSummary;
-      /** 已完成节点结果（/run/status 供画布徽标 + 悬浮卡实时更新）
-       *  ★ 2026-10-03 用户反馈：「节点悬浮窗的执行结果为何要等工作流全部执行完才能显示，不应该执行完一个节点
-       *  悬浮窗就显示结果吗」——根因就是这个累积表只装了 status/durationMs，out 只存在于**最终 summary** 里。
-       *  现在逐节点带上裁剪过的 out/error（见 clipNodeOut），节点一跑完悬浮卡即可看到输出。 */
-      results: Record<string, {
-        status: string;
-        durationMs?: number;
-        /** 节点输出（超过 RESULT_OUT_MAX 字会被裁剪为字符串 + 结尾省略号） */
-        out?: unknown;
-        error?: { code?: string; message?: string };
-        tolerated?: boolean;
-        /** loop 迭代次数（out 被裁剪成字符串后，客户端仍要能显示「循环 N 次」徽标） */
-        count?: number;
-      }>;
-      /** ★ 正在执行的节点 id（2026-10-03：画布依次显示「运行中」；节点开始时入列、结束时移除） */
-      running: string[];
-      finishedAt?: number;
-    }
-    /** 单节点输出上限：/run/status 每 600ms 轮询一次，逐节点全量输出会让响应随节点数膨胀；
-     *  悬浮卡自身预览也只到 800 字，所以每节点保留 1200 字足够（完整内容仍以最终 summary 为准）。 */
-    const RESULT_OUT_MAX = 1200;
-    const clipNodeOut = (v: unknown): { out?: unknown } => {
-      if (v === undefined) return {};
-      let s: string;
-      try { s = typeof v === 'string' ? v : JSON.stringify(v) ?? ''; } catch { return { out: '（无法序列化）' }; }
-      if (s.length <= RESULT_OUT_MAX) return { out: v };   // 小输出原样保留（保持类型：对象/数组/标量）
-      return { out: `${s.slice(0, RESULT_OUT_MAX)}…（输出较长，已截断预览；完整内容见最终运行结果）` };
-    };
-    const activeRuns = new Map<string, ActiveRun>();   // 按工作流名互斥（保持既有语义）
-    const runsById = new Map<string, ActiveRun>();     // 按 runId 供 status/resume 定位
-    /** 已完成的运行只留最近 20 条（等待中的永不淘汰） */
-    const pruneRuns = (): void => {
-      const done = [...runsById.values()].filter((r) => r.status === 'completed');
-      if (done.length <= 20) return;
-      done.sort((a, b) => (a.finishedAt ?? 0) - (b.finishedAt ?? 0));
-      for (const r of done.slice(0, done.length - 20)) runsById.delete(r.runId);
-    };
+    //    ★ 运行登记表已抽到 src/adapter/runRegistry.ts：定时触发（scheduler.ts）登记到**同一张表**，
+    //      这样 GET /run/status?name= 对手动/定时两种运行完全同构（画布才会在定时跑时也点亮）。
 
     route({
       kind: 'exact',
@@ -286,7 +283,7 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
           if (req.method === 'DELETE') {
             const url = new URL(req.url ?? '', 'http://localhost');
             const name = url.searchParams.get('name') ?? '';
-            const rec = activeRuns.get(name);
+            const rec = getRunByName(name);
             if (!rec) { sendJson(res, 404, { error: `工作流「${name}」没有正在运行的实例` }); return; }
             // 卡在人工确认的运行：先唤醒挂起节点（reject → 节点转 MANUAL_CANCELLED），再 abort 兜底
             if (rec.status === 'awaiting') rejectManual(rec.runId, '用户取消了等待中的人工确认');
@@ -294,18 +291,29 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
             sendJson(res, 200, { ok: true, cancelled: name });
             return;
           }
-          const body = (await readJsonBody(req)) as { def?: WorkflowDef };
+          const body = (await readJsonBody(req)) as { def?: WorkflowDef; skipSelfcheck?: boolean };
           if (!body.def) { sendJson(res, 400, { error: '缺少 def（工作流定义）' }); return; }
           const runName = body.def.name ?? '__anonymous__';
-          if (activeRuns.has(runName)) {
+          if (getRunByName(runName)) {
             sendJson(res, 409, { error: `工作流「${runName}」正在运行中——等它结束，或点运行按钮旁的取消` });
             return;
+          }
+
+          // ★ 运行前自检（2026-10-04 用户拍板：运行前自动检查；有问题给出**报错提示 + 解决办法**并拦下做人工确认）
+          //   有 error → 409 { blocked:true, selfcheck }；客户端弹窗后点「仍然运行」会带 skipSelfcheck:true 重发。
+          //   warn 不拦（只随响应返回，客户端自行决定展示）。
+          if (body.skipSelfcheck !== true) {
+            const sc = await runSelfcheck(body.def);
+            if (!sc.ok) {
+              sendJson(res, 409, { blocked: true, selfcheck: sc });
+              return;
+            }
           }
           const ac = new AbortController();
           const runId = newRunId();
           const resultsAcc: ActiveRun['results'] = {};
           const rec: ActiveRun = {
-            name: runName, runId, ac, status: 'running', results: resultsAcc, running: [],
+            name: runName, runId, ac, status: 'running', results: resultsAcc, running: [], log: {}, logOrder: [],
             promise: Promise.resolve({ summary: undefined as unknown as RunSummary }),
           };
           let notifyAwaiting: (info: { runId: string; nodeId: string; prompt: string }) => void = () => { /* 未挂起前 */ };
@@ -316,27 +324,22 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
           rec.promise = runWorkflow(body.def, {
             logger, cwd: process.cwd(), signal: ac.signal,
             runId, interactive: true,
+            // ★ 运行日志（2026-10-04 用户需求「工作流执行黑盒」）：把执行器的两条通知（入参/出参）合并进本次运行
+            onNodeLog: (d: NodeRunDetail) => { try { mergeNodeLog(rec, d); } catch { /* 日志采集失败不影响运行 */ } },
             onAwaiting: notifyAwaiting,
             onNodeStart: (id) => { if (!rec.running.includes(id)) rec.running.push(id); },
             onNodeDone: (id, r) => {
-              const outCount = (r.out as { count?: number } | undefined)?.count;
-              resultsAcc[id] = {
-                status: r.status,
-                durationMs: r.durationMs,
-                ...clipNodeOut(r.out),                                   // ★ 节点一跑完就能在悬浮卡看到输出
-                ...(r.error ? { error: { code: r.error.code, message: String(r.error.message ?? '').slice(0, 800) } } : {}),
-                ...(r.tolerated ? { tolerated: true } : {}),
-                ...(typeof outCount === 'number' ? { count: outCount } : {}),
-              };
+              // 逐节点累积（形状由 runRegistry.nodeResultOf 统一，手动/定时两条路径不会漂移）
+              resultsAcc[id] = nodeResultOf(r);
               rec.running = rec.running.filter((x) => x !== id);
             },
           });
-          activeRuns.set(runName, rec);
-          runsById.set(runId, rec);
+          markRunning(runName);   // 共享登记：调度器的 concurrency:'skip' 也要看得见手动运行
+          registerRun(rec);
           // 收敛：成功/异常都要释放同名互斥锁并把状态标完成（否则异常路径会让该工作流永远 409）
           void rec.promise.then(
-            (r) => { rec.status = 'completed'; rec.summary = r.summary; rec.finishedAt = Date.now(); if (activeRuns.get(runName) === rec) activeRuns.delete(runName); pruneRuns(); },
-            () => { rec.status = 'completed'; rec.finishedAt = Date.now(); if (activeRuns.get(runName) === rec) activeRuns.delete(runName); pruneRuns(); },
+            (r) => { finishRun(rec, r.summary); unmarkRunning(runName); },
+            () => { finishRun(rec); unmarkRunning(runName); },
           );
 
           // 关键：要么挂起（202），要么直接跑完（200）——都不 hold 超过必要时长
@@ -372,7 +375,10 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
           // ★ 2026-10-03 新增：支持按**工作流名**查在跑的实例（画布在 POST /run 还没返回时
           //   就能轮询到逐节点的进度——客户端拿不到 runId，因为那条请求要等运行结束才回）。
           const byName = url.searchParams.get('name') ?? '';
-          const rec = runId ? runsById.get(runId) : (byName ? activeRuns.get(byName) : undefined);
+          // ★ 2026-10-03 定时任务轮：查不到「在跑的实例」时回退到**最近一次完成的运行** ——
+          //   定时运行结束后 activeRuns 会摘掉，只靠它客户端最后一次轮询会 404，画布无法收敛到终态；
+          //   回退后客户端能把节点点亮成最终态（进程内保留，dsh 重启即清空）。
+          const rec = runId ? getRunById(runId) : (byName ? (getRunByName(byName) ?? getLastCompleted(byName)) : undefined);
           if (!rec) {
             sendJson(res, 404, { error: '查无此运行——可能已结束，或 dsh 重启导致暂停中的运行丢失' });
             return;
@@ -382,6 +388,7 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
             runId: rec.runId,
             workflowName: rec.name,
             status: live ? 'awaiting' : rec.status,
+            origin: rec.origin ?? 'manual',
             ...(live ? { awaiting: { nodeId: live.nodeId, prompt: live.prompt } } : {}),
             ...(rec.status === 'completed' && rec.summary ? { summary: rec.summary } : {}),
             results: rec.results,
@@ -403,7 +410,7 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
           if (req.method !== 'POST') { sendJson(res, 405, { error: '请用 POST' }); return; }
           const body = (await readJsonBody(req)) as { runId?: string; value?: string };
           const runId = String(body.runId ?? '');
-          const rec = runsById.get(runId);
+          const rec = getRunById(runId);
           if (!rec) { sendJson(res, 404, { error: '查无此运行——dsh 重启会丢失暂停中的运行，请重新运行工作流' }); return; }
           if (!getAwaiting(runId)) {
             sendJson(res, 409, { error: rec.status === 'completed' ? '该运行已结束' : '该运行当前不在等待人工确认' });
@@ -446,6 +453,57 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
       },
     });
 
+    // 3.4 运行前自检（2026-10-04 用户拍板：点运行 → **先自检**（按钮显示「自检中」）→ 自检通过后**人工确认**
+    //     再真正开跑）。本路由**只自检不执行**，客户端拿到结果后决定：有 error 弹问题清单、没问题弹确认。
+    //     `/run` 里那道自检仍然保留（绕过客户端直接调 API 时也要拦），客户端确认后再带 skipSelfcheck:true 调 /run。
+    route({
+      kind: 'exact',
+      path: '/api/dag-flow/selfcheck',
+      handler: async (req: any, res: any) => {
+        try {
+          const body = (await readJsonBody(req)) as { def?: WorkflowDef };
+          if (!body.def) { sendJson(res, 400, { error: '缺少 def（工作流定义）' }); return; }
+          sendJson(res, 200, await runSelfcheck(body.def));
+        } catch (e) {
+          sendJson(res, 500, { error: `自检失败: ${(e as Error).message}` });
+        }
+      },
+    });
+
+    // 3.14 运行日志（2026-10-04 用户需求：「参数传递是否正常、节点之间接收参数是否正常都没有日志，
+    //      工作流执行黑盒」）。按工作流名查**在跑的那次**，跑完回退「最近一次完成」——客户端只有工作流名。
+    route({
+      kind: 'exact',
+      path: '/api/dag-flow/run/log',
+      handler: async (req: any, res: any) => {
+        try {
+          const url = new URL(req.url ?? '', 'http://localhost');
+          const name = url.searchParams.get('name') ?? '';
+          const runId = url.searchParams.get('runId') ?? '';
+          const onlyNode = url.searchParams.get('node') ?? '';
+          const live = name ? getRunByName(name) : undefined;
+          const target = live ?? getLogTarget({ name, runId });
+          if (!target) { sendJson(res, 404, { error: '查无运行日志——先运行一次这个工作流' }); return; }
+          let entries = (target.logOrder ?? []).map((id) => target.log?.[id]).filter(Boolean);
+          if (onlyNode) entries = entries.filter((e) => e.id === onlyNode);
+          sendJson(res, 200, {
+            ok: true,
+            runId: target.runId,
+            workflowName: target.name,
+            runStatus: target.status,
+            /** live=true：这次运行还在进行中（客户端据此继续轮询刷新日志） */
+            live: !!live,
+            origin: target.origin ?? 'manual',
+            finishedAt: target.finishedAt,
+            nodeCount: entries.length,
+            entries,
+          });
+        } catch (e) {
+          sendJson(res, 500, { error: `读取运行日志失败: ${(e as Error).message}` });
+        }
+      },
+    });
+
     // 3.5 单节点试跑（#1）：start→target→end 最小流程真实执行，输入经 {{inputs.*}} 注入
     route({
       kind: 'exact',
@@ -474,8 +532,14 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
               { id: 'target', type: nodeType, params: (body.params ?? {}) as Record<string, JsonValue>, next: 'end' },
               { id: 'end', type: 'end' },
             ],
+            // ★ 2026-10-04：显式给出 edges，让单节点测试与画布工作流走**同一套** DAG 语义。
+            //   （旧注释说"parse 的可达性检查只认 next，用 edges 会误报 unreachable"是**过时结论**：
+            //     parse.ts 的可达性 BFS 同时看 next 与 edges，两种写法都不会误报。）
+            edges: [
+              { from: 'start', to: 'target' },
+              { from: 'target', to: 'end' },
+            ],
           };
-          // 用 next 线性链（不用 edges）：parse 的可达性检查只认 next，避免误报 unreachable
           const result = await runWorkflow(def, { logger, cwd: process.cwd(), inputs: (body.inputs ?? {}) as Record<string, JsonValue> });
           sendJson(res, 200, { ok: result.summary.status === 'success', summary: result.summary });
         } catch (e) {
@@ -559,7 +623,13 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
           // renameFrom=旧名（重命名保存时 client 带上）→ storage 层删旧文件 + versions/scripts 子目录搬移
           const renameFrom = body.renameFrom ? (normalizeWorkflowName(String(body.renameFrom)) || undefined) : undefined;
           await storage.writeWorkflow(name, { ...body.def, name }, { snapshot: body.snapshot !== false, renameFrom });
-          sendJson(res, 200, { ok: true, name });
+          // ★ 定时任务联动改名（2026-10-03 定时任务轮）：工作流改名后，指向旧名的定时项一起改，
+          //   否则那些定时项会变成 orphan（配置还在、却永远指空）。失败不阻塞保存。
+          let renamedSchedules = 0;
+          if (renameFrom && renameFrom !== name) {
+            try { renamedSchedules = await renameScheduleWorkflow(renameFrom, name); } catch { /* 联动失败不阻塞保存 */ }
+          }
+          sendJson(res, 200, { ok: true, name, ...(renamedSchedules ? { renamedSchedules } : {}) });
         } catch (e) {
           sendJson(res, 400, { error: (e as Error).message });
         }
@@ -674,6 +744,99 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
           const content = await readSessionContent(sessionId, limit, ws);
           if (content === null) { sendJson(res, 404, { error: '会话不存在' }); return; }
           sendJson(res, 200, { sessionId, limit, content });
+        } catch (e) {
+          sendJson(res, 500, { error: (e as Error).message });
+        }
+      },
+    });
+
+    // ===== 定时任务（2026-10-03 用户拍板方案 v1，docs/SCHEDULE-PLAN.md §4）+4 条路由 =====
+    // 说明：宿主注册器按 (kind,path) 唯一（重复注册会抛 duplicate 并被跳过），所以拆成 4 条路径：
+    //   GET  /schedules              列表（可 ?workflow= 过滤）+ 调度器心跳
+    //   POST /schedules/save         新增/更新一条（cron 非法 → 400 且不落盘）
+    //   POST /schedules/delete       删除一条（也接受 DELETE 方法）
+    //   POST /schedules/run          立即运行一次（等价于真跑，UI 二次确认）
+    route({
+      kind: 'exact',
+      path: '/api/dag-flow/schedules',
+      handler: async (req: any, res: any) => {
+        try {
+          const url = new URL(req.url ?? '', 'http://localhost');
+          const workflow = url.searchParams.get('workflow') ?? undefined;
+          const r = await listSchedules(workflow);
+          sendJson(res, 200, { items: r.items, dir: r.dir, scheduler: schedulerInfo(), ...(r.error ? { warning: r.error } : {}) });
+        } catch (e) {
+          sendJson(res, 500, { error: (e as Error).message });
+        }
+      },
+    });
+
+    route({
+      kind: 'exact',
+      path: '/api/dag-flow/schedules/save',
+      handler: async (req: any, res: any) => {
+        try {
+          if (req.method !== 'POST') { sendJson(res, 405, { error: '请用 POST' }); return; }
+          const body = (await readJsonBody(req)) as Record<string, unknown>;
+          try {
+            const item = await upsertSchedule(body as never);
+            sendJson(res, 200, { ok: true, item });
+          } catch (e) {
+            // cron 非法 / 缺 workflow：**不落盘**，把中文原因交给面板显示红字
+            sendJson(res, 400, { error: (e as Error).message });
+          }
+        } catch (e) {
+          sendJson(res, 500, { error: (e as Error).message });
+        }
+      },
+    });
+
+    route({
+      kind: 'exact',
+      path: '/api/dag-flow/schedules/delete',
+      handler: async (req: any, res: any) => {
+        try {
+          const url = new URL(req.url ?? '', 'http://localhost');
+          let id = url.searchParams.get('id') ?? '';
+          if (!id && req.method === 'POST') {
+            const body = (await readJsonBody(req)) as { id?: string };
+            id = String(body.id ?? '');
+          }
+          if (!id) { sendJson(res, 400, { error: '缺少 id' }); return; }
+          const removed = await deleteSchedule(id);
+          sendJson(res, removed ? 200 : 404, removed ? { ok: true, id } : { error: '该定时项不存在' });
+        } catch (e) {
+          sendJson(res, 500, { error: (e as Error).message });
+        }
+      },
+    });
+
+    route({
+      kind: 'exact',
+      path: '/api/dag-flow/schedules/run',
+      handler: async (req: any, res: any) => {
+        try {
+          if (req.method !== 'POST') { sendJson(res, 405, { error: '请用 POST' }); return; }
+          const body = (await readJsonBody(req)) as { id?: string };
+          const id = String(body.id ?? '');
+          if (!id) { sendJson(res, 400, { error: '缺少 id' }); return; }
+          // 复用调度器的 tick 逻辑：把该条目的 nextRunAt 置为现在，再走一次真 tick ——
+          // 并发 skip / 结果回写 / 独立 runId 的语义与定时触发**完全一致**（不会出现两套行为）。
+          const { file } = await readSchedules();
+          const it = file.items.find((x) => x.id === id);
+          if (!it) { sendJson(res, 404, { error: '该定时项不存在' }); return; }
+          it.nextRunAt = new Date().toISOString();
+          await writeSchedules(file);
+          const report = await tickScheduler();
+          // 等这次执行跑完再回复（该请求 hold 到结束，与 /run 语义一致；无交互，不会挂起）
+          await Promise.all(report.inflight);
+          const after = await listSchedules(it.workflow);
+          const updated = after.items.find((x) => x.id === id) ?? null;
+          sendJson(res, 200, {
+            ok: !!updated && updated.lastRun?.status === 'success',
+            item: updated,
+            skipped: report.skipped.some((s) => s.id === id),
+          });
         } catch (e) {
           sendJson(res, 500, { error: (e as Error).message });
         }

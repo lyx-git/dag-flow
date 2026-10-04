@@ -230,22 +230,99 @@ const del = async (p, body) => { const r = await fetch(url(p), { method: 'DELETE
   t('GET /runs?workflowName → 200 且含记录', runs.status === 200 && Array.isArray(runs.body?.runs) && runs.body.runs.length >= 1);
 }
 
-// ===== 8. onError goto / loop.over / def.inputs 注入 / 取消路由 =====
+// ===== 8. DAG 失败边（goto）/ 归一化走 DAG / loop.over / def.inputs 注入 / 取消路由 =====
 {
-  // onError goto：python 节点失败（非零退出或 runtime 缺失）→ 跳转 fallback
+  // ★ 2026-10-04 轮 4：legacy 执行器已删除，节点级 onError 全部由 DAG 承担（回退开关一并撤除）。
+  //   onError:{goto:'fallback'} = **失败边**：跳过本节点的下游、跳到 fallback 继续（目标只执行一次）。
+  //   这里刻意用**显式 edges**：fallback 只有一条来自 boom 的入边，而该边会因 boom 失败而作废，
+  //   所以 fallback 能跑起来只可能是"失败边"的功劳（不是孤点被顺带执行）。
   const r1 = await post('/run', { def: {
     name: 'e2e-err-goto', version: 1,
     nodes: [
-      { id: 'start', type: 'start', next: 'boom' },
-      { id: 'boom', type: 'python', params: { code: 'import sys\nsys.exit(1)', timeoutMs: 5000 }, onError: { goto: 'fallback' }, next: 'end' },
-      { id: 'fallback', type: 'log', params: { level: 'warn', message: 'fallback-path' }, next: 'end2' },
+      { id: 'start', type: 'start' },
+      { id: 'boom', type: 'python', params: { code: 'import sys\nsys.exit(1)', timeoutMs: 5000 }, onError: { goto: 'fallback' } },
+      { id: 'fallback', type: 'log', params: { level: 'warn', message: 'fallback-path' } },
       { id: 'end', type: 'end' },
-      { id: 'end2', type: 'end' },
+    ],
+    edges: [
+      { from: 'start', to: 'boom' },
+      { from: 'boom', to: 'fallback' },   // 失败节点的出边 → 靠失败边保活
+      { from: 'fallback', to: 'end' },
     ],
   }});
   const res1 = r1.body?.summary?.results ?? {};
-  t('onError goto：失败节点 failed', r1.status === 200 && res1.boom?.status === 'failed', JSON.stringify(res1)?.slice(0, 160));
-  t('onError goto：跳转到 fallback 执行成功', res1.fallback?.status === 'success', JSON.stringify(res1.fallback)?.slice(0, 120));
+  t('DAG 失败边：失败节点 failed', r1.status === 200 && res1.boom?.status === 'failed', JSON.stringify(res1)?.slice(0, 160));
+  t('DAG 失败边：goto 目标执行成功', res1.fallback?.status === 'success', JSON.stringify(res1.fallback)?.slice(0, 120));
+  t('DAG 失败边：目标的下游继续跑', res1.end?.status === 'success', JSON.stringify(res1.end)?.slice(0, 120));
+
+  // ★ 轮 4：legacy 的 PARALLEL_FAILED 已退役 —— 并行扇出里某个分支失败时，
+  //   firstError 指向**那个具体节点**，而不是笼统的"一个或多个并行分支失败"；其它分支照常跑完。
+  const rFanFail = await post('/run', { def: {
+    name: 'e2e-fanout-fail', version: 1,
+    nodes: [
+      { id: 'start', type: 'start' },
+      { id: 'boom', type: 'python', params: { code: 'import sys\nsys.exit(3)' } },
+      { id: 'ok', type: 'log', params: { level: 'info', message: 'ok' } },
+      { id: 'end', type: 'end' },
+    ],
+    edges: [
+      { from: 'start', to: 'boom' }, { from: 'start', to: 'ok' },
+      { from: 'boom', to: 'end' }, { from: 'ok', to: 'end' },
+    ],
+  }});
+  const rf = rFanFail.body?.summary ?? {};
+  t('并行分支失败：firstError 指向具体节点（不再是 PARALLEL_FAILED）', rf?.error?.nodeId === 'boom' && rf?.error?.code !== 'PARALLEL_FAILED', JSON.stringify(rf?.error));
+  t('并行分支失败：另一分支照常跑完', rf?.results?.ok?.status === 'success', JSON.stringify(rf?.results?.ok?.status));
+  t('并行分支失败：失败节点的下游 end 仍执行（它有 ok 这条活入边）', rf?.results?.end?.status === 'success', JSON.stringify(rf?.results?.end?.status));
+
+  // ★ 归一化：同一份 **next-only**（不带 edges）的定义，不带 flag 时也走 DAG。
+  //   用「并行扇出 + merge」当判别式：legacy 的数组 next 只 Promise.all 跑两个分支、
+  //   **不跟随分支自己的 next**（merge 永远不执行）；归一化后分支的 out 边生效，merge 真的跑起来。
+  const rFan = await post('/run', { def: {
+    name: 'e2e-normalize-fanout', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: ['a', 'b'] },
+      { id: 'a', type: 'log', params: { level: 'info', message: 'A' }, next: 'm' },
+      { id: 'b', type: 'log', params: { level: 'info', message: 'B' }, next: 'm' },
+      { id: 'm', type: 'merge', next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  }});
+  const resFan = rFan.body?.summary?.results ?? {};
+  t('归一化：next-only 定义也走 DAG（分支自身的 next 被跟随 → merge 执行）', resFan.m?.status === 'success', JSON.stringify(resFan)?.slice(0, 200));
+  t('归一化：merge 收到两条上游的输出', !!(resFan.m?.out && typeof resFan.m.out === 'object' && 'a' in resFan.m.out && 'b' in resFan.m.out), JSON.stringify(resFan.m?.out)?.slice(0, 160));
+  t('归一化：扇出两条分支都执行成功', resFan.a?.status === 'success' && resFan.b?.status === 'success', JSON.stringify({ a: resFan.a?.status, b: resFan.b?.status }));
+  t('归一化：汇总状态为成功', rFan.body?.summary?.status === 'success', JSON.stringify(rFan.body?.summary)?.slice(0, 160));
+
+  // 归一化：next 的 {true,false} 分支映射（if）——命中分支执行、另一支被跳过
+  const rIf = await post('/run', { def: {
+    name: 'e2e-normalize-if', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'cond' },
+      { id: 'cond', type: 'if', params: { condition: '1 == 1' }, next: { true: 'log_t', false: 'log_f' } },
+      { id: 'log_t', type: 'log', params: { level: 'info', message: 'true 分支' }, next: 'end' },
+      { id: 'log_f', type: 'log', params: { level: 'info', message: 'false 分支' }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  }});
+  const resIf = rIf.body?.summary?.results ?? {};
+  t('归一化：if 的 {true,false} → when 边，命中分支执行', resIf.log_t?.status === 'success', JSON.stringify({ log_t: resIf.log_t?.status })?.slice(0, 120));
+  t('归一化：未命中分支被标 skipped（不再"凭空消失"）', resIf.log_f?.status === 'skipped', JSON.stringify({ log_f: resIf.log_f?.status }));
+
+  // 归一化：next 的 switch case 映射——命中 case 的分支执行、其余跳过
+  const rSw = await post('/run', { def: {
+    name: 'e2e-normalize-switch', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'sw' },
+      { id: 'sw', type: 'switch', params: { value: 'quick', cases: { quick: 'log_q', full: 'log_f' } }, next: { quick: 'log_q', full: 'log_f' } },
+      { id: 'log_q', type: 'log', params: { level: 'info', message: 'quick 分支' }, next: 'end' },
+      { id: 'log_f', type: 'log', params: { level: 'info', message: 'full 分支' }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  }});
+  const resSw = rSw.body?.summary?.results ?? {};
+  t('归一化：switch 的 case 映射 → when 边，命中 case 执行', resSw.log_q?.status === 'success', JSON.stringify({ log_q: resSw.log_q?.status }));
+  t('归一化：未命中的 case 被标 skipped', resSw.log_f?.status === 'skipped', JSON.stringify({ log_f: resSw.log_f?.status }));
 
   // loop.over：数组迭代
   const r2 = await post('/run', { def: {
@@ -395,15 +472,104 @@ const del = async (p, body) => { const r = await fetch(url(p), { method: 'DELETE
   const r3 = await post('/run', { def: { name: 'e2e-next-if', version: 1, nodes: ifNodes } });
   const s3 = r3.body?.summary?.results ?? {};
   t('10.5 if {true,false} next → 200 且 true 分支执行', r3.status === 200 && s3.log_t?.status === 'success' && s3.log_f?.status !== 'success', JSON.stringify(r3.body)?.slice(0, 240));
-  // 10.6 非法 next：报错必须是折叠后人话（单条 + 显示名_id），不是 9 条 ajv 原文
+  // 10.6 非法 next：**运行前自检**先拦（2026-10-04 轮 1 用户拍板：运行前自动检查 → 报错 + 解决办法 + 人工确认）。
+  //   ★ 契约变更：非法 def 从「500 + error 文本」变成「409 { blocked:true, selfcheck }」——
+  //     结构错误信息原样保留在 selfcheck.items[0].message 里（仍然是折叠后的单条人话）。
   const bad = await post('/run', { def: { name: 'e2e-next-bad', version: 1, nodes: [
     { id: 'start', type: 'start', next: 'sw' },
     { id: 'sw', type: 'switch', label: '多路分支：运行模式', params: { value: 'quick', cases: { quick: 'end' } }, next: 123 },
     { id: 'end', type: 'end' },
   ] } });
-  const badMsg = String(bad.body?.error ?? '');
-  t('10.6 非法 next → 500 且报「结构不符合任一允许的形式」', bad.status === 500 && badMsg.includes('结构不符合任一允许的形式'), badMsg.slice(0, 200));
-  t('10.7 非法 next 报错带显示名_id(类型) 且不再喷 9 条', badMsg.includes('多路分支：运行模式_sw(switch)') && !badMsg.includes('缺少必填字段 "true"'), badMsg.slice(0, 240));
+  const sc = bad.body?.selfcheck ?? {};
+  const badMsg = String(sc.items?.[0]?.message ?? '');
+  t('10.6 非法 next → 被自检拦下（409 + blocked + STRUCT_INVALID）',
+    bad.status === 409 && bad.body?.blocked === true && sc.items?.[0]?.code === 'STRUCT_INVALID',
+    JSON.stringify({ status: bad.status, blocked: bad.body?.blocked, code: sc.items?.[0]?.code }));
+  t('10.7 拦下时仍给出折叠后的单条人话（含 显示名_id(类型)，不喷 9 条 ajv 原文）',
+    badMsg.includes('结构不符合任一允许的形式') && badMsg.includes('多路分支：运行模式_sw(switch)') && !badMsg.includes('缺少必填字段 "true"'),
+    badMsg.slice(0, 240));
+  t('10.8 ★拦下的提示必须带「解决办法」（用户明确要求：报错提示 + 解决办法）',
+    typeof sc.items?.[0]?.fix === 'string' && sc.items[0].fix.length > 10, JSON.stringify(sc.items?.[0]?.fix ?? '').slice(0, 120));
+  // 10.9 人工确认「仍然运行」= 带 skipSelfcheck:true 重发 → 回到既有路径（结构错仍然是 500 + error 文本）
+  const forced = await post('/run', { skipSelfcheck: true, def: { name: 'e2e-next-bad2', version: 1, nodes: [
+    { id: 'start', type: 'start', next: 'sw' },
+    { id: 'sw', type: 'switch', label: '多路分支：运行模式', params: { value: 'quick', cases: { quick: 'end' } }, next: 123 },
+    { id: 'end', type: 'end' },
+  ] } });
+  t('10.9 仍然运行（skipSelfcheck:true）→ 绕开自检，走回引擎原路径（500 + error）',
+    forced.status === 500 && String(forced.body?.error ?? '').includes('结构不符合任一允许的形式'),
+    JSON.stringify({ status: forced.status, err: String(forced.body?.error ?? '').slice(0, 120) }));
+
+  // ===== 11. 运行前自检专用路由（2026-10-04 轮 2：点运行 → 先 /selfcheck（按钮显示自检中）→ 通过后人工确认才 /run）
+  const scClean = await post('/selfcheck', { def: { name: 'sc-clean', version: 1, nodes: [
+    { id: 'start', type: 'start' }, { id: 'log1', type: 'log', params: { level: 'info', message: 'hi' } }, { id: 'end', type: 'end' },
+  ], edges: [{ from: 'start', to: 'log1' }, { from: 'log1', to: 'end' }] } });
+  t('11.1 POST /selfcheck → 200 且纯工作流通过（errorCount=0）',
+    scClean.status === 200 && scClean.body?.errorCount === 0 && scClean.body?.ok === true,
+    JSON.stringify(scClean.body)?.slice(0, 200));
+  t('11.2 /selfcheck 返回统计（节点/边数）供确认弹窗展示',
+    scClean.body?.stats?.nodes === 3 && scClean.body?.stats?.edges === 2, JSON.stringify(scClean.body?.stats));
+
+  const scBad = await post('/selfcheck', { def: { name: 'sc-bad', version: 1, nodes: [
+    { id: 'start', type: 'start' }, { id: 'py', type: 'python', params: {} }, { id: 'end', type: 'end' },
+  ], edges: [{ from: 'start', to: 'py' }, { from: 'py', to: 'end' }] } });
+  t('11.3 必填参数缺失 → /selfcheck 报 PARAM_REQUIRED（轮 2 新检查）',
+    scBad.status === 200 && scBad.body?.items?.[0]?.code === 'PARAM_REQUIRED' && scBad.body?.errorCount === 1,
+    JSON.stringify(scBad.body?.items?.[0] ?? {}).slice(0, 200));
+  t('11.4 ★每条问题都带「解决办法」（fix）',
+    typeof scBad.body?.items?.[0]?.fix === 'string' && scBad.body.items[0].fix.length > 10,
+    JSON.stringify(scBad.body?.items?.[0]?.fix ?? ''));
+  t('11.5 缺 def → /selfcheck 400（不静默通过）', (await post('/selfcheck', {})).status === 400);
+  t('11.6 ★/selfcheck 只自检不执行（把必填缺失的 def 发给它，不会真的跑起来）',
+    scBad.body?.ok === false && !scBad.body?.summary && !scBad.body?.runId,
+    JSON.stringify({ ok: scBad.body?.ok, hasSummary: !!scBad.body?.summary }));
+
+  // ===== 12. 自检轮 3：loop 边界/循环体、merge 上游、subflow 依赖（依赖项用**真实工作区**清单）=====
+  const scLoop = await post('/selfcheck', { def: { name: 'sc-loop', version: 1, nodes: [
+    { id: 'start', type: 'start' }, { id: 'lp', type: 'loop', params: {} }, { id: 'end', type: 'end' },
+  ], edges: [{ from: 'start', to: 'lp' }, { from: 'lp', to: 'end' }] } });
+  t('12.1 loop 无循环边界 → LOOP_NO_BOUND（error，运行必失败）',
+    scLoop.body?.items?.some((i) => i.code === 'LOOP_NO_BOUND' && i.level === 'error'),
+    JSON.stringify(scLoop.body?.items?.map((i) => i.code)));
+
+  const scDep = await post('/selfcheck', { def: { name: 'sc-dep', version: 1, nodes: [
+    { id: 'start', type: 'start' }, { id: 'sf', type: 'subflow', params: { workflowName: '肯定不存在的工作流-xyz' } },
+    { id: 'mg', type: 'merge', params: {} }, { id: 'end', type: 'end' },
+  ], edges: [{ from: 'start', to: 'sf' }, { from: 'sf', to: 'mg' }, { from: 'mg', to: 'end' }] } });
+  t('12.2 subflow 依赖的工作流不存在 → SUBFLOW_MISSING（用真实工作区清单判定）',
+    scDep.body?.items?.some((i) => i.code === 'SUBFLOW_MISSING' && i.level === 'error'),
+    JSON.stringify(scDep.body?.items?.map((i) => i.code)));
+  t('12.3 merge 只有 1 条上游 → MERGE_NO_UPSTREAM（error）',
+    scDep.body?.items?.some((i) => i.code === 'MERGE_NO_UPSTREAM'),
+    JSON.stringify(scDep.body?.items?.map((i) => i.code)));
+  t('12.4 ★每条都带解决办法（fix）',
+    (scDep.body?.items ?? []).every((i) => typeof i.fix === 'string' && i.fix.length > 8),
+    JSON.stringify((scDep.body?.items ?? []).map((i) => String(i.fix).slice(0, 24))));
+
+  const scAi = await post('/selfcheck', { def: { name: 'sc-ai', version: 1, nodes: [
+    { id: 'start', type: 'start' }, { id: 'ai', type: 'subagent', params: { model: 'definitely-not-a-model-xyz', prompt: 'hi' } }, { id: 'end', type: 'end' },
+  ], edges: [{ from: 'start', to: 'ai' }, { from: 'ai', to: 'end' }] } });
+  t('12.5 存值模型解析不到 → 只给 warn（不拦运行：LLM 服务此刻不可用属正常）',
+    scAi.body?.items?.some((i) => i.code === 'MODEL_UNRESOLVED' && i.level === 'warn') && scAi.body?.errorCount === 0,
+    JSON.stringify({ codes: scAi.body?.items?.map((i) => i.code), errorCount: scAi.body?.errorCount }));
+
+  // ===== 13. 自检轮 4：建议类（全部 warn，绝不拦运行）=====
+  const scMedia = await post('/selfcheck', { def: { name: 'sc-media', version: 1, nodes: [
+    { id: 'start', type: 'start' }, { id: 'img', type: 'image_generate', params: { prompt: 'cat', baseURL: 'https://x', model: 'm' } },
+    { id: 'end', type: 'end' },
+  ], edges: [{ from: 'start', to: 'img' }, { from: 'img', to: 'end' }] } });
+  t('13.1 含图片生成节点 → MEDIA_COST（warn，提醒会产生费用）',
+    scMedia.body?.items?.some((i) => i.code === 'MEDIA_COST' && i.level === 'warn') && scMedia.body?.errorCount === 0,
+    JSON.stringify({ codes: scMedia.body?.items?.map((i) => i.code), errorCount: scMedia.body?.errorCount }));
+  const scLoopBig = await post('/selfcheck', { def: { name: 'sc-bigloop', version: 1, nodes: [
+    { id: 'start', type: 'start' }, { id: 'lp', type: 'loop', params: { count: 60 } }, { id: 'end', type: 'end' },
+  ], edges: [{ from: 'start', to: 'lp' }, { from: 'lp', to: 'end' }] } });
+  t('13.2 大循环（60 次）→ BIG_LOOP（warn，提醒耗时/数据量放大）',
+    scLoopBig.body?.items?.some((i) => i.code === 'BIG_LOOP' && i.level === 'warn') && scLoopBig.body?.errorCount === 0,
+    JSON.stringify({ codes: scLoopBig.body?.items?.map((i) => i.code), errorCount: scLoopBig.body?.errorCount }));
+  t('13.3 ★建议类一律不拦运行（这两个 def 的 errorCount 都是 0）',
+    scMedia.body?.ok === true && scLoopBig.body?.ok === true,
+    JSON.stringify({ media: scMedia.body?.ok, loop: scLoopBig.body?.ok }));
 }
 
 server.close();

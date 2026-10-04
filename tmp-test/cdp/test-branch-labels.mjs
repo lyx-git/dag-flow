@@ -122,21 +122,31 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
       await sleep(50);
     }
   };
-  /** 点某个分支键标签并校验编辑器指向的目标（同文本标签可能多个，靠标题里的 → target 认线） */
+  /** 点某个分支键标签并校验编辑器指向的目标
+   *  （同文本标签可能多个，靠标题里的 → target 认线）。
+   *  ★ 2026-10-04 轮 7 做稳：本用例不是拖拽用例，它的间歇性失败来自**点标签的时序**——
+   *    标签在一次 def 变更后可能正处于重建中，点到"即将被替换"的标签时编辑器不会打开；
+   *    旧写法在这里 `await waitFor(编辑器)` 直接抛错、整个用例中断。现在：
+   *    ① 编辑器没开只算"这次候选落空"，继续试下一个候选；② 所有候选都落空则整体重试一轮（有稳定等待）。 */
   const openEditorFor = async (labelText, targetId) => {
-    const n = await evaluate(cdp, `[...document.querySelectorAll('.dsh-wf-fg-line-label')].filter((x) => x.textContent.trim() === ${JSON.stringify(labelText)}).length`);
-    for (let i = 0; i < n; i++) {
-      await evaluate(cdp, `(() => {
-        const els = [...document.querySelectorAll('.dsh-wf-fg-line-label')].filter((x) => x.textContent.trim() === ${JSON.stringify(labelText)});
-        const el = els[${i}];
-        const r = el.getBoundingClientRect();
-        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: r.left + 4, clientY: r.top + 4 }));
-      })(); true;`);
-      await waitFor(cdp, `!!document.querySelector('.dsh-wf-fg-bedit')`, { timeout: 4000 });
-      const title = await evaluate(cdp, `document.querySelector('.dsh-wf-fg-bedit-node')?.textContent ?? ''`);
-      if (title.includes(targetId)) return true;
-      await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-fg-bedit-close').click(); })(); true;`);
-      await sleep(150);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const n = await evaluate(cdp, `[...document.querySelectorAll('.dsh-wf-fg-line-label')].filter((x) => x.textContent.trim() === ${JSON.stringify(labelText)}).length`);
+      for (let i = 0; i < n; i++) {
+        await evaluate(cdp, `(() => {
+          const els = [...document.querySelectorAll('.dsh-wf-fg-line-label')].filter((x) => x.textContent.trim() === ${JSON.stringify(labelText)});
+          const el = els[${i}];
+          const r = el.getBoundingClientRect();
+          el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: r.left + 4, clientY: r.top + 4 }));
+        })(); true;`);
+        let opened = false;
+        try { await waitFor(cdp, `!!document.querySelector('.dsh-wf-fg-bedit')`, { timeout: 3000 }); opened = true; } catch { /* 这次候选落空 */ }
+        if (!opened) { await sleep(150); continue; }
+        const title = await evaluate(cdp, `document.querySelector('.dsh-wf-fg-bedit-node')?.textContent ?? ''`);
+        if (title.includes(targetId)) return true;
+        await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-fg-bedit-close')?.click(); })(); true;`);
+        await sleep(150);
+      }
+      await sleep(300);   // 等标签重建周期结束再试一轮
     }
     return false;
   };

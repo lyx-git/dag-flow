@@ -11,6 +11,7 @@ import { DataEvent, Field, FlowNodeRegistry, useNodeRender } from '@flowgram.ai/
 import { findMeta } from '../types';
 import { runStatusStore, selectionStore } from './runStatus';
 import { switchCaseStore } from './switchCaseStore';
+import { failPolicyStore } from './failPolicyStore';
 import { tipModel, tipFullText, type TipModel } from '../resultTip';
 
 /** loop 卡片副标题（P1，2026-10-03 用户拍板）：按**实际生效的边界**显示。
@@ -209,6 +210,10 @@ function NodeCardBody({ type }: { type: string }) {
   const selSelector = () => selectionStore.getSnapshot() === node.id;
   const isSelected = useSyncExternalStore(selectionStore.subscribe, selSelector, selSelector);
   const statusCls = rs?.status === 'success' ? 'is-ok' : rs?.status === 'failed' ? 'is-err' : rs?.status === 'skipped' ? 'is-skip' : rs?.status === 'running' ? 'is-running' : '';
+  // ★ 2026-10-04 用户反馈「定时任务自动触发的运行，手动确认节点自动跳过」→ 用户拍板 A：**保持自动通过，但显形**。
+  //   判据：manual 节点在非交互运行（定时触发 / 立即运行一次 / CLI / subflow 内部）会直接放行，
+  //   结果里带 out.autoPassed=true；画布徽标与悬浮卡都要把它写出来，别让人误以为"确认节点坏了/被跳过了"。
+  const autoPassed = !!(rs?.out && typeof rs.out === 'object' && (rs.out as { autoPassed?: boolean }).autoPassed === true);
   // ★ 悬浮查看最终执行结果（2026-10-03 用户需求）：**必须用原生监听器**——
   //   节点卡所在的 FlowGram 节点层会把卡内事件的冒泡 stopPropagation 掉，React 的委托事件
   //   （onClick/mousedown，以及由 mouseover 合成的 onMouseEnter）在卡内收不到；
@@ -273,6 +278,28 @@ function NodeCardBody({ type }: { type: string }) {
     () => switchCaseStore.getSel(node.id),
   );
   const chipKeys = type === 'switch' && caseKeys.length ? [...caseKeys, '*'] : [];
+  // ★ 失败策略显形（2026-10-04 轮 7）：策略只存在于右侧面板 → 画布上完全看不出来（尤其 goto 是个
+  //   "看不见的跳转"）。这里读 failPolicyStore（由 FlowPanel 在 def 变化时同步）在卡底显示一枚小 chip。
+  //   为什么不做"一条红色虚线 fail 边"：goto 是执行器的**失败边**、不是 def.edges 里的边——真写进 edges
+  //   会被当成普通边无条件激活（改变语义），而画一条非文档边要自绘图层（跟随缩放/平移），风险远大于收益；
+  //   卡片 chip 能等效表达同一信息（含"跳到哪个节点"）且零语义风险。
+  const failPolicy = useSyncExternalStore(
+    failPolicyStore.subscribe,
+    () => failPolicyStore.getVersion(),
+    () => failPolicyStore.getVersion(),
+  );
+  void failPolicy;   // 仅用于触发重渲染（快照是版本号）
+  const fp = failPolicyStore.get(node.id);
+  const failChip = fp
+    ? createElement('span', {
+        className: `dsh-wf-fg-failchip is-${fp.kind}`,
+        title: fp.kind === 'goto'
+          ? `失败策略：失败后跳转到「${fp.targetLabel}」继续（目标只执行一次；目标若在本节点之前则不生效）`
+          : fp.kind === 'skip'
+            ? '失败策略：跳过这条支路——本节点的下游不再执行，且这次失败不计入运行失败'
+            : '失败策略：忽略失败——下游照常执行，这次失败不计入运行失败',
+      }, fp.kind === 'goto' ? `↪ 失败→${fp.targetLabel}` : fp.kind === 'skip' ? '⏭ 跳过支路' : '🛟 忽略失败')
+    : null;
   // ★ 折叠的 chips 要能展开（2026-10-03 真机反馈「手动再选择没看到 case」）：默认一行（放不下显示 +N），
   //   点 +N → 展开成多行把所有 case 都露出来（卡片随之变高，用户主动触发），再点「收起」还原。
   const [chipsOpen, setChipsOpen] = useState(false);
@@ -349,8 +376,8 @@ function NodeCardBody({ type }: { type: string }) {
       : rs?.status === 'pending'
         ? createElement('span', { className: 'dsh-wf-fg-badge is-wait' }, '待运行')
         : rs?.durationMs != null
-          ? createElement('span', { className: `dsh-wf-fg-badge${rs.status === 'failed' ? (rs.tolerated ? ' is-tol' : ' err') : rs.status === 'success' ? ' is-ok' : ''}${type === 'loop' && rs.count != null ? ' is-loop' : ''}` },
-              `${rs.status === 'failed' ? (rs.tolerated ? '⚠' : '✕') : rs.status === 'skipped' ? '○' : '✓'} ${Math.round(rs.durationMs)}ms${rs.tolerated ? ' · 已容错' : ''}${type === 'loop' && rs.count != null ? ` · 循环 ${rs.count} 次` : ''}`)
+          ? createElement('span', { className: `dsh-wf-fg-badge${rs.status === 'failed' ? (rs.tolerated ? ' is-tol' : ' err') : rs.status === 'success' ? ' is-ok' : ''}${autoPassed ? ' is-auto' : ''}${type === 'loop' && rs.count != null ? ' is-loop' : ''}` },
+              `${rs.status === 'failed' ? (rs.tolerated ? '⚠' : '✕') : rs.status === 'skipped' ? '○' : '✓'} ${Math.round(rs.durationMs)}ms${rs.tolerated ? ' · 已容错' : ''}${autoPassed ? ' · ⏭ 自动通过' : ''}${type === 'loop' && rs.count != null ? ` · 循环 ${rs.count} 次` : ''}`)
           : rs?.status === 'skipped'
             ? createElement('span', { className: 'dsh-wf-fg-badge' }, '○ skip')
             : null,
@@ -362,6 +389,7 @@ function NodeCardBody({ type }: { type: string }) {
       ),
     ),
     createElement('div', { className: 'dsh-wf-fg-card-sub', title: subText }, subText),
+    failChip,
     switchChips,
     switchNote,
     ifLabels.length ? ifLabels : null,
@@ -379,6 +407,7 @@ function makeFormMeta(type: string) {
     render: () => createElement(NodeCardBody, { type }),
   };
 }
+
 
 /** if 节点 formMeta：动态双输出端口（true 绿 / false 红，右侧上下分布） */
 function makeIfFormMeta() {

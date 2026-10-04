@@ -1,0 +1,34 @@
+﻿
+✓ close-btn  241ms
+✓ deselect-flash  726ms
+✓ panel-resize  399ms
+✓ minimap  292ms
+✓ versions  2985ms
+✓ picker-copy  598ms
+✓ inputs  316ms
+✓ palette-drag  785ms
+✓ run-button  2143ms
+✓ inspector-switch  633ms
+✓ code-file  412ms
+✓ switch-cases  440ms
+✓ delete-button  287ms
+✓ file-save-click  224ms
+✓ line-drop-panel  3948ms
+✓ manual-confirm  4981ms
+✓ branch-labels  874ms
+✓ loop-visible  1827ms
+✓ switch-many  675ms
+✓ model-select  3996ms
+✓ loop-jump  1253ms
+✓ switch-chips  8965ms
+✓ var-refs  4563ms
+✓ node-result-tip  3034ms
+✓ live-status  5307ms
+✓ view-controls  4799ms
+✓ schedule-dialog  6186ms
+✓ sched-run  6250ms
+✓ goto-warn  1757ms
+✓ run-log  2327ms
+✓ selfcheck-gate  2043ms
+
+全部 31 项通过

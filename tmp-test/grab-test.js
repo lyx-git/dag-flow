@@ -24462,14 +24462,16 @@
       delete dataCopy.label;
       Object.assign(paramsCopy, dataCopy);
       const nodeNext = next2[rn.id];
-      return {
-        id: rn.id,
-        type: rn.type,
-        params: paramsCopy,
-        ...nodeNext !== void 0 ? { next: nodeNext } : {},
-        ...rn.onError ?? tn2?.onError ? { onError: rn.onError ?? tn2?.onError } : {},
-        ...tn2?.label !== void 0 || rn.data.label !== void 0 ? { label: rn.data.label ?? tn2?.label } : {}
-      };
+      const out = { ...tn2 ?? { id: rn.id, type: rn.type }, id: rn.id, type: rn.type, params: paramsCopy };
+      delete out.next;
+      if (nodeNext !== void 0) out.next = nodeNext;
+      const onErrorVal = rn.onError ?? tn2?.onError;
+      if (onErrorVal) out.onError = onErrorVal;
+      else delete out.onError;
+      const labelVal = rn.data.label ?? tn2?.label;
+      if (labelVal !== void 0) out.label = labelVal;
+      else delete out.label;
+      return out;
     });
     const edges = rfEdges.map((e2) => {
       const edge = { from: e2.source, to: e2.target };
@@ -35414,16 +35416,16 @@ This message will only show in development mode. It won't appear in production. 
       this._gestureKey = gestureKey;
     }
     add(element, device, action, handler, options) {
-      const listeners4 = this._listeners;
+      const listeners5 = this._listeners;
       const type = toDomEventType(device, action);
       const _options = this._gestureKey ? this._ctrl.config[this._gestureKey].eventOptions : {};
       const eventOptions = { ..._options, ...options };
       element.addEventListener(type, handler, eventOptions);
       const remove2 = () => {
         element.removeEventListener(type, handler, eventOptions);
-        listeners4.delete(remove2);
+        listeners5.delete(remove2);
       };
-      listeners4.add(remove2);
+      listeners5.add(remove2);
       return remove2;
     }
     clean() {
@@ -35944,22 +35946,22 @@ Please add \`${key}Action\` when creating your handler.`
       this.schedule = new PlaygroundSchedule();
       this.fireEntityChanged = (entity) => {
         const entityType = typeof entity === "string" ? entity : entity.type;
-        let version2 = this.entityVersionMap.get(entityType) || 0;
-        if (version2 === Number.MAX_SAFE_INTEGER) {
-          version2 = 0;
+        let version3 = this.entityVersionMap.get(entityType) || 0;
+        if (version3 === Number.MAX_SAFE_INTEGER) {
+          version3 = 0;
         }
-        this.entityVersionMap.set(entityType, version2 + 1);
+        this.entityVersionMap.set(entityType, version3 + 1);
         if (this.changeEntityLocked) return;
         this.schedule.push(entityType, () => {
           this.onEntityChangeEmitter.fire(entityType);
         });
       };
       this.fireEntityDataChanged = (entityType, entityDataType) => {
-        let version2 = this.entityDataVersionMap.get(entityDataType) || 0;
-        if (version2 === Number.MAX_SAFE_INTEGER) {
-          version2 = 0;
+        let version3 = this.entityDataVersionMap.get(entityDataType) || 0;
+        if (version3 === Number.MAX_SAFE_INTEGER) {
+          version3 = 0;
         }
-        this.entityDataVersionMap.set(entityDataType, version2 + 1);
+        this.entityDataVersionMap.set(entityDataType, version3 + 1);
         this.schedule.push(`${entityType}/${entityDataType}`, () => {
           this.onEntityDataChangeEmitter.fire({ entityType, entityDataType });
         });
@@ -36547,8 +36549,8 @@ Please add \`${key}Action\` when creating your handler.`
       let entityChanged = false;
       selector.entities.forEach((registry2) => {
         const entities = this.entityManager.getEntities(registry2);
-        const version2 = this.entityManager.getEntityVersion(registry2);
-        entityVersion.set(registry2.type, version2);
+        const version3 = this.entityManager.getEntityVersion(registry2);
+        entityVersion.set(registry2.type, version3);
         for (const item of entities) {
           allEntities.add(item);
         }
@@ -36575,8 +36577,8 @@ Please add \`${key}Action\` when creating your handler.`
       selector.datas.forEach((registries) => {
         const [entityRegistry, entityDataRegistry] = registries;
         const entityDatas = this.entityManager.getEntityDatas(entityRegistry, entityDataRegistry);
-        const version2 = this.entityManager.getEntityDataVersion(entityDataRegistry);
-        dataVersion.set(entityDataRegistry.type, version2);
+        const version3 = this.entityManager.getEntityDataVersion(entityDataRegistry);
+        dataVersion.set(entityDataRegistry.type, version3);
         for (const item of entityDatas) {
           allDatas.push(item);
         }
@@ -49262,21 +49264,21 @@ Please add \`${key}Action\` when creating your handler.`
         const bbox = domUtils.createDivWithClass("");
         const input = domUtils.createDivWithClass("");
         const output = domUtils.createDivWithClass("");
-        const version2 = domUtils.createDivWithClass("");
+        const version3 = domUtils.createDivWithClass("");
         bbox.title = transform.key;
         input.title = transform.key + "(input)";
         output.title = transform.key + "(output)";
-        version2.title = transform.key;
+        version3.title = transform.key;
         this.boundsNodes.appendChild(bbox);
         this.pointsNodes.appendChild(input);
         this.pointsNodes.appendChild(output);
-        this.versionNodes.appendChild(version2);
+        this.versionNodes.appendChild(version3);
         transform.onDispose(() => {
           bbox.remove();
           input.remove();
           output.remove();
         });
-        cache = { bbox, input, output, version: version2, color };
+        cache = { bbox, input, output, version: version3, color };
         this.domCache.set(transform, cache);
       }
       domUtils.setStyle(cache.version, {
@@ -52330,7 +52332,7 @@ Please add \`${key}Action\` when creating your handler.`
       var activeTask = null;
       var lastValue = null;
       var lastTime = null;
-      var emit4 = function() {
+      var emit5 = function() {
         if (activeTask) {
           activeTask.unsubscribe();
           activeTask = null;
@@ -52347,7 +52349,7 @@ Please add \`${key}Action\` when creating your handler.`
           subscriber.add(activeTask);
           return;
         }
-        emit4();
+        emit5();
       }
       source.subscribe(createOperatorSubscriber(subscriber, function(value) {
         lastValue = value;
@@ -52357,7 +52359,7 @@ Please add \`${key}Action\` when creating your handler.`
           subscriber.add(activeTask);
         }
       }, function() {
-        emit4();
+        emit5();
         subscriber.complete();
       }, void 0, function() {
         lastValue = activeTask = null;
@@ -68334,7 +68336,7 @@ Please add \`${key}Action\` when creating your handler.`
       const { lineType } = this.workflowDocument.linesManager;
       const selected = this.selectService.isSelected(line2.id);
       const hovered = this.hoverService.isHovered(line2.id);
-      const version2 = this.lineVersion(line2);
+      const version3 = this.lineVersion(line2);
       const oldProps = {
         key: line2.id,
         color: line2.color,
@@ -68342,7 +68344,7 @@ Please add \`${key}Action\` when creating your handler.`
         hovered,
         line: line2,
         lineType,
-        version: version2,
+        version: version3,
         strokePrefix: this.layerID,
         rendererRegistry: this.rendererRegistry
       };
@@ -68354,8 +68356,8 @@ Please add \`${key}Action\` when creating your handler.`
       const selected = this.selectService.isSelected(line2.id);
       const hovered = this.hoverService.isHovered(line2.id);
       const { version: lineVersion, color } = line2;
-      const version2 = `v:${this._version},lv:${lineVersion},rv:${renderVersion},c:${color},s:${selected ? "T" : "F"},h:${hovered ? "T" : "F"}`;
-      return version2;
+      const version3 = `v:${this._version},lv:${lineVersion},rv:${renderVersion},c:${color},s:${selected ? "T" : "F"},h:${hovered ? "T" : "F"}`;
+      return version3;
     }
     lineComponent(props) {
       const RenderInsideLine = this.options.renderInsideLine ?? (() => /* @__PURE__ */ import_react74.default.createElement(import_react74.default.Fragment, null));
@@ -72102,6 +72104,47 @@ Please add \`${key}Action\` when creating your handler.`
     }
   };
 
+  // src/client/flowgram/failPolicyStore.ts
+  var byNode = /* @__PURE__ */ new Map();
+  var listeners4 = /* @__PURE__ */ new Set();
+  var version2 = 0;
+  function emit4() {
+    version2 += 1;
+    for (const l5 of [...listeners4]) {
+      try {
+        l5();
+      } catch {
+      }
+    }
+  }
+  var failPolicyStore = {
+    subscribe(l5) {
+      listeners4.add(l5);
+      return () => {
+        listeners4.delete(l5);
+      };
+    },
+    /** 订阅用快照（版本号，primitive ⇒ 稳定） */
+    getVersion() {
+      return version2;
+    },
+    get(nodeId) {
+      return byNode.get(nodeId) ?? null;
+    },
+    /** 由 FlowPanel 在 def 变化时整体覆盖（节点数很少，整体替换最简单也最不易漏） */
+    setAll(next2) {
+      const same = byNode.size === Object.keys(next2).length && Object.keys(next2).every((k5) => {
+        const a4 = byNode.get(k5);
+        const b4 = next2[k5];
+        return a4 && b4 && a4.kind === b4.kind && a4.target === b4.target && a4.targetLabel === b4.targetLabel;
+      });
+      if (same) return;
+      byNode.clear();
+      for (const [k5, v5] of Object.entries(next2)) if (v5) byNode.set(k5, v5);
+      emit4();
+    }
+  };
+
   // src/client/resultTip.ts
   var OUT_PREVIEW_MAX = 800;
   var ERR_PREVIEW_MAX = 400;
@@ -72139,6 +72182,13 @@ Please add \`${key}Action\` when creating your handler.`
     }
     if (tolerated) {
       lines.push({ kind: "warn", text: "\u5DF2\u5BB9\u9519\uFF1A\u672C\u8282\u70B9\u5931\u8D25\u88AB\u653E\u884C\uFF0C\u540E\u7EED\u8282\u70B9\u7167\u5E38\u6267\u884C\uFF08\u8FD9\u6B21\u6CA1\u6709\u4E2D\u65AD\u5DE5\u4F5C\u6D41\uFF09" });
+    }
+    const autoPassed = !!(item.out && typeof item.out === "object" && item.out.autoPassed === true);
+    if (autoPassed) {
+      lines.push({
+        kind: "warn",
+        text: "\u23ED \u81EA\u52A8\u901A\u8FC7\uFF1A\u8FD9\u6B21\u662F\u975E\u4EA4\u4E92\u8FD0\u884C\uFF08\u5B9A\u65F6\u89E6\u53D1 / \u300C\u7ACB\u5373\u8FD0\u884C\u4E00\u6B21\u300D/ CLI / \u5B50\u5DE5\u4F5C\u6D41\u5185\u90E8\uFF09\uFF0C\u6CA1\u4EBA\u80FD\u786E\u8BA4\uFF0Cmanual \u8282\u70B9\u88AB\u76F4\u63A5\u653E\u884C\u2014\u2014\u4E0D\u662F\u5931\u8D25\uFF0C\u4E5F\u4E0D\u4EE3\u8868\u6709\u4EBA\u786E\u8BA4\u8FC7\u3002\u8981\u4EBA\u5DE5\u628A\u5173\u5C31\u5728\u753B\u5E03\u4E0A\u70B9 \u25B6 \u8FD0\u884C\u3002"
+      });
     }
     if (status === "skipped") {
       lines.push({ kind: "muted", text: "\u672A\u6267\u884C\uFF1A\u6240\u5728\u5206\u652F\u672A\u6FC0\u6D3B\uFF0C\u6216\u4E0A\u6E38\u5931\u8D25\u540E\u88AB\u8DF3\u8FC7" });
@@ -72334,6 +72384,7 @@ Please add \`${key}Action\` when creating your handler.`
     const selSelector = () => selectionStore.getSnapshot() === node2.id;
     const isSelected = (0, import_react87.useSyncExternalStore)(selectionStore.subscribe, selSelector, selSelector);
     const statusCls = rs?.status === "success" ? "is-ok" : rs?.status === "failed" ? "is-err" : rs?.status === "skipped" ? "is-skip" : rs?.status === "running" ? "is-running" : "";
+    const autoPassed = !!(rs?.out && typeof rs.out === "object" && rs.out.autoPassed === true);
     const cardRef = (0, import_react87.useRef)(null);
     const [tipAt, setTipAt] = (0, import_react87.useState)(null);
     const tipValue = rs ? tipModel(rs, { label: values.label ?? node2.id, id: node2.id }) : null;
@@ -72391,6 +72442,17 @@ Please add \`${key}Action\` when creating your handler.`
       () => switchCaseStore.getSel(node2.id)
     );
     const chipKeys = type === "switch" && caseKeys.length ? [...caseKeys, "*"] : [];
+    const failPolicy = (0, import_react87.useSyncExternalStore)(
+      failPolicyStore.subscribe,
+      () => failPolicyStore.getVersion(),
+      () => failPolicyStore.getVersion()
+    );
+    void failPolicy;
+    const fp = failPolicyStore.get(node2.id);
+    const failChip = fp ? (0, import_react86.createElement)("span", {
+      className: `dsh-wf-fg-failchip is-${fp.kind}`,
+      title: fp.kind === "goto" ? `\u5931\u8D25\u7B56\u7565\uFF1A\u5931\u8D25\u540E\u8DF3\u8F6C\u5230\u300C${fp.targetLabel}\u300D\u7EE7\u7EED\uFF08\u76EE\u6807\u53EA\u6267\u884C\u4E00\u6B21\uFF1B\u76EE\u6807\u82E5\u5728\u672C\u8282\u70B9\u4E4B\u524D\u5219\u4E0D\u751F\u6548\uFF09` : fp.kind === "skip" ? "\u5931\u8D25\u7B56\u7565\uFF1A\u8DF3\u8FC7\u8FD9\u6761\u652F\u8DEF\u2014\u2014\u672C\u8282\u70B9\u7684\u4E0B\u6E38\u4E0D\u518D\u6267\u884C\uFF0C\u4E14\u8FD9\u6B21\u5931\u8D25\u4E0D\u8BA1\u5165\u8FD0\u884C\u5931\u8D25" : "\u5931\u8D25\u7B56\u7565\uFF1A\u5FFD\u7565\u5931\u8D25\u2014\u2014\u4E0B\u6E38\u7167\u5E38\u6267\u884C\uFF0C\u8FD9\u6B21\u5931\u8D25\u4E0D\u8BA1\u5165\u8FD0\u884C\u5931\u8D25"
+    }, fp.kind === "goto" ? `\u21AA \u5931\u8D25\u2192${fp.targetLabel}` : fp.kind === "skip" ? "\u23ED \u8DF3\u8FC7\u652F\u8DEF" : "\u{1F6DF} \u5FFD\u7565\u5931\u8D25") : null;
     const [chipsOpen, setChipsOpen] = (0, import_react87.useState)(false);
     const foldAt = Math.max(1, SWITCH_CHIP_MAX - 1);
     const foldedCount = Math.max(0, chipKeys.length - foldAt);
@@ -72448,8 +72510,8 @@ Please add \`${key}Action\` when creating your handler.`
       // ★ 运行过程态（2026-10-03 用户需求：待运行 / 运行中 也要显示，按运行路径依次点亮，不要最后一次性显示）
       rs?.status === "running" ? (0, import_react86.createElement)("span", { className: "dsh-wf-fg-badge is-run" }, "\u8FD0\u884C\u4E2D\u2026") : rs?.status === "pending" ? (0, import_react86.createElement)("span", { className: "dsh-wf-fg-badge is-wait" }, "\u5F85\u8FD0\u884C") : rs?.durationMs != null ? (0, import_react86.createElement)(
         "span",
-        { className: `dsh-wf-fg-badge${rs.status === "failed" ? rs.tolerated ? " is-tol" : " err" : rs.status === "success" ? " is-ok" : ""}${type === "loop" && rs.count != null ? " is-loop" : ""}` },
-        `${rs.status === "failed" ? rs.tolerated ? "\u26A0" : "\u2715" : rs.status === "skipped" ? "\u25CB" : "\u2713"} ${Math.round(rs.durationMs)}ms${rs.tolerated ? " \xB7 \u5DF2\u5BB9\u9519" : ""}${type === "loop" && rs.count != null ? ` \xB7 \u5FAA\u73AF ${rs.count} \u6B21` : ""}`
+        { className: `dsh-wf-fg-badge${rs.status === "failed" ? rs.tolerated ? " is-tol" : " err" : rs.status === "success" ? " is-ok" : ""}${autoPassed ? " is-auto" : ""}${type === "loop" && rs.count != null ? " is-loop" : ""}` },
+        `${rs.status === "failed" ? rs.tolerated ? "\u26A0" : "\u2715" : rs.status === "skipped" ? "\u25CB" : "\u2713"} ${Math.round(rs.durationMs)}ms${rs.tolerated ? " \xB7 \u5DF2\u5BB9\u9519" : ""}${autoPassed ? " \xB7 \u23ED \u81EA\u52A8\u901A\u8FC7" : ""}${type === "loop" && rs.count != null ? ` \xB7 \u5FAA\u73AF ${rs.count} \u6B21` : ""}`
       ) : rs?.status === "skipped" ? (0, import_react86.createElement)("span", { className: "dsh-wf-fg-badge" }, "\u25CB skip") : null,
       (0, import_react86.createElement)(
         "div",
@@ -72463,6 +72525,7 @@ Please add \`${key}Action\` when creating your handler.`
         )
       ),
       (0, import_react86.createElement)("div", { className: "dsh-wf-fg-card-sub", title: subText }, subText),
+      failChip,
       switchChips,
       switchNote,
       ifLabels.length ? ifLabels : null,
@@ -72576,6 +72639,31 @@ Please add \`${key}Action\` when creating your handler.`
     if (dir > 0) return ZOOM_STEPS.find((z3) => z3 > cur + eps) ?? ZOOM_STEPS[ZOOM_STEPS.length - 1];
     for (let i3 = ZOOM_STEPS.length - 1; i3 >= 0; i3--) if (ZOOM_STEPS[i3] < cur - eps) return ZOOM_STEPS[i3];
     return ZOOM_STEPS[0];
+  }
+  function ensureVisibleShift(opts) {
+    const { graphBox, startBox, viewW, viewH, zoom } = opts;
+    const panelW = Math.max(0, opts.panelW ?? 0);
+    const z3 = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+    if (!startBox || !Number.isFinite(viewW) || !Number.isFinite(viewH) || viewW <= 0 || viewH <= 0) {
+      return { shifted: false, dx: 0, dy: 0, target: null };
+    }
+    const safeW = Math.max(80, viewW - panelW) / z3;
+    const safeH = Math.max(80, viewH) / z3;
+    const base = graphBox ?? startBox;
+    const cx = base.x + base.width / 2;
+    const cy = base.y + base.height / 2;
+    const left = cx - safeW / 2;
+    const top = cy - safeH / 2;
+    const right = left + safeW;
+    const bottom = top + safeH;
+    let dx = 0;
+    let dy = 0;
+    if (startBox.x < left) dx = startBox.x - left;
+    else if (startBox.x + startBox.width > right) dx = startBox.x + startBox.width - right;
+    if (startBox.y < top) dy = startBox.y - top;
+    else if (startBox.y + startBox.height > bottom) dy = startBox.y + startBox.height - bottom;
+    if (dx === 0 && dy === 0) return { shifted: false, dx: 0, dy: 0, target: null };
+    return { shifted: true, dx, dy, target: { x: left + dx, y: top + dy, width: safeW, height: safeH } };
   }
 
   // src/client/flowgram/FlowGramCanvas.tsx
@@ -72944,6 +73032,40 @@ Please add \`${key}Action\` when creating your handler.`
         msg: `${e2.source} \u2192 ${e2.target} \u8FD9\u6761\u5206\u652F\u7EBF\u6CA1\u8BBE\u5206\u652F\u952E\u2014\u2014\u8FD0\u884C\u65F6\u4F1A\u5F53\u4F5C\u6052\u6FC0\u6D3B\uFF08\u6240\u6709\u5206\u652F\u90FD\u4F1A\u6267\u884C\uFF09\u3002\u70B9\u753B\u5E03\u4E0A\u8BE5\u7EBF\u4E2D\u70B9\u7684\u300C\u672A\u8BBE\u5206\u652F\u300D\u6807\u7B7E\u53EF\u8BBE\u7F6E`
       });
     }
+    const parentsOf = /* @__PURE__ */ new Map();
+    for (const e2 of edges) {
+      const list = parentsOf.get(e2.target);
+      if (list) list.push(e2.source);
+      else parentsOf.set(e2.target, [e2.source]);
+    }
+    for (const n2 of nodes) {
+      const oe3 = n2.onError;
+      const goto = oe3 && typeof oe3 === "object" ? oe3.goto : void 0;
+      if (!goto) continue;
+      const seen = /* @__PURE__ */ new Set([n2.id]);
+      const q3 = [n2.id];
+      let isAncestor = false;
+      while (q3.length && !isAncestor) {
+        const cur = q3.shift();
+        for (const p4 of parentsOf.get(cur) ?? []) {
+          if (p4 === goto) {
+            isAncestor = true;
+            break;
+          }
+          if (!seen.has(p4)) {
+            seen.add(p4);
+            q3.push(p4);
+          }
+        }
+      }
+      if (isAncestor || goto === n2.id) {
+        problems.push({
+          level: "warn",
+          nodeId: n2.id,
+          msg: `${n2.id} \u5931\u8D25\u540E\u8DF3\u8F6C\u7684\u76EE\u6807\u300C${goto}\u300D\u5728\u672C\u8282\u70B9\u4E4B\u524D${goto === n2.id ? "\uFF08\u5C31\u662F\u5B83\u81EA\u5DF1\uFF09" : ""}\u2014\u2014\u8DF3\u8F6C\u53EA\u5728\u76EE\u6807\u8FD8\u6CA1\u8DD1\u5230\u65F6\u751F\u6548\uFF08\u76EE\u6807\u53EA\u6267\u884C\u4E00\u6B21\uFF09\uFF0C\u8FD9\u91CC\u4E0D\u4F1A\u751F\u6548\u3001\u4F1A\u6309\u300C\u505C\u6B62\u8FD9\u6761\u652F\u8DEF\u300D\u5904\u7406\u3002\u8981"\u5931\u8D25\u540E\u56DE\u8DF3\u91CD\u8BD5"\u8BF7\u7528\u5FAA\u73AF\u533A\uFF08loop \u7684\u5FAA\u73AF\u4F53\uFF09`
+        });
+      }
+    }
     return problems;
   }
   function ProblemPanel(props) {
@@ -73287,7 +73409,24 @@ Please add \`${key}Action\` when creating your handler.`
             const zoom = pickInitialZoom(raw);
             const box = worldBounds(ctx) ?? nodeBounds(start);
             const applied = centerOn(cfg, box, zoom);
-            window.__df_initialView = { zoom, rawFit: Number.isFinite(raw) ? Number(raw.toFixed(4)) : null, startId: start?.id ?? null, box, applied, tryNo, at: Date.now() };
+            let ensure = { shifted: false, dx: 0, dy: 0 };
+            try {
+              const startBox = nodeBounds(start);
+              const { W: vw, H: vh } = viewportOf(cfg);
+              let panelW = 0;
+              try {
+                panelW = Math.min(460, Math.max(0, document.querySelector(".dsh-wf-right")?.getBoundingClientRect().width ?? 0));
+              } catch {
+                panelW = 0;
+              }
+              const shift = ensureVisibleShift({ graphBox: box, startBox, viewW: vw, viewH: vh, panelW, zoom });
+              if (shift.shifted && shift.target) {
+                cfg?.scrollToView?.({ bounds: shift.target, zoom, easing: false, scrollToCenter: true });
+              }
+              ensure = { shifted: shift.shifted, dx: Math.round(shift.dx), dy: Math.round(shift.dy) };
+            } catch {
+            }
+            window.__df_initialView = { zoom, rawFit: Number.isFinite(raw) ? Number(raw.toFixed(4)) : null, startId: start?.id ?? null, box, applied, ensure, tryNo, at: Date.now() };
           } catch (e2) {
             console.warn("[dag-flow] \u521D\u59CB\u89C6\u56FE\u8BBE\u7F6E\u5931\u8D25:", e2);
           }
@@ -74425,7 +74564,182 @@ Please add \`${key}Action\` when creating your handler.`
     });
   }
 
+  // src/adapter/cron.ts
+  var FIELDS = [
+    { key: "minutes", name: "\u5206", min: 0, max: 59, rangeText: "0-59" },
+    { key: "hours", name: "\u65F6", min: 0, max: 23, rangeText: "0-23" },
+    { key: "days", name: "\u65E5", min: 1, max: 31, rangeText: "1-31" },
+    { key: "months", name: "\u6708", min: 1, max: 12, rangeText: "1-12" },
+    { key: "weekdays", name: "\u5468", min: 0, max: 7, rangeText: "0-6\uFF087 \u4E5F\u8868\u793A\u5468\u65E5\uFF09", normalize: (v5) => v5 === 7 ? 0 : v5 }
+  ];
+  var SUPPORT_HINT = "\u672C\u89E3\u6790\u5668\u53EA\u652F\u6301 5 \u5B57\u6BB5\u5206\u949F\u7EA7\uFF08\u5206 \u65F6 \u65E5 \u6708 \u5468\uFF09\u4E0E\u8BED\u6CD5 * , - /";
+  function checkRange(v5, field, raw) {
+    if (!Number.isInteger(v5) || v5 < field.min || v5 > field.max) {
+      throw new Error(`cron\u300C${field.name}\u300D\u5B57\u6BB5\u53D6\u503C ${v5} \u8D8A\u754C\uFF08\u539F\u6587\u300C${raw}\u300D\uFF09\u2014\u2014\u5408\u6CD5\u8303\u56F4 ${field.rangeText}`);
+    }
+    return v5;
+  }
+  function expandItem(item, field, raw, out) {
+    const slashIdx = item.indexOf("/");
+    let base = item;
+    let step = 1;
+    if (slashIdx >= 0) {
+      base = item.slice(0, slashIdx);
+      const stepRaw = item.slice(slashIdx + 1);
+      if (!/^\d+$/.test(stepRaw) || Number(stepRaw) < 1) {
+        throw new Error(`cron \u6B65\u957F\u5FC5\u987B\u662F\u4E0D\u5C0F\u4E8E 1 \u7684\u6574\u6570\uFF08\u300C${field.name}\u300D\u5B57\u6BB5\u300C${raw}\u300D\u91CC\u7684\u300C${stepRaw}\u300D\uFF09`);
+      }
+      step = Number(stepRaw);
+    }
+    let start;
+    let end;
+    if (base === "*") {
+      start = field.min;
+      end = field.max;
+    } else if (/^\d+$/.test(base)) {
+      start = checkRange(Number(base), field, raw);
+      end = slashIdx >= 0 ? field.max : start;
+    } else {
+      const m4 = /^(\d+)-(\d+)$/.exec(base);
+      if (!m4) {
+        throw new Error(
+          `cron\u300C${field.name}\u300D\u5B57\u6BB5\u300C${raw}\u300D\u683C\u5F0F\u975E\u6CD5\u2014\u2014\u53EA\u652F\u6301 *\u3001\u5355\u503C\uFF085\uFF09\u3001\u8303\u56F4\uFF081-5\uFF09\u3001\u6B65\u957F\uFF08*/15\uFF09\u3001\u8303\u56F4\u6B65\u957F\uFF081-5/2\uFF09\u4E0E\u9017\u53F7\u5217\u8868\uFF081,3,5\uFF09`
+        );
+      }
+      start = checkRange(Number(m4[1]), field, raw);
+      end = checkRange(Number(m4[2]), field, raw);
+      if (start > end) {
+        throw new Error(`cron \u8303\u56F4\u8D77\u70B9\u4E0D\u80FD\u5927\u4E8E\u7EC8\u70B9\uFF08\u300C${field.name}\u300D\u5B57\u6BB5\u300C${raw}\u300D\u91CC\u7684\u300C${base}\u300D\uFF09`);
+      }
+    }
+    for (let v5 = start; v5 <= end; v5 += step) out.push(field.normalize ? field.normalize(v5) : v5);
+  }
+  function parseFull(expr) {
+    if (typeof expr !== "string") throw new Error("cron \u8868\u8FBE\u5F0F\u5FC5\u987B\u662F\u5B57\u7B26\u4E32");
+    const text = expr.trim();
+    if (!text) throw new Error(`cron \u8868\u8FBE\u5F0F\u4E3A\u7A7A\u2014\u2014\u5E94\u4E3A 5 \u4E2A\u5B57\u6BB5\uFF08\u5206 \u65F6 \u65E5 \u6708 \u5468\uFF09\uFF0C\u5982\u300C0 9 * * 1-5\u300D`);
+    const parts = text.split(/\s+/);
+    if (parts.length !== 5) {
+      const extra = parts.length > 5 ? `\u2014\u2014\u4E0D\u652F\u6301\u79D2\u7EA7\uFF086 \u5B57\u6BB5\uFF09\u7B49\u5199\u6CD5\uFF0C${SUPPORT_HINT}` : "\u2014\u2014\u5B57\u6BB5\u4E0D\u8DB3\uFF0C\u5E94\u4E3A\u300C\u5206 \u65F6 \u65E5 \u6708 \u5468\u300D5 \u4E2A";
+      throw new Error(`cron \u8868\u8FBE\u5F0F\u5E94\u4E3A 5 \u4E2A\u5B57\u6BB5\uFF08\u5206 \u65F6 \u65E5 \u6708 \u5468\uFF09\uFF0C\u5F53\u524D ${parts.length} \u4E2A${extra}\uFF1A${text}`);
+    }
+    const lists = [];
+    for (let i3 = 0; i3 < 5; i3++) {
+      const raw = parts[i3];
+      const field = FIELDS[i3];
+      if (!raw) throw new Error(`cron\u300C${field.name}\u300D\u5B57\u6BB5\u4E3A\u7A7A\uFF08\u7B2C ${i3 + 1} \u4E2A\u5B57\u6BB5\uFF09\u2014\u2014\u5B57\u6BB5\u4E0D\u80FD\u7559\u767D`);
+      const vals = [];
+      for (const item of raw.split(",")) {
+        if (item === "") {
+          throw new Error(`cron\u300C${field.name}\u300D\u5B57\u6BB5\u300C${raw}\u300D\u91CC\u5B58\u5728\u7A7A\u9879\u2014\u2014\u9017\u53F7\u5217\u8868\u4E0D\u80FD\u6709\u8FDE\u7EED\u9017\u53F7\u6216\u9996\u5C3E\u9017\u53F7`);
+        }
+        const bad = /[^0-9*\-/]/.exec(item);
+        if (bad) {
+          throw new Error(
+            `\u4E0D\u652F\u6301 cron \u65B9\u8A00\u300C${bad[0]}\u300D\uFF08\u300C${field.name}\u300D\u5B57\u6BB5\u300C${raw}\u300D\uFF09\u2014\u2014${SUPPORT_HINT}\uFF0C\u4E0D\u652F\u6301 L\u3001W\u3001#\u3001? \u4E0E\u6708\u4EFD/\u661F\u671F\u82F1\u6587\u540D`
+          );
+        }
+        expandItem(item, field, raw, vals);
+      }
+      lists.push([...new Set(vals)].sort((a4, b4) => a4 - b4));
+    }
+    const spec = {
+      minutes: lists[0],
+      hours: lists[1],
+      days: lists[2],
+      months: lists[3],
+      weekdays: lists[4]
+    };
+    return { spec, domStar: parts[2] === "*", dowStar: parts[4] === "*" };
+  }
+  function cronError(expr) {
+    try {
+      parseFull(expr);
+      return null;
+    } catch (e2) {
+      const msg = e2 instanceof Error ? e2.message : String(e2);
+      return msg || "cron \u8868\u8FBE\u5F0F\u975E\u6CD5";
+    }
+  }
+  var WEEKDAY_NAMES = ["\u5468\u65E5", "\u5468\u4E00", "\u5468\u4E8C", "\u5468\u4E09", "\u5468\u56DB", "\u5468\u4E94", "\u5468\u516D"];
+  var pad2 = (n2) => String(n2).padStart(2, "0");
+  function weekdayDesc(weekdays) {
+    if (weekdays.length === 7) return "\u6BCF\u5929";
+    if (weekdays.length === 5 && weekdays.every((w4, i3) => w4 === i3 + 1)) return "\u5DE5\u4F5C\u65E5";
+    if (weekdays.length === 2 && weekdays[0] === 0 && weekdays[1] === 6) return "\u5468\u672B";
+    return "\u6BCF" + weekdays.map((w4) => WEEKDAY_NAMES[w4]).join("\u3001");
+  }
+  function uniformStepMinutes(minutes) {
+    if (minutes.length < 2) return null;
+    const step = minutes[1] - minutes[0];
+    if (step < 1) return null;
+    for (let i3 = 2; i3 < minutes.length; i3++) if (minutes[i3] - minutes[i3 - 1] !== step) return null;
+    if (minutes[0] !== 0) return null;
+    if (minutes[minutes.length - 1] + step <= 59) return null;
+    return step;
+  }
+  function describeCron(expr) {
+    const { spec, domStar, dowStar } = parseFull(expr);
+    const monthStar = spec.months.length === 12;
+    const hourAll = spec.hours.length === 24;
+    let timeDesc;
+    if (hourAll) {
+      if (spec.minutes.length === 1) {
+        timeDesc = spec.minutes[0] === 0 ? "\u6BCF\u5C0F\u65F6\u6574\u70B9" : `\u6BCF\u5C0F\u65F6 ${pad2(spec.minutes[0])} \u5206`;
+      } else {
+        const step = uniformStepMinutes(spec.minutes);
+        timeDesc = step !== null ? step === 1 ? "\u6BCF\u5206\u949F" : `\u6BCF ${step} \u5206\u949F` : `\u6BCF\u5C0F\u65F6\u7684 ${spec.minutes.map(pad2).join("\u3001")} \u5206`;
+      }
+    } else {
+      const times = [];
+      for (const h5 of spec.hours) for (const mi of spec.minutes) times.push(`${pad2(h5)}:${pad2(mi)}`);
+      timeDesc = times.length <= 4 ? times.join("\u3001") : `${times.slice(0, 4).join("\u3001")}\u2026\uFF08\u5171 ${times.length} \u4E2A\u65F6\u95F4\u70B9\uFF09`;
+    }
+    const dayParts = [];
+    if (!monthStar && !domStar) {
+      dayParts.push(`\u6BCF\u5E74 ${spec.months.join("\u3001")} \u6708 ${spec.days.join("\u3001")} \u65E5`);
+    } else if (!monthStar) {
+      dayParts.push(`\u6BCF\u5E74 ${spec.months.join("\u3001")} \u6708\u6BCF\u5929`);
+    } else if (!domStar) {
+      dayParts.push(`\u6BCF\u6708 ${spec.days.join("\u3001")} \u65E5`);
+    }
+    if (!dowStar) dayParts.push(weekdayDesc(spec.weekdays));
+    const dayDesc = dayParts.length === 0 ? "\u6BCF\u5929" : dayParts.join(" \u6216 ");
+    if (dayDesc === "\u6BCF\u5929" && timeDesc.startsWith("\u6BCF")) return timeDesc;
+    return `${dayDesc} ${timeDesc}`;
+  }
+
   // src/client/FlowPanel.tsx
+  function fmtWhen(iso) {
+    if (!iso) return "\u2014";
+    const t5 = Date.parse(iso);
+    if (!Number.isFinite(t5)) return "\u2014";
+    const d4 = new Date(t5);
+    const now3 = /* @__PURE__ */ new Date();
+    const hm = `${String(d4.getHours()).padStart(2, "0")}:${String(d4.getMinutes()).padStart(2, "0")}`;
+    const dayDiff = Math.round((new Date(d4.getFullYear(), d4.getMonth(), d4.getDate()).getTime() - new Date(now3.getFullYear(), now3.getMonth(), now3.getDate()).getTime()) / 864e5);
+    if (dayDiff === 0) return `\u4ECA\u5929 ${hm}`;
+    if (dayDiff === 1) return `\u660E\u5929 ${hm}`;
+    if (dayDiff === -1) return `\u6628\u5929 ${hm}`;
+    return `${String(d4.getMonth() + 1).padStart(2, "0")}-${String(d4.getDate()).padStart(2, "0")} ${hm}`;
+  }
+  function fmtAgo(iso) {
+    if (!iso) return "\u8FD8\u6CA1\u8DD1\u8FC7";
+    const t5 = Date.parse(iso);
+    if (!Number.isFinite(t5)) return "\u8FD8\u6CA1\u8DD1\u8FC7";
+    const s3 = Math.max(0, Math.round((Date.now() - t5) / 1e3));
+    if (s3 < 60) return `${s3}s \u524D`;
+    if (s3 < 3600) return `${Math.round(s3 / 60)}min \u524D`;
+    return `${Math.round(s3 / 3600)}h \u524D`;
+  }
+  function fmtLastRun(lastRun) {
+    if (!lastRun) return "\u8FD8\u6CA1\u8DD1\u8FC7";
+    const dur = typeof lastRun.durationMs === "number" ? `\uFF08${(lastRun.durationMs / 1e3).toFixed(1)}s\uFF09` : "";
+    if (lastRun.status === "success") return `\u2713 \u6210\u529F${dur}`;
+    if (lastRun.status === "failed") return `\u2717 \u5931\u8D25${dur}${lastRun.error ? "\uFF1A" + lastRun.error : ""}`;
+    if (lastRun.status === "skipped") return "\u23ED \u672C\u6B21\u8DF3\u8FC7\uFF08\u4E0A\u4E00\u6B21\u8FD8\u6CA1\u8DD1\u5B8C\uFF09";
+    return `\u26A0 \u51FA\u9519${dur}${lastRun.error ? "\uFF1A" + lastRun.error : ""}`;
+  }
   var reqMark = () => (0, import_react102.createElement)("span", { className: "dsh-wf-req-mark", title: "\u5FC5\u586B" }, "*");
   function summarizeRun(summary) {
     const s3 = summary;
@@ -74507,6 +74821,47 @@ Please add \`${key}Action\` when creating your handler.`
     // 2026-10-01 深夜：移除「🖼 缩略图」「📝 表单」「📋 管理」「🤖 AI 生成」tab（用户反馈没用）
     // ——ThumbView/FormView/ManageView/AiGenView.tsx 保留未引用（esbuild 不打包）
   ];
+  function fmtLogValue(v5) {
+    if (v5 === void 0) return "\uFF08\u65E0\uFF09";
+    if (v5 === null) return "null";
+    if (typeof v5 === "string") return v5;
+    try {
+      return JSON.stringify(v5, null, 2) ?? String(v5);
+    } catch {
+      return String(v5);
+    }
+  }
+  function fmtRefs(refs) {
+    if (!refs) return "";
+    const parts = [
+      ...(refs.nodeRefs ?? []).map((x4) => `\u8282\u70B9 ${x4}`),
+      ...(refs.varsUsed ?? []).map((x4) => `\u53D8\u91CF ${x4}`),
+      ...(refs.inputsUsed ?? []).map((x4) => `\u8F93\u5165 ${x4}`)
+    ];
+    return parts.join("\u3001");
+  }
+  function logStatusLabel(s3) {
+    return s3 === "success" ? "\u6210\u529F" : s3 === "failed" ? "\u5931\u8D25" : s3 === "skipped" ? "\u8DF3\u8FC7" : s3 === "running" ? "\u8FD0\u884C\u4E2D" : s3 || "\u2014";
+  }
+  function logEntryText(e2) {
+    const L3 = [];
+    L3.push(`\u3010${e2?.id ?? "?"}${e2?.type ? ` (${e2.type})` : ""} \xB7 ${e2?.status ?? "\u8FD0\u884C\u4E2D"}${typeof e2?.durationMs === "number" ? ` \xB7 ${e2.durationMs}ms` : ""}\u3011`);
+    const refs = fmtRefs(e2?.refs);
+    if (refs) L3.push(`\u5F15\u7528\u4E0A\u6E38\uFF1A${refs}`);
+    if (e2?.rawParams !== void 0) L3.push(`\u539F\u59CB\u53C2\u6570\uFF08\u542B\u6A21\u677F\u5F15\u7528\uFF09\uFF1A
+${fmtLogValue(e2.rawParams)}`);
+    if (e2?.params !== void 0) L3.push(`\u5B9E\u9645\u5165\u53C2\uFF08\u6A21\u677F\u5DF2\u5C55\u5F00\uFF09\uFF1A
+${fmtLogValue(e2.params)}`);
+    if (e2?.out !== void 0) L3.push(`\u51FA\u53C2\uFF1A
+${fmtLogValue(e2.out)}`);
+    if (e2?.error) L3.push(`\u9519\u8BEF\uFF1A[${e2.error.code ?? ""}] ${e2.error.message ?? ""}`);
+    if (e2?.tolerated) L3.push("\uFF08\u8BE5\u8282\u70B9\u5931\u8D25\u4F46\u5DF2\u5BB9\u9519\u653E\u884C\uFF09");
+    if (Array.isArray(e2?.truncated) && e2.truncated.length) L3.push(`\uFF08\u5B57\u6BB5\u5DF2\u622A\u65AD\uFF1A${e2.truncated.join("\u3001")}\uFF09`);
+    return L3.join("\n");
+  }
+  function runLogText(entries) {
+    return (entries ?? []).map((e2) => logEntryText(e2)).join("\n\n");
+  }
   function FlowPanel({ ctx, onClose, onCache }) {
     const [tab, setTab] = (0, import_react101.useState)("canvas");
     const [def, setDef] = (0, import_react101.useState)(() => ctx.workflow ?? DEFAULT_WORKFLOW);
@@ -74726,7 +75081,7 @@ Please add \`${key}Action\` when creating your handler.`
       } catch {
       }
     }, []);
-    const handleRun = (0, import_react101.useCallback)(async () => {
+    const handleRun = (0, import_react101.useCallback)(async (runOpts) => {
       if (dirty) handleSave();
       const noModel = (def.nodes ?? []).filter((n2) => n2.type === "subagent" && !String(n2.params?.model ?? "").trim());
       if (noModel.length > 0) {
@@ -74734,7 +75089,44 @@ Please add \`${key}Action\` when creating your handler.`
         setRunDlgOpen(true);
         return;
       }
+      if (!runOpts?.confirmed) {
+        setSelfcheckState({ phase: "checking" });
+        try {
+          const sr = await fetch("/api/dag-flow/selfcheck", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ def })
+          });
+          const sd = await sr.json().catch(() => ({}));
+          if (!sr.ok) {
+            setSelfcheckState(null);
+            setRunResult({ status: "error", error: sd?.error ?? `\u81EA\u68C0\u8BF7\u6C42\u5931\u8D25 HTTP ${sr.status}` });
+            setRunDlgOpen(true);
+            return;
+          }
+          const result = {
+            items: Array.isArray(sd.items) ? sd.items : [],
+            errorCount: Number(sd.errorCount ?? 0),
+            warnCount: Number(sd.warnCount ?? 0),
+            stats: sd.stats ?? { nodes: (def.nodes ?? []).length, edges: (def.edges ?? []).length }
+          };
+          if (result.errorCount > 0) {
+            setSelfcheckState(null);
+            setSelfcheckBlock(result);
+            return;
+          }
+          setSelfcheckState({ phase: "ok", result });
+          return;
+        } catch (e2) {
+          setSelfcheckState(null);
+          setRunResult({ status: "error", error: `\u81EA\u68C0\u5931\u8D25\uFF1A${e2.message}` });
+          setRunDlgOpen(true);
+          return;
+        }
+      }
+      setSelfcheckState(null);
       setRunning(true);
+      manualRunRef.current = true;
       setRunResult(null);
       const nodeIds = (def.nodes ?? []).map((n2) => n2.id);
       setRunResults(progressToStatusMap(nodeIds, {}));
@@ -74768,11 +75160,18 @@ Please add \`${key}Action\` when creating your handler.`
         const res = await fetch("/api/dag-flow/run", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ def }),
+          body: JSON.stringify({ def, skipSelfcheck: true }),
           signal: ac.signal
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
+          if (res.status === 409 && data?.blocked && data?.selfcheck) {
+            const sc = data.selfcheck;
+            setSelfcheckBlock({ items: Array.isArray(sc.items) ? sc.items : [], errorCount: Number(sc.errorCount ?? 0), warnCount: Number(sc.warnCount ?? 0), stats: sc.stats });
+            setRunning(false);
+            manualRunRef.current = false;
+            return;
+          }
           setRunResult({ status: "error", error: data?.error ?? `HTTP ${res.status}` });
           setRunDlgOpen(true);
           return;
@@ -74801,6 +75200,7 @@ Please add \`${key}Action\` when creating your handler.`
         if (pollTimer != null) window.clearTimeout(pollTimer);
         if (!keepRunning) {
           setRunning(false);
+          manualRunRef.current = false;
           runAbortRef.current = null;
         }
       }
@@ -74828,6 +75228,7 @@ Please add \`${key}Action\` when creating your handler.`
       } finally {
         setManualBusy(false);
         setRunning(false);
+        manualRunRef.current = false;
         runAbortRef.current = null;
       }
     }, [manualWait, manualNote, clearManualWait, applyRunSummary]);
@@ -74836,6 +75237,7 @@ Please add \`${key}Action\` when creating your handler.`
       });
       runAbortRef.current?.abort();
       clearManualWait();
+      manualRunRef.current = false;
       setRunning(false);
       setRunResult({ status: "error", error: "\u5DF2\u53D6\u6D88\u672C\u6B21\u8FD0\u884C" });
     }, [def.name, clearManualWait]);
@@ -75071,18 +75473,241 @@ Please add \`${key}Action\` when creating your handler.`
       }
       handleDefChange({ ...def, inputs });
     }, [def, handleDefChange]);
+    const [schedOpen, setSchedOpen] = (0, import_react101.useState)(false);
+    const [schedItems, setSchedItems] = (0, import_react101.useState)([]);
+    const schedItemsRef = (0, import_react101.useRef)([]);
+    const [schedInfo, setSchedInfo] = (0, import_react101.useState)(null);
+    const [schedNote, setSchedNote] = (0, import_react101.useState)("");
+    const [schedBad, setSchedBad] = (0, import_react101.useState)({});
+    const manualCount = (def.nodes ?? []).filter((n2) => n2.type === "manual").length;
+    const schedTimers = (0, import_react101.useRef)({});
+    const loadSchedules = (0, import_react101.useCallback)(async () => {
+      try {
+        const res = await fetch(`/api/dag-flow/schedules?workflow=${encodeURIComponent(def.name)}`, { credentials: "include" });
+        const data = await res.json();
+        const items = Array.isArray(data.items) ? data.items : [];
+        schedItemsRef.current = items;
+        setSchedItems(items);
+        setSchedInfo(data.scheduler ?? null);
+        setSchedNote(data.warning ? String(data.warning) : "");
+      } catch (e2) {
+        setSchedNote("\u8BFB\u53D6\u5B9A\u65F6\u914D\u7F6E\u5931\u8D25\uFF1A" + e2.message);
+      }
+    }, [def.name]);
+    const openSchedules = (0, import_react101.useCallback)(() => {
+      ensurePickerStyles();
+      setSchedOpen(true);
+      void loadSchedules();
+    }, [loadSchedules]);
+    const saveSchedule = (0, import_react101.useCallback)(async (item) => {
+      setSchedBad((m4) => ({ ...m4, [item.id ?? "new"]: "" }));
+      try {
+        const res = await fetch("/api/dag-flow/schedules/save", {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(item)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setSchedBad((m4) => ({ ...m4, [item.id ?? "new"]: String(data.error ?? "\u4FDD\u5B58\u5931\u8D25") }));
+          return;
+        }
+        await loadSchedules();
+      } catch (e2) {
+        setSchedBad((m4) => ({ ...m4, [item.id ?? "new"]: e2.message }));
+      }
+    }, [loadSchedules]);
+    const patchScheduleLocal = (0, import_react101.useCallback)((id3, patch, opts = {}) => {
+      const cur = schedItemsRef.current;
+      const item = { ...cur.find((x4) => x4.id === id3) ?? {}, ...patch, id: id3 };
+      const next2 = cur.map((x4) => x4.id === id3 ? { ...x4, ...patch } : x4);
+      schedItemsRef.current = next2;
+      setSchedItems(next2);
+      if (cronError(String(item.cron ?? ""))) return;
+      const fire = () => void saveSchedule({ id: id3, workflow: item.workflow ?? def.name, cron: item.cron, enabled: item.enabled !== false, inputs: item.inputs });
+      if (!opts.debounce) {
+        fire();
+        return;
+      }
+      if (schedTimers.current[id3]) window.clearTimeout(schedTimers.current[id3]);
+      schedTimers.current[id3] = window.setTimeout(fire, 1200);
+    }, [schedItems, saveSchedule, def.name]);
+    const addSchedule = (0, import_react101.useCallback)(() => {
+      void saveSchedule({ workflow: def.name, cron: "0 9 * * *", enabled: true });
+    }, [saveSchedule, def.name]);
+    const removeSchedule = (0, import_react101.useCallback)(async (id3) => {
+      try {
+        await fetch("/api/dag-flow/schedules/delete", {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: id3 })
+        });
+        await loadSchedules();
+      } catch {
+      }
+    }, [loadSchedules]);
+    const [schedRunningId, setSchedRunningId] = (0, import_react101.useState)("");
+    const [schedConfirm, setSchedConfirm] = (0, import_react101.useState)(null);
+    const [logOpen, setLogOpen] = (0, import_react101.useState)(false);
+    const [logEntries, setLogEntries] = (0, import_react101.useState)([]);
+    const [logMeta, setLogMeta] = (0, import_react101.useState)(null);
+    const [logBusy, setLogBusy] = (0, import_react101.useState)(false);
+    const [logFilter, setLogFilter] = (0, import_react101.useState)("");
+    const [logExpanded, setLogExpanded] = (0, import_react101.useState)({});
+    const logLiveRef = (0, import_react101.useRef)(false);
+    const fetchRunLog = (0, import_react101.useCallback)(async () => {
+      setLogBusy(true);
+      try {
+        const r5 = await fetch(`/api/dag-flow/run/log?name=${encodeURIComponent(def.name)}`);
+        const j4 = await r5.json().catch(() => null);
+        if (!r5.ok) {
+          logLiveRef.current = false;
+          setLogEntries([]);
+          setLogMeta({ error: j4?.error ?? `HTTP ${r5.status}`, at: Date.now() });
+          return;
+        }
+        logLiveRef.current = !!j4?.live;
+        setLogEntries(Array.isArray(j4?.entries) ? j4.entries : []);
+        setLogMeta({ runId: j4?.runId, live: !!j4?.live, runStatus: j4?.runStatus, at: Date.now() });
+      } catch (e2) {
+        logLiveRef.current = false;
+        setLogMeta({ error: e2.message, at: Date.now() });
+      } finally {
+        setLogBusy(false);
+      }
+    }, [def.name]);
+    (0, import_react101.useEffect)(() => {
+      if (!logOpen) return void 0;
+      void fetchRunLog();
+      const timer = window.setInterval(() => {
+        if (logLiveRef.current) void fetchRunLog();
+      }, 1200);
+      return () => window.clearInterval(timer);
+    }, [logOpen, fetchRunLog]);
+    const prevRunningRef = (0, import_react101.useRef)(false);
+    (0, import_react101.useEffect)(() => {
+      if (prevRunningRef.current && !running && logOpen) void fetchRunLog();
+      prevRunningRef.current = running;
+    }, [running, logOpen, fetchRunLog]);
+    const logView = (0, import_react101.useMemo)(() => {
+      const q3 = logFilter.trim().toLowerCase();
+      if (!q3) return logEntries;
+      return logEntries.filter((e2) => {
+        try {
+          return JSON.stringify(e2 ?? {}).toLowerCase().includes(q3);
+        } catch {
+          return false;
+        }
+      });
+    }, [logEntries, logFilter]);
+    const [selfcheckBlock, setSelfcheckBlock] = (0, import_react101.useState)(null);
+    const [selfcheckState, setSelfcheckState] = (0, import_react101.useState)(null);
+    const askRunScheduleNow = (0, import_react101.useCallback)((it3) => {
+      setSchedConfirm(it3);
+    }, []);
+    const doRunScheduleNow = (0, import_react101.useCallback)(async (it3) => {
+      setSchedRunningId(it3.id);
+      try {
+        const res = await fetch("/api/dag-flow/schedules/run", {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: it3.id })
+        });
+        const data = await res.json();
+        if (!res.ok) setSchedBad((m4) => ({ ...m4, [it3.id]: String(data.error ?? "\u8FD0\u884C\u5931\u8D25") }));
+        else if (data.skipped) setSchedBad((m4) => ({ ...m4, [it3.id]: "\u4E0A\u4E00\u6B21\u8FD0\u884C\u8FD8\u6CA1\u7ED3\u675F\uFF0C\u672C\u6B21\u8DF3\u8FC7\u4E86" }));
+        await loadSchedules();
+      } catch (e2) {
+        setSchedBad((m4) => ({ ...m4, [it3.id]: e2.message }));
+      } finally {
+        setSchedRunningId("");
+      }
+    }, [loadSchedules]);
+    const lastSigRef = (0, import_react101.useRef)("");
+    const manualRunRef = (0, import_react101.useRef)(false);
+    const nodesRef = (0, import_react101.useRef)([]);
+    nodesRef.current = (def.nodes ?? []).map((n2) => n2.id);
+    (0, import_react101.useEffect)(() => {
+      let stopped = false;
+      let timer = null;
+      const idleMs = 2500, fastMs = 600;
+      let fast = false;
+      const watch = async () => {
+        if (stopped) return;
+        try {
+          if (!manualRunRef.current) {
+            const r5 = await fetch(`/api/dag-flow/run/status?name=${encodeURIComponent(def.name)}`);
+            if (r5.ok) {
+              const j4 = await r5.json();
+              const sig = JSON.stringify([j4.status, j4.results ?? {}, j4.running ?? []]);
+              if (sig !== lastSigRef.current) {
+                lastSigRef.current = sig;
+                setRunResults(progressToStatusMap(nodesRef.current, { results: j4.results, running: j4.running }));
+              }
+              const active = j4.status === "running" || j4.status === "awaiting";
+              setRunning(active);
+              if (!active && fast) {
+                fast = false;
+                if (schedOpen) void loadSchedules();
+              }
+              fast = active;
+            }
+          }
+        } catch {
+        }
+        if (!stopped) timer = window.setTimeout(() => {
+          void watch();
+        }, fast ? fastMs : idleMs);
+      };
+      void watch();
+      return () => {
+        stopped = true;
+        if (timer) window.clearTimeout(timer);
+      };
+    }, [def.name, schedOpen, loadSchedules]);
+    (0, import_react101.useEffect)(() => {
+      const labelOf = (id3) => {
+        const t5 = (def.nodes ?? []).find((x4) => x4.id === id3);
+        return t5 ? String(t5.label ?? t5.id) : id3;
+      };
+      const map2 = {};
+      for (const n2 of def.nodes ?? []) {
+        if (n2.tolerate === true) map2[n2.id] = { kind: "ignore" };
+        else if (n2.onError === "continue") map2[n2.id] = { kind: "skip" };
+        else if (n2.onError && typeof n2.onError === "object" && n2.onError.goto) {
+          map2[n2.id] = { kind: "goto", target: n2.onError.goto, targetLabel: labelOf(n2.onError.goto) };
+        }
+      }
+      failPolicyStore.setAll(map2);
+    }, [def]);
     const handleNodeError = (0, import_react101.useCallback)((id3, onError) => {
-      setDef((prev2) => ({ ...prev2, nodes: prev2.nodes.map((n2) => n2.id === id3 ? { ...n2, onError } : n2) }));
+      setDef((prev2) => ({
+        ...prev2,
+        nodes: prev2.nodes.map((n2) => {
+          if (n2.id !== id3) return n2;
+          const next2 = { ...n2, onError };
+          delete next2.tolerate;
+          return next2;
+        })
+      }));
       setDirty(true);
     }, []);
-    const handleNodeTolerate = (0, import_react101.useCallback)((id3, tolerate) => {
+    const handleNodeFailPolicy = (0, import_react101.useCallback)((id3, policy) => {
       setDef((prev2) => ({
         ...prev2,
         nodes: prev2.nodes.map((n2) => {
           if (n2.id !== id3) return n2;
           const next2 = { ...n2 };
-          if (tolerate) next2.tolerate = true;
-          else delete next2.tolerate;
+          if (policy === "ignore") {
+            next2.tolerate = true;
+            delete next2.onError;
+          } else {
+            delete next2.tolerate;
+            next2.onError = policy === "skip" ? "continue" : "stop";
+          }
           return next2;
         })
       }));
@@ -75211,16 +75836,21 @@ Please add \`${key}Action\` when creating your handler.`
         (0, import_react102.createElement)(
           "button",
           {
-            className: `dsh-wf-btn dsh-wf-btn-success${running ? " is-running" : ""}`,
+            className: `dsh-wf-btn dsh-wf-btn-success${running ? " is-running" : ""}${selfcheckState?.phase === "checking" ? " is-checking" : ""}`,
             onClick: () => void handleRun(),
-            disabled: running,
-            title: running ? "\u5DE5\u4F5C\u6D41\u6B63\u5728\u8FD0\u884C\uFF08\u70B9\u53F3\u4FA7\u300C\u23F9 \u53D6\u6D88\u300D\u53EF\u4E2D\u6B62\uFF09" : "\u8FD0\u884C\u5DE5\u4F5C\u6D41"
+            disabled: running || selfcheckState?.phase === "checking",
+            title: running ? "\u5DE5\u4F5C\u6D41\u6B63\u5728\u8FD0\u884C\uFF08\u70B9\u53F3\u4FA7\u300C\u23F9 \u53D6\u6D88\u300D\u53EF\u4E2D\u6B62\uFF09" : selfcheckState?.phase === "checking" ? "\u6B63\u5728\u505A\u8FD0\u884C\u524D\u81EA\u68C0\u2026" : "\u8FD0\u884C\u5DE5\u4F5C\u6D41\uFF08\u5148\u81EA\u68C0\uFF0C\u901A\u8FC7\u540E\u786E\u8BA4\u518D\u6267\u884C\uFF09"
           },
           running ? (0, import_react102.createElement)(
             "span",
             { className: "dsh-wf-run-label" },
             (0, import_react102.createElement)("span", { className: "dsh-wf-run-ring" }),
             "\u8FD0\u884C\u4E2D"
+          ) : selfcheckState?.phase === "checking" ? (0, import_react102.createElement)(
+            "span",
+            { className: "dsh-wf-run-label" },
+            (0, import_react102.createElement)("span", { className: "dsh-wf-run-ring" }),
+            "\u81EA\u68C0\u4E2D\u2026"
           ) : "\u25B6"
         ),
         // ★ 取消按钮：运行中才出现，排在运行按钮**之后**，且红色
@@ -75255,6 +75885,24 @@ Please add \`${key}Action\` when creating your handler.`
           "button",
           { className: "dsh-wf-btn", onClick: () => void openVersions(), title: "\u5386\u53F2\u7248\u672C\uFF08\u624B\u52A8\u4FDD\u5B58\u751F\u6210\u5FEB\u7167\uFF0C\u53EF\u56DE\u8F7D\uFF09" },
           "\u{1F558}"
+        ),
+        // ★ 定时任务（2026-10-03 用户拍板方案 v1，docs/SCHEDULE-PLAN.md §6）：加在「工作流参数/运行/保存/版本」
+        //   这一组**之后**（不打断用户 2026-10-02 定下的顺序）；每个工作流可配多条 cron 定时，执行由宿主调度器负责
+        (0, import_react102.createElement)(
+          "button",
+          { className: "dsh-wf-btn", onClick: openSchedules, title: "\u5B9A\u65F6\u4EFB\u52A1\uFF08cron \u5B9A\u65F6\u6267\u884C\u672C\u5DE5\u4F5C\u6D41\uFF1Bdsh web \u9700\u5E38\u9A7B\u624D\u4F1A\u89E6\u53D1\uFF09" },
+          "\u23F0"
+        ),
+        // ★ 运行日志 🧾（2026-10-04 用户需求：「工作流执行黑盒」；用户 2026-10-04 明确要求
+        //   「运行日志按钮现在在底部，放到定时任务的后面」→ 必须留在**头部这一排**、紧跟 ⏰ 之后）
+        (0, import_react102.createElement)(
+          "button",
+          {
+            className: `dsh-wf-btn dsh-wf-log-btn${logOpen ? " primary" : ""}`,
+            title: "\u8FD0\u884C\u65E5\u5FD7\uFF1A\u6BCF\u4E2A\u8282\u70B9\u7684\u5165\u53C2/\u5F15\u7528/\u51FA\u53C2/\u9519\u8BEF/\u8017\u65F6\uFF08\u8FD0\u884C\u4E2D\u81EA\u52A8\u5237\u65B0\uFF09",
+            onClick: () => setLogOpen((v5) => !v5)
+          },
+          "\u{1F9FE}"
         ),
         // 人工确认等待态（2026-10-03 方案 A）：accent 描边徽标，点击重开确认弹窗
         manualWait && (0, import_react102.createElement)(
@@ -75294,10 +75942,10 @@ Please add \`${key}Action\` when creating your handler.`
         // 运行状态可视化（画布节点徽标）
         // 上次运行的真实输出（results.<id>.out）——面板用它反推「实际有哪些变量」，含用户自定义键
         runOuts: runResult?.summary?.results ?? {},
-        // A4 失败策略（onError：节点失败时的行为；仅 legacy next 模式生效）
+        // A4 失败策略（onError：节点失败时的行为）
         onNodeError: handleNodeError,
-        // ★ A 方案容错开关（DAG 模式下的「失败不影响流程」，2026-10-03 用户拍板）
-        onNodeTolerate: handleNodeTolerate,
+        // ★ 2026-10-04 轮 2：失败策略与「失败不影响流程」已合并为面板上唯一的一个下拉
+        onNodeFailPolicy: handleNodeFailPolicy,
         onDefChange: handleDefChange,
         onRFChange: handleRFChange,
         onSelectNode: handleSelectNode,
@@ -75372,6 +76020,134 @@ Please add \`${key}Action\` when creating your handler.`
               title: "\u6DFB\u52A0\u4E00\u6761\u53C2\u6570",
               onClick: () => setInputsRows((rs) => [...rs, { k: "", v: "" }])
             }, "+")
+          )
+        )
+      ),
+      // ⏰ 定时任务弹窗（2026-10-03 用户拍板方案 v1，docs/SCHEDULE-PLAN.md §6）
+      schedOpen && (0, import_react102.createElement)(
+        "div",
+        {
+          className: "dag-flow-picker-overlay",
+          onClick: (e2) => {
+            if (e2.target === e2.currentTarget) setSchedOpen(false);
+          }
+        },
+        (0, import_react102.createElement)(
+          "div",
+          { className: "dag-flow-picker dsh-wf-sched" },
+          (0, import_react102.createElement)(
+            "div",
+            { className: "dag-flow-picker-title", style: { fontSize: 16 } },
+            "\u23F0 \u5B9A\u65F6\u4EFB\u52A1",
+            (0, import_react102.createElement)("span", { className: "dsh-wf-sched-title-wf" }, def.name),
+            (0, import_react102.createElement)("button", {
+              className: "dag-flow-picker-close",
+              title: "\u5173\u95ED",
+              onClick: () => setSchedOpen(false)
+            }, "\u2715")
+          ),
+          (0, import_react102.createElement)(
+            "div",
+            { className: "dag-flow-picker-body" },
+            // 黄色费用提示（无人值守真花钱，必须写明）
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dsh-wf-sched-warn" },
+              "\u26A0 \u5B9A\u65F6\u6267\u884C\u4F1A\u771F\u5B9E\u8FD0\u884C\u5DE5\u4F5C\u6D41\uFF1AAI / \u56FE\u7247 / \u89C6\u9891\u8282\u70B9\u4F1A\u4EA7\u751F\u8D39\u7528\uFF1B\u6267\u884C\u671F\u95F4\u4E0D\u7B49\u4EBA\u786E\u8BA4\uFF08manual \u8282\u70B9\u81EA\u52A8\u901A\u8FC7\uFF09\u3002"
+            ),
+            // ★ 2026-10-04 用户反馈「定时任务自动触发的运行，手动确认节点自动跳过」→ 拍板 A：保持自动通过，但**显形**。
+            //   只要本工作流含 manual 节点，就在弹窗里说清"不会停下来等确认"，并告诉用户哪种入口才会等。
+            manualCount > 0 ? (0, import_react102.createElement)(
+              "div",
+              { className: "dsh-wf-sched-note" },
+              `\u23ED \u672C\u5DE5\u4F5C\u6D41\u542B ${manualCount} \u4E2A\u300C\u4EBA\u5DE5\u786E\u8BA4\u300D\u8282\u70B9\uFF1A\u5B9A\u65F6\u89E6\u53D1\uFF08\u542B\u4E0B\u65B9\u300C\u25B6 \u7ACB\u5373\u8FD0\u884C\u4E00\u6B21\u300D\uFF09\u4E0D\u4F1A\u505C\u4E0B\u6765\u7B49\u786E\u8BA4\uFF0Cmanual \u8282\u70B9\u4F1A\u81EA\u52A8\u901A\u8FC7\uFF08\u753B\u5E03\u5FBD\u6807\u4E0E\u60AC\u6D6E\u7ED3\u679C\u4F1A\u6807\u300C\u23ED \u81EA\u52A8\u901A\u8FC7\u300D\uFF09\u3002\u8981\u4EBA\u5DE5\u628A\u5173\u8BF7\u5728\u753B\u5E03\u4E0A\u70B9 \u25B6 \u8FD0\u884C\u3002`
+            ) : null,
+            // 调度器心跳：dsh web 不常驻就不会触发，必须让用户看见
+            (0, import_react102.createElement)(
+              "div",
+              { className: `dsh-wf-sched-beat${schedInfo?.running ? " is-on" : ""}` },
+              schedInfo?.running ? `\u25CF \u8C03\u5EA6\u5668\u8FD0\u884C\u4E2D\uFF08\u5FC3\u8DF3 ${fmtAgo(schedInfo?.lastTickAt)}\uFF0C\u6BCF ${Math.round((schedInfo?.tickMs ?? 2e4) / 1e3)}s \u68C0\u67E5\u4E00\u6B21\uFF1B\u672C\u673A\u65F6\u533A\uFF09` : "\u25CB \u8C03\u5EA6\u5668\u672A\u8FD0\u884C\u2014\u2014\u9700\u8981 dsh web \u5E38\u9A7B\uFF0C\u5B9A\u65F6\u624D\u4F1A\u89E6\u53D1"
+            ),
+            schedNote ? (0, import_react102.createElement)("div", { className: "dag-flow-picker-hint", style: { fontSize: 11, opacity: 0.72 } }, schedNote) : null,
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dsh-wf-sched-list" },
+              schedItems.length ? schedItems.map((it3) => {
+                const bad = cronError(String(it3.cron ?? ""));
+                const err = schedBad[it3.id] || bad || "";
+                return (0, import_react102.createElement)(
+                  "div",
+                  { key: it3.id, className: `dsh-wf-sched-item${it3.enabled === false ? " is-off" : ""}` },
+                  (0, import_react102.createElement)(
+                    "div",
+                    { className: "dsh-wf-sched-row" },
+                    (0, import_react102.createElement)("span", { className: "dsh-wf-sched-ico" }, "\u23F0"),
+                    (0, import_react102.createElement)("input", {
+                      className: "dsh-wf-input dsh-wf-sched-cron",
+                      value: String(it3.cron ?? ""),
+                      placeholder: "\u5206 \u65F6 \u65E5 \u6708 \u5468\uFF0C\u5982 0 9 * * 1-5",
+                      title: "\u6807\u51C6 5 \u5B57\u6BB5 cron\uFF1A\u5206 \u65F6 \u65E5 \u6708 \u5468\uFF1B\u652F\u6301 * , - /\uFF08\u4E0D\u652F\u6301 L W # \u4E0E\u79D2\u7EA7\uFF09",
+                      onChange: (e2) => patchScheduleLocal(it3.id, { cron: e2.target.value }, { debounce: true }),
+                      onBlur: () => patchScheduleLocal(it3.id, {}, {})
+                    }),
+                    // ★ 2026-10-04 用户要求：「▶ 立即运行一次」不要单独占第二行，放在 cron 表达式右边
+                    (0, import_react102.createElement)("button", {
+                      className: "dsh-wf-btn dsh-wf-sched-run",
+                      disabled: schedRunningId === it3.id,
+                      title: "\u7ACB\u523B\u771F\u5B9E\u6267\u884C\u4E00\u6B21\uFF08\u7B49\u4EF7\u4E8E\u5230\u70B9\u89E6\u53D1\uFF0C\u4F1A\u82B1\u94B1\uFF09",
+                      onClick: () => askRunScheduleNow(it3)
+                    }, schedRunningId === it3.id ? "\u8FD0\u884C\u4E2D\u2026" : "\u25B6 \u7ACB\u5373\u8FD0\u884C\u4E00\u6B21"),
+                    (0, import_react102.createElement)(
+                      "span",
+                      { className: "dsh-wf-sched-preview" },
+                      bad ? "\u26A0 \u8868\u8FBE\u5F0F\u4E0D\u5408\u6CD5" : describeCron(String(it3.cron ?? ""))
+                    ),
+                    (0, import_react102.createElement)(
+                      "label",
+                      { className: "dsh-wf-sched-toggle", title: it3.enabled === false ? "\u5DF2\u505C\u7528\uFF08\u70B9\u5F00\u542F\uFF09" : "\u5DF2\u542F\u7528\uFF08\u70B9\u505C\u7528\uFF09" },
+                      (0, import_react102.createElement)("input", {
+                        type: "checkbox",
+                        checked: it3.enabled !== false,
+                        onChange: (e2) => patchScheduleLocal(it3.id, { enabled: e2.target.checked }, {})
+                      }),
+                      it3.enabled === false ? "\u505C\u7528" : "\u542F\u7528"
+                    ),
+                    (0, import_react102.createElement)("button", {
+                      className: "dsh-wf-btn",
+                      title: "\u5220\u9664\u8BE5\u5B9A\u65F6\uFF08\u4E0D\u5F71\u54CD\u5176\u5B83\u5B9A\u65F6\uFF09",
+                      onClick: () => void removeSchedule(it3.id)
+                    }, "\u2715")
+                  ),
+                  err ? (0, import_react102.createElement)("div", { className: "dsh-wf-sched-bad" }, "\u26A0 " + err) : null,
+                  (0, import_react102.createElement)(
+                    "div",
+                    { className: "dsh-wf-sched-meta" },
+                    `\u4E0A\u6B21 ${fmtLastRun(it3.lastRun)}`,
+                    " \xB7 ",
+                    `\u4E0B\u6B21 ${it3.nextRunAt ? fmtWhen(it3.nextRunAt) : "\u2014"}`,
+                    it3.running ? " \xB7 \u8FD0\u884C\u4E2D\u2026" : it3.lastStartedAt && !it3.lastRun ? " \xB7 \u6B63\u5728\u8FD0\u884C\u2026" : "",
+                    it3.orphan ? " \xB7 \u26A0 \u5DE5\u4F5C\u6D41\u4E0D\u5B58\u5728\uFF08\u914D\u7F6E\u4FDD\u7559\uFF0C\u7B49\u5B83\u56DE\u6765\uFF09" : ""
+                  )
+                );
+              }) : (0, import_react102.createElement)(
+                "div",
+                { className: "dag-flow-picker-hint", style: { fontSize: 11.5, opacity: 0.72 } },
+                "\u8FD8\u6CA1\u6709\u5B9A\u65F6\u4EFB\u52A1\u3002\u70B9\u4E0B\u65B9\u300C\uFF0B \u6DFB\u52A0\u5B9A\u65F6\u300D\u52A0\u4E00\u6761\uFF0C\u9ED8\u8BA4\u300C0 9 * * *\u300D= \u6BCF\u5929 09:00\u3002"
+              )
+            ),
+            // 底部虚线 ＋：加一条（宿主生成 id）
+            (0, import_react102.createElement)("button", {
+              className: "dsh-wf-inputs-add",
+              title: "\u6DFB\u52A0\u4E00\u6761\u5B9A\u65F6\u4EFB\u52A1",
+              onClick: addSchedule
+            }, "\uFF0B \u6DFB\u52A0\u5B9A\u65F6"),
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dsh-wf-sched-foot" },
+              "\u914D\u7F6E\u5B58\u5728\u5DE5\u4F5C\u533A .dag-flow/schedules.json\uFF1Bcron \u4E3A**\u672C\u673A\u65F6\u533A**\u7684\u300C\u5206 \u65F6 \u65E5 \u6708 \u5468\u300D\u3002",
+              (0, import_react102.createElement)("br"),
+              "\u540C\u4E00\u5DE5\u4F5C\u6D41\u4E0A\u4E00\u6B21\u6CA1\u8DD1\u5B8C\u65F6\uFF0C\u672C\u6B21\u4F1A\u8DF3\u8FC7\u5E76\u8BB0\u300C\u23ED \u672C\u6B21\u8DF3\u8FC7\u300D\uFF1Bdsh \u91CD\u542F\u540E\u4E0D\u8865\u8DD1\u9519\u8FC7\u7684\u6863\u671F\u3002"
+            )
           )
         )
       ),
@@ -75565,6 +76341,310 @@ Please add \`${key}Action\` when creating your handler.`
           )
         )
       ),
+      // ▶ 立即运行一次：**应用内**二次确认弹窗（2026-10-04 用户反馈：原来是 Windows 原生 confirm）
+      //   与其它弹窗同一套约定：右上 ✕、hint 小字浅色、底部左「取消」右「主操作」；费用提醒用黄色条。
+      schedConfirm && (0, import_react102.createElement)(
+        "div",
+        {
+          className: "dag-flow-picker-overlay",
+          onClick: (e2) => {
+            if (e2.target === e2.currentTarget) setSchedConfirm(null);
+          }
+        },
+        (0, import_react102.createElement)(
+          "div",
+          { className: "dag-flow-picker dsh-wf-sched-confirm" },
+          (0, import_react102.createElement)(
+            "div",
+            { className: "dag-flow-picker-title", style: { fontSize: 16 } },
+            "\u25B6 \u7ACB\u5373\u8FD0\u884C\u4E00\u6B21\uFF1F",
+            (0, import_react102.createElement)("button", {
+              className: "dag-flow-picker-close",
+              title: "\u5173\u95ED\uFF08\u4E0D\u8FD0\u884C\uFF09",
+              onClick: () => setSchedConfirm(null)
+            }, "\u2715")
+          ),
+          (0, import_react102.createElement)(
+            "div",
+            { className: "dag-flow-picker-body" },
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dsh-wf-sched-warn" },
+              `\u26A0 \u4F1A\u771F\u5B9E\u6267\u884C\u5DE5\u4F5C\u6D41\u300C${String(schedConfirm.workflow ?? def.name)}\u300D\uFF1AAI / \u56FE\u7247 / \u89C6\u9891\u8282\u70B9\u4F1A\u4EA7\u751F\u8D39\u7528\u3002`
+            ),
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dag-flow-picker-hint", style: { fontSize: 11.5, opacity: 0.8, lineHeight: 1.65 } },
+              "\u8FD9\u6B21\u8FD0\u884C\u7B49\u4EF7\u4E8E\u300C\u5230\u70B9\u89E6\u53D1\u300D\u4E00\u6B21\uFF1A\u6267\u884C\u671F\u95F4\u4E0D\u7B49\u4EBA\u786E\u8BA4\uFF08manual \u8282\u70B9\u81EA\u52A8\u901A\u8FC7\uFF09\u3002",
+              (0, import_react102.createElement)("br"),
+              "\u4E0D\u4F1A\u6539\u53D8\u5B9A\u65F6\u6863\u671F\u2014\u2014\u4E0B\u6B21\u4ECD\u6309 ",
+              cronError(String(schedConfirm.cron ?? "")) ? "\uFF08\u5F53\u524D cron \u8868\u8FBE\u5F0F\u4E0D\u5408\u6CD5\uFF0C\u6539\u5BF9\u4E4B\u540E\u624D\u4F1A\u81EA\u52A8\u89E6\u53D1\uFF09" : describeCron(String(schedConfirm.cron ?? "")),
+              " \u89E6\u53D1\u3002"
+            ),
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dsh-wf-manual-acts" },
+              (0, import_react102.createElement)("button", {
+                className: "dsh-wf-btn",
+                onClick: () => setSchedConfirm(null)
+              }, "\u2715 \u53D6\u6D88"),
+              (0, import_react102.createElement)("span", { className: "dsh-wf-manual-grow" }),
+              (0, import_react102.createElement)("button", {
+                className: "dsh-wf-btn dsh-wf-btn-primary",
+                onClick: () => {
+                  const it3 = schedConfirm;
+                  setSchedConfirm(null);
+                  void doRunScheduleNow(it3);
+                }
+              }, "\u25B6 \u786E\u8BA4\u8FD0\u884C")
+            )
+          )
+        )
+      ),
+      // ✓ 运行前自检**通过**也要人工确认一次（2026-10-04 用户要求：「自检完成没问题后，手动确认，再开始真正运行」）
+      selfcheckState?.phase === "ok" && (0, import_react102.createElement)(
+        "div",
+        {
+          className: "dag-flow-picker-overlay",
+          onClick: (e2) => {
+            if (e2.target === e2.currentTarget) setSelfcheckState(null);
+          }
+        },
+        (0, import_react102.createElement)(
+          "div",
+          { className: "dag-flow-picker dsh-wf-selfcheck is-ok" },
+          (0, import_react102.createElement)(
+            "div",
+            { className: "dag-flow-picker-title", style: { fontSize: 16 } },
+            "\u2713 \u81EA\u68C0\u901A\u8FC7",
+            (0, import_react102.createElement)("button", { className: "dag-flow-picker-close", title: "\u5173\u95ED\uFF08\u4E0D\u8FD0\u884C\uFF09", onClick: () => setSelfcheckState(null) }, "\u2715")
+          ),
+          (0, import_react102.createElement)(
+            "div",
+            { className: "dag-flow-picker-body" },
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dag-flow-picker-hint", style: { fontSize: 11.5, opacity: 0.8, lineHeight: 1.65 } },
+              `\u5DF2\u68C0\u67E5 ${selfcheckState.result.stats?.nodes ?? 0} \u4E2A\u8282\u70B9 / ${selfcheckState.result.stats?.edges ?? 0} \u6761\u8FB9\uFF1A\u7ED3\u6784\u3001\u8FDE\u7EBF\u5F15\u7528\u3001\u5FC5\u586B\u53C2\u6570\u3001\u5206\u652F\u952E\u3001\u73AF\u8DEF\u3001\u5FAA\u73AF\u4E0E\u5B50\u5DE5\u4F5C\u6D41\u4F9D\u8D56\u90FD\u6CA1\u95EE\u9898\u3002`,
+              selfcheckState.result.warnCount > 0 ? `\u53E6\u6709 ${selfcheckState.result.warnCount} \u6761\u63D0\u9192\uFF08\u4E0D\u5F71\u54CD\u8FD0\u884C\uFF0C\u53EF\u5148\u770B\u770B\uFF09\uFF1A` : "\u70B9\u300C\u5F00\u59CB\u8FD0\u884C\u300D\u5C31\u771F\u6B63\u6267\u884C\uFF0C\u8FD0\u884C\u671F\u95F4\u53EF\u4EE5\u5728\u5934\u90E8\u53D6\u6D88\u3002"
+            ),
+            selfcheckState.result.items.filter((i3) => i3.level === "warn").length ? (0, import_react102.createElement)(
+              "div",
+              { className: "dsh-wf-selfcheck-list" },
+              selfcheckState.result.items.filter((i3) => i3.level === "warn").map((it3, i3) => (0, import_react102.createElement)(
+                "div",
+                {
+                  key: i3,
+                  className: `dsh-wf-selfcheck-item is-warn${it3.nodeId ? " is-clickable" : ""}`,
+                  onClick: () => {
+                    if (it3.nodeId) {
+                      setSelectedNodeId(it3.nodeId);
+                      setSelfcheckState(null);
+                    }
+                  }
+                },
+                (0, import_react102.createElement)("div", { className: "dsh-wf-selfcheck-msg" }, `\u26A0 ${it3.message ?? ""}`),
+                it3.fix ? (0, import_react102.createElement)("div", { className: "dsh-wf-selfcheck-fix" }, `\u{1F449} \u89E3\u51B3\u529E\u6CD5\uFF1A${it3.fix}`) : null
+              ))
+            ) : null,
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dsh-wf-manual-acts" },
+              (0, import_react102.createElement)("button", { className: "dsh-wf-btn", onClick: () => setSelfcheckState(null) }, "\u2715 \u53D6\u6D88"),
+              (0, import_react102.createElement)("span", { className: "dsh-wf-manual-grow" }),
+              (0, import_react102.createElement)("button", {
+                className: "dsh-wf-btn dsh-wf-btn-primary",
+                onClick: () => {
+                  setSelfcheckState(null);
+                  void handleRun({ confirmed: true });
+                }
+              }, "\u25B6 \u5F00\u59CB\u8FD0\u884C")
+            )
+          )
+        )
+      ),
+      // ⚠ 运行前自检未通过（2026-10-04 轮 1 用户拍板）：逐条给「哪里不对 + 怎么改」，
+      //   并让用户**人工确认**——「去修改」（关弹窗并选中第一个出问题的节点）或「仍然运行」（带 skipSelfcheck 重发）。
+      selfcheckBlock && (0, import_react102.createElement)(
+        "div",
+        {
+          className: "dag-flow-picker-overlay",
+          onClick: (e2) => {
+            if (e2.target === e2.currentTarget) setSelfcheckBlock(null);
+          }
+        },
+        (0, import_react102.createElement)(
+          "div",
+          { className: "dag-flow-picker dsh-wf-selfcheck" },
+          (0, import_react102.createElement)(
+            "div",
+            { className: "dag-flow-picker-title", style: { fontSize: 16 } },
+            `\u26A0 \u8FD0\u884C\u524D\u81EA\u68C0\u672A\u901A\u8FC7\uFF08${selfcheckBlock.errorCount} \u9879\uFF09`,
+            (0, import_react102.createElement)("button", { className: "dag-flow-picker-close", title: "\u5173\u95ED\uFF08\u4E0D\u8FD0\u884C\uFF09", onClick: () => setSelfcheckBlock(null) }, "\u2715")
+          ),
+          (0, import_react102.createElement)(
+            "div",
+            { className: "dag-flow-picker-body" },
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dag-flow-picker-hint", style: { fontSize: 11.5, opacity: 0.8, lineHeight: 1.65 } },
+              "\u8FD9\u4E9B\u95EE\u9898\u4F1A\u8BA9\u5DE5\u4F5C\u6D41\u8DD1\u4E0D\u8D77\u6765\u3001\u6216\u8DD1\u51FA\u610F\u6599\u4E4B\u5916\u7684\u7ED3\u679C\u3002\u5EFA\u8BAE\u5148\u6309\u4E0B\u9762\u7684\u529E\u6CD5\u6539\u6389\uFF1B\u786E\u8BA4\u6CA1\u95EE\u9898\u4E5F\u53EF\u4EE5\u76F4\u63A5\u300C\u4ECD\u7136\u8FD0\u884C\u300D\u3002"
+            ),
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dsh-wf-selfcheck-list" },
+              selfcheckBlock.items.filter((i3) => i3.level === "error").map((it3, i3) => (0, import_react102.createElement)(
+                "div",
+                {
+                  key: i3,
+                  className: `dsh-wf-selfcheck-item${it3.nodeId ? " is-clickable" : ""}`,
+                  onClick: () => {
+                    if (it3.nodeId) {
+                      setSelectedNodeId(it3.nodeId);
+                      setSelfcheckBlock(null);
+                    }
+                  }
+                },
+                (0, import_react102.createElement)("div", { className: "dsh-wf-selfcheck-msg" }, `\u2715 ${it3.message ?? ""}`),
+                it3.fix ? (0, import_react102.createElement)("div", { className: "dsh-wf-selfcheck-fix" }, `\u{1F449} \u89E3\u51B3\u529E\u6CD5\uFF1A${it3.fix}`) : null
+              ))
+            ),
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dsh-wf-manual-acts" },
+              (0, import_react102.createElement)("button", {
+                className: "dsh-wf-btn",
+                onClick: () => {
+                  const first = selfcheckBlock.items.find((i3) => i3.level === "error" && i3.nodeId);
+                  setSelfcheckBlock(null);
+                  if (first?.nodeId) setSelectedNodeId(first.nodeId);
+                }
+              }, "\u2715 \u53BB\u4FEE\u6539"),
+              (0, import_react102.createElement)("span", { className: "dsh-wf-manual-grow" }),
+              (0, import_react102.createElement)("button", {
+                className: "dsh-wf-btn dsh-wf-btn-primary",
+                onClick: () => {
+                  setSelfcheckBlock(null);
+                  void handleRun({ confirmed: true });
+                }
+              }, "\u25B6 \u4ECD\u7136\u8FD0\u884C")
+            )
+          )
+        )
+      ),
+      // 🧾 运行日志弹窗（2026-10-04）：每节点一条，可展开看「原始参数 → 实际入参 → 出参」，可搜索/复制
+      logOpen && (0, import_react102.createElement)(
+        "div",
+        { className: "dag-flow-picker-overlay", onClick: (e2) => {
+          if (e2.target === e2.currentTarget) setLogOpen(false);
+        } },
+        (0, import_react102.createElement)(
+          "div",
+          { className: "dag-flow-picker dsh-wf-logdlg" },
+          (0, import_react102.createElement)(
+            "div",
+            { className: "dag-flow-picker-title", style: { fontSize: 16 } },
+            "\u{1F9FE} \u8FD0\u884C\u65E5\u5FD7",
+            (0, import_react102.createElement)("button", { className: "dag-flow-picker-close", title: "\u5173\u95ED", onClick: () => setLogOpen(false) }, "\u2715")
+          ),
+          (0, import_react102.createElement)(
+            "div",
+            { className: "dag-flow-picker-body" },
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dag-flow-picker-hint", style: { fontSize: 11, opacity: 0.72 } },
+              logMeta?.error ? `\u65E5\u5FD7\u8BFB\u53D6\u5931\u8D25\uFF1A${logMeta.error}\uFF08\u5148\u8FD0\u884C\u4E00\u6B21\u5DE5\u4F5C\u6D41\uFF0C\u6216\u70B9\u300C\u{1F504} \u5237\u65B0\u300D\u91CD\u8BD5\uFF09` : `\u5DE5\u4F5C\u6D41\u300C${def.name}\u300D${logMeta?.runId ? ` \xB7 ${logMeta.runId}` : ""} \xB7 \u72B6\u6001 ${logStatusLabel(logMeta?.runStatus)} \xB7 ${logEntries.length} \u4E2A\u8282\u70B9${logMeta?.live ? " \xB7 \u8FD0\u884C\u4E2D\uFF0C\u81EA\u52A8\u5237\u65B0" : ""}`
+            ),
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dsh-wf-log-toolbar" },
+              (0, import_react102.createElement)("button", { className: "dsh-wf-btn", title: "\u91CD\u65B0\u62C9\u53D6\u65E5\u5FD7", onClick: () => void fetchRunLog() }, logBusy ? "\u23F3 \u5237\u65B0\u4E2D" : "\u{1F504} \u5237\u65B0"),
+              (0, import_react102.createElement)("input", {
+                className: "dsh-wf-log-search",
+                value: logFilter,
+                placeholder: "\u641C\u7D22\u8282\u70B9 / \u53C2\u6570 / \u51FA\u53C2\u2026",
+                onChange: (e2) => setLogFilter(e2.target.value)
+              }),
+              (0, import_react102.createElement)("button", {
+                className: "dsh-wf-btn",
+                title: "\u590D\u5236\u5168\u90E8\u65E5\u5FD7\u6587\u672C\uFF08\u4FBF\u4E8E\u53CD\u9988\u95EE\u9898\uFF09",
+                disabled: logEntries.length === 0,
+                onClick: async () => {
+                  try {
+                    await navigator.clipboard.writeText(runLogText(logView));
+                    setImportMsg({ ok: true, text: "\u5168\u90E8\u65E5\u5FD7\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F" });
+                  } catch {
+                    setImportMsg({ ok: false, text: "\u590D\u5236\u5931\u8D25\u2014\u2014\u8BF7\u624B\u52A8\u9009\u4E2D\u6587\u672C\u590D\u5236" });
+                  }
+                }
+              }, "\u{1F4CB} \u590D\u5236\u5168\u90E8")
+            ),
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dsh-wf-log-list" },
+              logView.length === 0 ? (0, import_react102.createElement)(
+                "div",
+                { className: "dag-flow-picker-hint", style: { fontSize: 11.5, opacity: 0.6, padding: "14px 2px" } },
+                logEntries.length === 0 ? "\u6682\u65E0\u65E5\u5FD7\u2014\u2014\u70B9\u300C\u25B6\u300D\u8DD1\u4E00\u6B21\u5DE5\u4F5C\u6D41\u540E\u56DE\u6765\u770B\u3002" : "\u6CA1\u6709\u5339\u914D\u7684\u8282\u70B9\uFF08\u6E05\u7A7A\u641C\u7D22\u6846\u8BD5\u8BD5\uFF09\u3002"
+              ) : logView.map((e2) => {
+                const open = !!logExpanded[e2.id];
+                const st2 = e2?.status ?? "running";
+                const refs = fmtRefs(e2?.refs);
+                const section = (label, v5) => (0, import_react102.createElement)(
+                  "div",
+                  { className: "dsh-wf-log-sec", key: label },
+                  (0, import_react102.createElement)("div", { className: "dsh-wf-log-sec-title" }, label),
+                  (0, import_react102.createElement)("pre", { className: "dsh-wf-log-pre" }, fmtLogValue(v5))
+                );
+                return (0, import_react102.createElement)(
+                  "div",
+                  { className: "dsh-wf-log-item", key: e2.id },
+                  (0, import_react102.createElement)(
+                    "div",
+                    {
+                      className: "dsh-wf-log-head",
+                      onClick: () => setLogExpanded((m4) => ({ ...m4, [e2.id]: !m4[e2.id] })),
+                      title: "\u70B9\u51FB\u5C55\u5F00/\u6298\u53E0\u8BE5\u8282\u70B9\u7684\u53C2\u6570\u4E0E\u51FA\u53C2"
+                    },
+                    (0, import_react102.createElement)("span", { className: "dsh-wf-log-caret" }, open ? "\u25BE" : "\u25B8"),
+                    (0, import_react102.createElement)("span", { className: `dsh-wf-log-dot is-${st2}` }),
+                    (0, import_react102.createElement)("span", { className: "dsh-wf-log-id" }, e2.id),
+                    e2?.type ? (0, import_react102.createElement)("span", { className: "dsh-wf-log-type" }, e2.type) : null,
+                    (0, import_react102.createElement)("span", { className: `dsh-wf-log-status is-${st2}` }, logStatusLabel(st2)),
+                    typeof e2?.durationMs === "number" ? (0, import_react102.createElement)("span", { className: "dsh-wf-log-ms" }, `${e2.durationMs}ms`) : null,
+                    e2?.tolerated ? (0, import_react102.createElement)("span", { className: "dsh-wf-log-tol" }, "\u5DF2\u5BB9\u9519") : null
+                  ),
+                  refs ? (0, import_react102.createElement)("div", { className: "dsh-wf-log-refs" }, `\u21B3 \u5F15\u7528\u4E0A\u6E38\uFF1A${refs}`) : null,
+                  e2?.error ? (0, import_react102.createElement)("div", { className: "dsh-wf-log-err" }, `\u2717 [${e2.error.code ?? ""}] ${e2.error.message ?? ""}`) : null,
+                  open ? (0, import_react102.createElement)(
+                    "div",
+                    { className: "dsh-wf-log-detail" },
+                    e2?.rawParams !== void 0 ? section("\u539F\u59CB\u53C2\u6570\uFF08\u542B {{}} \u6A21\u677F\u5F15\u7528\uFF09", e2.rawParams) : null,
+                    e2?.params !== void 0 ? section("\u5B9E\u9645\u5165\u53C2\uFF08\u6A21\u677F\u5DF2\u5C55\u5F00 = \u8282\u70B9\u771F\u6B63\u6536\u5230\u7684\uFF09", e2.params) : null,
+                    e2?.out !== void 0 ? section("\u51FA\u53C2", e2.out) : null,
+                    st2 === "skipped" ? (0, import_react102.createElement)("div", { className: "dsh-wf-log-sec-title" }, "\uFF08\u8BE5\u8282\u70B9\u672A\u6267\u884C\uFF1A\u6240\u5728\u5206\u652F\u672A\u547D\u4E2D\uFF09") : null,
+                    Array.isArray(e2?.truncated) && e2.truncated.length ? (0, import_react102.createElement)("div", { className: "dsh-wf-log-sec-title" }, `\uFF08\u5B57\u6BB5\u5DF2\u622A\u65AD\uFF1A${e2.truncated.join("\u3001")}\uFF09`) : null,
+                    (0, import_react102.createElement)("button", {
+                      className: "dsh-wf-btn",
+                      style: { marginTop: 6 },
+                      title: "\u590D\u5236\u8BE5\u8282\u70B9\u65E5\u5FD7",
+                      onClick: async () => {
+                        try {
+                          await navigator.clipboard.writeText(logEntryText(e2));
+                          setImportMsg({ ok: true, text: `\u8282\u70B9 ${e2.id} \u7684\u65E5\u5FD7\u5DF2\u590D\u5236` });
+                        } catch {
+                          setImportMsg({ ok: false, text: "\u590D\u5236\u5931\u8D25\u2014\u2014\u8BF7\u624B\u52A8\u9009\u4E2D\u6587\u672C\u590D\u5236" });
+                        }
+                      }
+                    }, "\u{1F4CB} \u590D\u5236\u672C\u8282\u70B9")
+                  ) : null
+                );
+              })
+            )
+          )
+        )
+      ),
+      // 🧾 运行日志（2026-10-04 用户需求：工作流执行黑盒 → 能看到节点之间的参数传递）
       // 运行失败详情弹窗（2026-10-02 用户需求：报错用弹窗提示，不再在 logo 后行内显示；
       // 头部失败徽标点击可再开本弹窗。统一弹窗模式：✕ 右上、hint 小字浅色）
       runDlgOpen && runResult && runResult.status !== "success" && (0, import_react102.createElement)(
@@ -75735,7 +76815,7 @@ Please add \`${key}Action\` when creating your handler.`
         onError: p4.selectedNode.onError ?? "stop",
         onNodeError: (onError) => p4.onNodeError(p4.selectedNode.id, onError),
         tolerate: p4.selectedNode.tolerate === true,
-        onTolerateChange: (v5) => p4.onNodeTolerate(p4.selectedNode.id, v5)
+        onFailPolicyChange: (policy) => p4.onNodeFailPolicy(p4.selectedNode.id, policy)
       }) : (0, import_react102.createElement)(
         "div",
         { className: "dsh-wf-panel-section", style: { padding: "16px 12px" } },
@@ -75764,7 +76844,7 @@ Please add \`${key}Action\` when creating your handler.`
       right
     );
   }
-  function NodeInspector({ node: node2, defNodes = [], edges = [], inputs = {}, runOuts = {}, workflowName = "", onDelete, onParamsChange, onError = "stop", onNodeError, tolerate = false, onTolerateChange }) {
+  function NodeInspector({ node: node2, defNodes = [], edges = [], inputs = {}, runOuts = {}, workflowName = "", onDelete, onParamsChange, onError = "stop", onNodeError, tolerate = false, onFailPolicyChange }) {
     const meta = findMeta(node2.type);
     const [models, setModels] = (0, import_react101.useState)([]);
     const [modelsLoaded, setModelsLoaded] = (0, import_react101.useState)(false);
@@ -76265,55 +77345,53 @@ Please add \`${key}Action\` when creating your handler.`
         ),
         document.body
       ),
-      // #A4 失败策略（onError：节点失败时的行为）
-      (0, import_react102.createElement)(
-        "div",
-        { className: "dsh-wf-panel-row" },
-        (0, import_react102.createElement)("label", { className: "dsh-wf-panel-label" }, "\u{1F6DF} \u5931\u8D25\u7B56\u7565"),
-        (0, import_react102.createElement)(
-          "select",
-          {
-            className: "dsh-wf-input",
-            value: typeof onError === "string" ? onError : "goto",
-            onChange: (e2) => {
-              const v5 = e2.target.value;
-              if (v5 === "goto") onNodeError?.({ goto: typeof onError === "object" && onError.goto || (defNodes.find((n2) => n2.id !== node2.id)?.id ?? "") });
-              else onNodeError?.(v5);
-            }
-          },
-          (0, import_react102.createElement)("option", { value: "stop" }, "\u26D4 \u505C\u6B62\u540E\u7EED\u8282\u70B9\uFF08\u9ED8\u8BA4\uFF09"),
-          (0, import_react102.createElement)("option", { value: "continue" }, "\u23ED \u5931\u8D25\u540E\u7EE7\u7EED\u6267\u884C\u4E0B\u6E38"),
-          (0, import_react102.createElement)("option", { value: "goto" }, "\u21AA \u5931\u8D25\u540E\u8DF3\u8F6C\u5230\u6307\u5B9A\u8282\u70B9")
-        )
-      ),
-      // ★ A 方案容错开关（2026-10-03 用户拍板「确认使用 A：节点级失败不影响流程开关」）
-      //   为什么必须有这个开关：DAG 模式（def 带 edges）下**节点级 onError 完全不生效**，
-      //   一次抓取/发信失败就把整条流水线拖垮（用户今天已连撞两次：邮件节点、抓取节点）。
-      (0, import_react102.createElement)(
-        "div",
-        { className: "dsh-wf-panel-row" },
-        (0, import_react102.createElement)("label", { className: "dsh-wf-panel-label" }, "\u{1F6DF} \u5931\u8D25\u4E0D\u5F71\u54CD\u6D41\u7A0B"),
-        (0, import_react102.createElement)(
-          "label",
-          { className: "dsh-wf-tolerate" },
-          (0, import_react102.createElement)("input", {
-            type: "checkbox",
-            className: "dsh-wf-tolerate-check",
-            checked: tolerate === true,
-            onChange: (e2) => onTolerateChange?.(e2.target.checked)
-          }),
+      // ★ 2026-10-04 轮 2：失败策略「合并成一个下拉，避免歧义」（用户原话）。
+      //   旧的面板有两个入口——「🛟 失败策略」(onError) 与「🛟 失败不影响流程」(tolerate)，
+      //   文案还互相矛盾（一个说"失败后继续执行下游"、一个说"失败即中断后续节点"），
+      //   加上旧引擎只在 next 顺序模式读 onError，导致用户根本分不清该用哪个。
+      //   现在只剩这一个「本节点失败后」，三项分别对应一套**互斥**语义（写入时清掉另一个字段）：
+      //     ⛔ 停止这条支路      = 下游不走 + 计入运行失败（有错因）
+      //     ⏭ 跳过这条支路不算失败 = 下游不走 + 不计失败（节点仍标 ⚠ 已容错）
+      //     🛟 忽略失败继续下游   = 下游照常执行 + 不计失败（下游引用本节点输出仍会报"无输出"）
+      //   ★ 三者共同点：**只影响本节点的下游，其它分支照常跑**（2026-10-04 新语义）。
+      (() => {
+        const policy = tolerate === true ? "ignore" : onError === "continue" ? "skip" : typeof onError === "object" && onError.goto !== void 0 ? "goto" : "stop";
+        const hintOf = {
+          stop: "\u672C\u8282\u70B9\u7684\u4E0B\u6E38\u4E0D\u518D\u6267\u884C\uFF1B\u8FD9\u6B21\u5931\u8D25\u8BA1\u5165\u8FD0\u884C\u7ED3\u679C\uFF08\u8FD0\u884C\u6807 \u2717 \u5931\u8D25\uFF0C\u5E76\u7ED9\u51FA\u51FA\u9519\u8282\u70B9\u4E0E\u539F\u56E0\uFF09\u3002\u5176\u5B83\u5206\u652F\u7167\u5E38\u8DD1\u3002",
+          skip: '\u672C\u8282\u70B9\u7684\u4E0B\u6E38\u4E0D\u518D\u6267\u884C\uFF0C\u4F46\u8FD9\u6B21\u5931\u8D25\u300C\u4E0D\u8BA1\u5165\u300D\u8FD0\u884C\u5931\u8D25\uFF08\u8282\u70B9\u81EA\u8EAB\u4ECD\u6807 \u26A0 \u5DF2\u5BB9\u9519\uFF0C\u60AC\u6D6E\u53EF\u770B\u9519\u8BEF\u8BE6\u60C5\uFF09\u3002\u9002\u5408"\u8FD9\u6761\u652F\u8DEF\u53EF\u6709\u53EF\u65E0"\u7684\u573A\u666F\u3002',
+          ignore: '\u5931\u8D25\u53EA\u8BB0\u5728\u672C\u8282\u70B9\uFF08\u6807 \u26A0 \u5DF2\u5BB9\u9519\uFF09\uFF0C\u540E\u7EED\u8282\u70B9\u7167\u5E38\u6267\u884C\u3002\u6CE8\u610F\uFF1A\u4E0B\u6E38\u82E5\u5F15\u7528 {{\u672C\u8282\u70B9.out}} \u4ECD\u4F1A\u56E0"\u6CA1\u6709\u8F93\u51FA"\u5931\u8D25\u3002',
+          goto: `\u5931\u8D25\u540E\u8DF3\u8FC7\u672C\u8282\u70B9\u7684\u4E0B\u6E38\u3001\u76F4\u63A5\u8DF3\u5230\u300C${typeof onError === "object" ? onError.goto : ""}\u300D\u7EE7\u7EED\u3002\u76EE\u6807\u53EA\u6267\u884C\u4E00\u6B21\uFF1A\u5B83\u82E5\u6392\u5728\u66F4\u524D\u9762\uFF08\u5DF2\u7ECF\u8DD1\u8FC7\u6216\u5DF2\u7ECF\u8FC7\u4E86\u5B83\u90A3\u4E00\u5C42\uFF09\uFF0C\u8DF3\u8F6C\u4E0D\u4F1A\u751F\u6548\u3001\u6309\u300C\u505C\u6B62\u8FD9\u6761\u652F\u8DEF\u300D\u5904\u7406\uFF08\u8282\u70B9\u7684\u9519\u8BEF\u8BE6\u60C5\u91CC\u4F1A\u5199\u660E\u539F\u56E0\uFF09\u3002`
+        };
+        return [
           (0, import_react102.createElement)(
-            "span",
-            { className: "dsh-wf-tolerate-text" },
-            tolerate ? "\u5DF2\u5F00\u542F \u2014\u2014 \u672C\u8282\u70B9\u5931\u8D25\u4E5F\u7EE7\u7EED\u8DD1\u540E\u7EED\u8282\u70B9" : "\u672A\u5F00\u542F \u2014\u2014 \u5931\u8D25\u5373\u4E2D\u65AD\u540E\u7EED\u8282\u70B9"
-          )
-        ),
-        (0, import_react102.createElement)(
-          "div",
-          { className: "dsh-wf-panel-hint" },
-          "\u52FE\u9009\u540E\uFF1A\u5931\u8D25\u53EA\u8BB0\u5728\u672C\u8282\u70B9\uFF08\u5FBD\u6807\u53D8 \u26A0 \u5DF2\u5BB9\u9519\uFF0C\u9F20\u6807\u60AC\u6D6E\u8282\u70B9\u53EF\u770B\u9519\u8BEF\u8BE6\u60C5\uFF09\uFF0C\u540E\u7EED\u8282\u70B9\u7167\u5E38\u6267\u884C\uFF0C\u8FD0\u884C\u6C47\u603B\u6807\u6CE8\u300CN \u4E2A\u8282\u70B9\u5931\u8D25\u5DF2\u5BB9\u9519\u300D\u3002DAG \u5DE5\u4F5C\u6D41\u8BF7\u7528\u8FD9\u4E2A\u5F00\u5173\u2014\u2014\u4E0A\u9762\u7684\u300C\u5931\u8D25\u7B56\u7565\u300D\u53EA\u5728\u65E9\u671F\u7684 next \u987A\u5E8F\u6A21\u5F0F\u751F\u6548\u3002"
-        )
-      ),
+            "div",
+            { className: "dsh-wf-panel-row", key: "fail-policy" },
+            (0, import_react102.createElement)("label", { className: "dsh-wf-panel-label" }, "\u{1F6DF} \u672C\u8282\u70B9\u5931\u8D25\u540E"),
+            (0, import_react102.createElement)(
+              "select",
+              {
+                className: "dsh-wf-input dsh-wf-failpolicy",
+                value: policy,
+                onChange: (e2) => {
+                  const v5 = e2.target.value;
+                  if (v5 === "goto") {
+                    const kept = typeof onError === "object" && onError.goto ? onError.goto : "";
+                    const fallback = defNodes.find((n2) => n2.id !== node2.id && n2.type !== "start")?.id ?? "";
+                    onNodeError?.({ goto: kept || fallback });
+                  } else {
+                    onFailPolicyChange?.(v5);
+                  }
+                }
+              },
+              (0, import_react102.createElement)("option", { value: "stop" }, "\u26D4 \u505C\u6B62\u8FD9\u6761\u652F\u8DEF\uFF08\u9ED8\u8BA4\uFF0C\u7B97\u8FD0\u884C\u5931\u8D25\uFF09"),
+              (0, import_react102.createElement)("option", { value: "skip" }, "\u23ED \u8DF3\u8FC7\u8FD9\u6761\u652F\u8DEF\uFF0C\u4E0D\u7B97\u8FD0\u884C\u5931\u8D25"),
+              (0, import_react102.createElement)("option", { value: "ignore" }, "\u{1F6DF} \u5FFD\u7565\u5931\u8D25\uFF0C\u4E0B\u6E38\u7167\u5E38\u6267\u884C"),
+              (0, import_react102.createElement)("option", { value: "goto" }, "\u21AA \u5931\u8D25\u540E\u8DF3\u8F6C\u5230\u6307\u5B9A\u8282\u70B9")
+            )
+          ),
+          (0, import_react102.createElement)("div", { className: "dsh-wf-panel-hint dsh-wf-failpolicy-hint", key: "fail-hint" }, hintOf[policy] ?? "")
+        ];
+      })(),
       typeof onError === "object" && onError.goto !== void 0 && (0, import_react102.createElement)(
         "div",
         { className: "dsh-wf-panel-row" },
@@ -76325,9 +77403,16 @@ Please add \`${key}Action\` when creating your handler.`
             value: onError.goto,
             onChange: (e2) => onNodeError?.({ goto: e2.target.value })
           },
-          defNodes.filter((n2) => n2.id !== node2.id && n2.type !== "start").map(
-            (n2) => (0, import_react102.createElement)("option", { key: n2.id, value: n2.id }, `${n2.label ?? n2.id}\uFF08${n2.type}\uFF09`)
-          )
+          // ★ 轮 3：目标只对"还没跑到的层"生效——把**排在本节点之前**的候选标出来，
+          //   免得用户选了个永远不会生效的目标（引擎会在节点错误详情里写明"未重复执行"）。
+          defNodes.filter((n2) => n2.id !== node2.id && n2.type !== "start").map((n2) => {
+            const isUpstream = upstream.includes(n2.id);
+            return (0, import_react102.createElement)(
+              "option",
+              { key: n2.id, value: n2.id },
+              `${n2.label ?? n2.id}\uFF08${n2.type}\uFF09${isUpstream ? " \xB7 \u26A0 \u5728\u672C\u8282\u70B9\u4E4B\u524D\u6267\u884C\uFF0C\u8DF3\u8F6C\u4E0D\u4F1A\u751F\u6548" : ""}`
+            );
+          })
         )
       ),
       // ★ loop 循环设置（P2，2026-10-03 用户拍板）
@@ -77218,7 +78303,23 @@ Please add \`${key}Action\` when creating your handler.`
       end: { x: 3120, y: 620 }
     }
   };
-  var initialDef = params.has("big") ? bigDef : params.has("vars") ? varsDef : params.has("jump") ? jumpDef : params.has("chips") ? chipsDef : params.has("stale") ? staleDef : params.has("many") ? manyDef : params.has("loop") ? loopDef : params.has("branch") ? branchDef : {
+  var gotoWarnDef = {
+    name: wfName,
+    version: 1,
+    nodes: [
+      { id: "start", type: "start", params: {} },
+      { id: "boom", type: "python", label: "\u4F1A\u5931\u8D25\u7684\u6B65\u9AA4", params: { code: "import sys\nsys.exit(1)" }, onError: { goto: "start" } },
+      { id: "tail", type: "log", label: "\u540E\u7EED", params: { level: "info", message: "tail" } },
+      { id: "end", type: "end", params: {} }
+    ],
+    edges: [
+      { from: "start", to: "boom" },
+      { from: "boom", to: "tail" },
+      { from: "tail", to: "end" }
+    ],
+    layout: { start: { x: 60, y: 200 }, boom: { x: 340, y: 200 }, tail: { x: 620, y: 200 }, end: { x: 900, y: 200 } }
+  };
+  var initialDef = params.has("goto") ? gotoWarnDef : params.has("big") ? bigDef : params.has("vars") ? varsDef : params.has("jump") ? jumpDef : params.has("chips") ? chipsDef : params.has("stale") ? staleDef : params.has("many") ? manyDef : params.has("loop") ? loopDef : params.has("branch") ? branchDef : {
     name: wfName,
     version: 1,
     nodes: [

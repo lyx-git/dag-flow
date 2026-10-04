@@ -1,0 +1,94 @@
+{
+  "name": "dag-flow",
+  "version": "0.2.0",
+  "description": "DSH 通用工作流搭建器：Python/Bash/AI 大模型/HTTP/控制流节点，自定义完成各种任务",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": "./dist/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "runtime",
+    "cordis.patch.yml",
+    "README.md",
+    "RUNTIME_SETUP.md",
+    "CHANGELOG.md",
+    "examples",
+    "scripts/download-runtime.mjs"
+  ],
+  "scripts": {
+    "build": "npm run build:host && npm run build:client",
+    "build:host": "node scripts/build-host.mjs",
+    "build:client": "node scripts/build-client.mjs",
+    "build:client:watch": "node scripts/build-client.mjs --watch",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build && git add dist/ -f && git commit -m 'chore: build dist for release' --allow-empty",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:offline": "node test/apply-host.test.mjs && node test/offline.test.mjs && node test/runtime.test.mjs && node test/storage-json.test.mjs && node test/storage-workspace.test.mjs && node test/api-e2e.test.mjs && node test/search.test.mjs && node test/params-check.test.mjs && node test/modality.test.mjs && node test/llm-config.test.mjs && node test/sessions.test.mjs && node test/expr-scope.test.mjs && node test/schema-next.test.mjs && node test/manual-await.test.mjs && node test/loop.test.mjs && node test/out-fields.test.mjs && node test/host-llm.test.mjs && node test/tolerate.test.mjs && node test/result-tip.test.mjs && node test/run-progress.test.mjs && node test/asset-naming.test.mjs && node test/status-midrun.test.mjs && node test/view-zoom.test.mjs && node test/cron.test.mjs && node test/schedules.test.mjs && node test/scheduler.test.mjs && node test/normalize.test.mjs && node test/fail-policy.test.mjs && node test/goto-edge.test.mjs && node test/flow-def.test.mjs && node test/selfcheck.test.mjs && node test/run-log.test.mjs && node test/decorations.test.mjs",
+    "fetch:runtime": "node scripts/download-runtime.mjs",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "workflow",
+    "orchestration",
+    "python",
+    "bash",
+    "subagent",
+    "flowgram"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@flowgram.ai/free-layout-editor": "^1.0.15",
+    "@flowgram.ai/free-lines-plugin": "^1.0.15",
+    "@flowgram.ai/free-node-panel-plugin": "^1.0.15",
+    "@flowgram.ai/free-snap-plugin": "^1.0.15",
+    "@flowgram.ai/minimap-plugin": "^1.0.15",
+    "ajv": "^8.17.1",
+    "expr-eval": "^2.0.2",
+    "styled-components": "^6.5.3"
+  },
+  "devDependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "esbuild": "^0.25.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.6.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

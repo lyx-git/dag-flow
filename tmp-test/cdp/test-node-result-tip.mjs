@@ -7,6 +7,7 @@
 //   · 用**原生** mouseenter/mouseleave 监听（节点层 stopPropagation 掉委托事件，React 的
 //     onMouseEnter（由 mouseover 合成）在卡内收不到——与 chips 同坑位）；所以这里直接
 //     dispatchEvent(new MouseEvent('mouseenter')) 即可命中。
+import { confirmSelfcheck } from './driver.mjs';
 export async function run({ cdp, evaluate, waitFor, ok, eq, sleep }) {
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-fg-card')`, { timeout: 15000 });
 
@@ -19,6 +20,7 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, sleep }) {
 
   // ② 运行一次（fixture /run stub 每个节点都返回 success + out）
   await evaluate(cdp, `document.querySelector('.dsh-wf-btn-success').click(); true;`);
+  await confirmSelfcheck(cdp);   // ★ 越过运行前自检的人工确认
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-fg-badge')`, { timeout: 8000 });
 
   // ③ 悬浮「有结果」的节点卡 → 弹出最终执行结果
@@ -66,23 +68,84 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, sleep }) {
   await sleep(600);
   eq(await evaluate(cdp, `!!document.querySelector('.dsh-wf-fg-tip')`), false, '⑫ 鼠标移出浮窗后收起');
 
-  // ⑨ A 方案容错开关：选中节点 → 面板出现勾选框（且包在 panel-row 里）
+  // ⑨ 失败策略：选中节点 → 面板出现**唯一的**「本节点失败后」下拉（2026-10-04 轮 2 合并了两个旧入口）
   await evaluate(cdp, `window.__df_clickNode(0); true;`);
-  await waitFor(cdp, `!!document.querySelector('.dsh-wf-tolerate-check')`, { timeout: 8000 });
-  ok(true, '⑬ 选中节点后面板出现「🛟 失败不影响流程」勾选框');
+  await waitFor(cdp, `!!document.querySelector('.dsh-wf-failpolicy')`, { timeout: 8000 });
+  ok(true, '⑬ 选中节点后面板出现「🛟 本节点失败后」下拉');
   eq(await evaluate(cdp, `
-    [...document.querySelectorAll('.dsh-wf-panel-row')].some((r) => r.textContent.includes('失败不影响流程') && r.querySelector('.dsh-wf-tolerate-check'))
-  `), true, '⑭ 勾选框包在 .dsh-wf-panel-row 里（样式/定位约定）');
+    [...document.querySelectorAll('.dsh-wf-panel-row')].some((r) => r.textContent.includes('本节点失败后') && r.querySelector('.dsh-wf-failpolicy'))
+  `), true, '⑭ 下拉包在 .dsh-wf-panel-row 里（样式/定位约定）');
+  eq(await evaluate(cdp, `document.querySelectorAll('.dsh-wf-failpolicy').length`), 1, '⑭b 面板上只有**一个**失败策略入口（旧的「失败不影响流程」勾选框已合并进来）');
+  eq(await evaluate(cdp, `!!document.querySelector('.dsh-wf-tolerate-check')`), false, '⑭c 旧的 tolerate 勾选框已不存在（避免歧义）');
+  eq(await evaluate(cdp, `[...document.querySelectorAll('.dsh-wf-failpolicy option')].map((o) => o.value).join(',')`), 'stop,skip,ignore,goto',
+    '⑭d 四个选项：停止这条支路 / 跳过这条支路不算失败 / 忽略失败继续下游 / 失败后跳转');
   const nodeId = await evaluate(cdp, `window.__df_def.nodes[0].id`);
 
-  // ⑪ 勾选 → def 写 tolerate:true（并存盘链路由既有防抖自动保存负责）
-  await evaluate(cdp, `document.querySelector('.dsh-wf-tolerate-check').click(); true;`);
+  // 选「🛟 忽略失败，下游照常执行」→ def 写 tolerate:true，且**清掉 onError**（两字段互斥）
+  await evaluate(cdp, `
+    (() => {
+      const sel = document.querySelector('.dsh-wf-failpolicy');
+      const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(sel), 'value');
+      desc.set.call(sel, 'ignore');
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })(); true;
+  `);
   await waitFor(cdp, `window.__df_def.nodes.find((n) => n.id === ${JSON.stringify(nodeId)})?.tolerate === true`, { timeout: 5000 });
-  ok(true, '⑮ 勾选后 def 写入 tolerate:true');
-  ok(await evaluate(cdp, `(document.querySelector('.dsh-wf-tolerate-text')?.textContent ?? '').includes('已开启')`), '⑯ 文案切到「已开启」');
+  ok(true, '⑮ 选「忽略失败」后 def 写入 tolerate:true');
+  // ★ 2026-10-04 轮 7「fail 策略显形」：策略必须同时出现在**画布卡片**上（此前只在右侧面板里）
+  await waitFor(cdp, `!!document.querySelector('.dsh-wf-fg-failchip.is-ignore')`, { timeout: 5000 });
+  ok(true, '⑮b 卡片上出现「🛟 忽略失败」chip（绿，策略显形）');
+  ok(await evaluate(cdp, `!('onError' in window.__df_def.nodes.find((n) => n.id === ${JSON.stringify(nodeId)}))`), '⑯ 同时清掉 onError（互斥，不留两个字段打架）');
+  ok(await evaluate(cdp, `(document.querySelector('.dsh-wf-failpolicy-hint')?.textContent ?? '').includes('忽略失败') || (document.querySelector('.dsh-wf-failpolicy-hint')?.textContent ?? '').includes('照常执行')`),
+    '⑯b 下方提示随选项切换（说明这一档的确切语义）');
 
-  // ⑬ 再点一次 → 删键（不落 tolerate:false，与 handleNodeChange 的 null 语义一致）
-  await evaluate(cdp, `document.querySelector('.dsh-wf-tolerate-check').click(); true;`);
+  // 选回「⛔ 停止这条支路」→ 删 tolerate、写 onError:'stop'
+  await evaluate(cdp, `
+    (() => {
+      const sel = document.querySelector('.dsh-wf-failpolicy');
+      const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(sel), 'value');
+      desc.set.call(sel, 'stop');
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })(); true;
+  `);
   await waitFor(cdp, `window.__df_def.nodes.find((n) => n.id === ${JSON.stringify(nodeId)})?.tolerate === undefined`, { timeout: 5000 });
-  ok(true, '⑰ 取消勾选后 tolerate 键被删除（不写 tolerate:false）');
+  ok(true, '⑰ 切回「停止这条支路」后 tolerate 键被删除（不写 tolerate:false）');
+  eq(await evaluate(cdp, `window.__df_def.nodes.find((n) => n.id === ${JSON.stringify(nodeId)})?.onError`), 'stop', '⑰b 并写入 onError:"stop"');
+  eq(await evaluate(cdp, `!!document.querySelector('.dsh-wf-fg-failchip')`), false, '⑰c 切回默认「停止这条支路」后画布 chip 消失（默认策略不制造噪音）');
+
+  // 选「⏭ 跳过这条支路，不算运行失败」→ 写 onError:'continue'（旧字段，语义见引擎 policyOf）
+  await evaluate(cdp, `
+    (() => {
+      const sel = document.querySelector('.dsh-wf-failpolicy');
+      const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(sel), 'value');
+      desc.set.call(sel, 'skip');
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })(); true;
+  `);
+  await waitFor(cdp, `window.__df_def.nodes.find((n) => n.id === ${JSON.stringify(nodeId)})?.onError === 'continue'`, { timeout: 5000 });
+  ok(true, '⑱ 选「跳过这条支路」写入 onError:"continue"（零数据迁移：旧字段继续承载新语义）');
+  await waitFor(cdp, `!!document.querySelector('.dsh-wf-fg-failchip.is-skip')`, { timeout: 5000 });
+  ok(true, '⑱b 卡片 chip 切到「⏭ 跳过支路」（青）');
+
+  // ★ 轮 3：第 4 个选项「↪ 失败后跳转到指定节点」可选，且选中后出现「跳转目标」行
+  await evaluate(cdp, `
+    (() => {
+      const sel = document.querySelector('.dsh-wf-failpolicy');
+      const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(sel), 'value');
+      desc.set.call(sel, 'goto');
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })(); true;
+  `);
+  await waitFor(cdp, `typeof window.__df_def.nodes.find((n) => n.id === ${JSON.stringify(nodeId)})?.onError === 'object'`, { timeout: 5000 });
+  const gotoVal = await evaluate(cdp, `window.__df_def.nodes.find((n) => n.id === ${JSON.stringify(nodeId)})?.onError?.goto ?? ''`);
+  ok(typeof gotoVal === 'string' && gotoVal.length > 0, `⑲ 选「失败后跳转」写入 onError:{goto:"${gotoVal}"}`);
+  await waitFor(cdp, `[...document.querySelectorAll('.dsh-wf-panel-row')].some((r) => r.textContent.includes('跳转目标'))`, { timeout: 5000 });
+  ok(true, '⑳ 「↪ 跳转目标」行出现（选中 goto 才出现）');
+  const gotoOpts = await evaluate(cdp, `[...document.querySelectorAll('.dsh-wf-panel-row')].filter((r) => r.textContent.includes('跳转目标')).map((r) => [...r.querySelectorAll('option')].map((o) => o.textContent))[0] ?? []`);
+  ok(Array.isArray(gotoOpts) && gotoOpts.length > 0, `㉑ 目标下拉有候选（${gotoOpts.length} 个；上游候选会带"⚠ 在本节点之前执行，跳转不会生效"标注）`);
+  ok((await evaluate(cdp, `(document.querySelector('.dsh-wf-failpolicy-hint')?.textContent ?? '').includes('只执行一次')`)), '㉒ goto 的提示写明「目标只执行一次」');
 }

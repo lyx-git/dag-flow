@@ -1,30 +1,31 @@
 ﻿
-✓ close-btn  124ms
-✓ deselect-flash  650ms
-✓ panel-resize  274ms
-✓ minimap  262ms
-✓ versions  2961ms
-✓ picker-copy  478ms
-✓ inputs  159ms
-✓ palette-drag  670ms
-✓ run-button  669ms
-✓ inspector-switch  304ms
-✓ code-file  168ms
-✓ switch-cases  161ms
-✓ delete-button  258ms
-✓ file-save-click  150ms
-✓ line-drop-panel  4325ms
-✓ manual-confirm  1280ms
-✓ branch-labels  564ms
-✓ loop-visible  358ms
-✓ switch-many  378ms
-✓ model-select  3375ms
-✓ loop-jump  1031ms
-✗ switch-chips  
-    waitFor 超时: !!document.querySelector('.dsh-wf-fg-quick') | reqs=[]
-✓ var-refs  2892ms
-✓ node-result-tip  1504ms
-✓ live-status  5215ms
-✓ view-controls  4535ms
+✓ close-btn  235ms
+✓ deselect-flash  702ms
+✓ panel-resize  437ms
+✓ minimap  374ms
+✓ versions  3075ms
+✓ picker-copy  544ms
+✓ inputs  298ms
+✓ palette-drag  690ms
+✓ run-button  784ms
+✓ inspector-switch  553ms
+✓ code-file  415ms
+✓ switch-cases  385ms
+✓ delete-button  366ms
+✓ file-save-click  264ms
+✓ line-drop-panel  4472ms
+✓ manual-confirm  1219ms
+✓ branch-labels  851ms
+✓ loop-visible  613ms
+✓ switch-many  566ms
+✓ model-select  3813ms
+✓ loop-jump  1193ms
+✓ switch-chips  8393ms
+✓ var-refs  3341ms
+✓ node-result-tip  1628ms
+✓ live-status  5291ms
+✓ view-controls  4673ms
+✓ schedule-dialog  5936ms
+✓ sched-run  3586ms
 
-25/26 通过
+全部 28 项通过

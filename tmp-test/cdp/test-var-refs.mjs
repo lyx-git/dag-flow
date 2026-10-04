@@ -4,7 +4,7 @@
 //   直接使用，最好能说明一下每个变量作用是什么」）。
 // 夹具：cdp-host.html?vars=1 —— start → seed(set_var: topic/words) → fetch(web_search) → py(python) → ai(subagent) → end
 //       def.inputs = { 主题, 语言 }（验证 {{inputs.*}}）
-import { goto, installHelpers } from './driver.mjs';
+import {goto, installHelpers, confirmSelfcheck } from './driver.mjs';
 
 /** 点画布上某个节点卡（按卡内文本匹配），选中它 → 右侧面板显示该节点的参数 */
 const clickCardByText = (needle) => `(() => {
@@ -169,6 +169,7 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
   await installHelpers(cdp);
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-btn-success')`, { timeout: 20000 });
   await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-btn-success').click(); return true; })()`);
+  await confirmSelfcheck(cdp);   // ★ 越过运行前自检的人工确认
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-run-result')`, { timeout: 8000 });
   await evaluate(cdp, clickCardByText(' · py'));
   await waitFor(cdp, `[...document.querySelectorAll('.dsh-wf-var-node')].some((n) => n.textContent.includes('取自上次运行的真实输出'))`, { timeout: 8000 });
