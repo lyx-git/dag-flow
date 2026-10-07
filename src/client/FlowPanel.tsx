@@ -940,9 +940,12 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   const [schedInfo, setSchedInfo] = useState<any>(null);
   const [schedNote, setSchedNote] = useState('');
   const [schedBad, setSchedBad] = useState<Record<string, string>>({});
+  /** ★ 2026-10-04 用户拍板「cron 改成手动确认生效」：编辑中的**草稿**（id → 文本）。
+   *  敲键只改草稿、不落盘；点该行的「保存」才写盘生效（非法表达式时保存按钮禁用）。
+   *  与启用/停用的区别：启用/停用本身就是一次明确动作，点一下即生效（用户同轮确认）。 */
+  const [schedDraft, setSchedDraft] = useState<Record<string, string>>({});
   /** 本工作流里「人工确认」节点数（0 时不显示自动通过说明，避免噪音） */
   const manualCount = (def.nodes ?? []).filter((n) => n.type === 'manual').length;
-  const schedTimers = useRef<Record<string, number>>({});
   const loadSchedules = useCallback(async () => {
     try {
       const res = await fetch(`/api/dag-flow/schedules?workflow=${encodeURIComponent(def.name)}`, { credentials: 'include' });
@@ -959,6 +962,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   const openSchedules = useCallback(() => {
     ensurePickerStyles();
     setSchedOpen(true);
+    setSchedDraft({});          // 每次打开都是干净的：草稿不跨次保留
     void loadSchedules();
   }, [loadSchedules]);
   /** 保存一条（整条 body）——cron 非法时宿主会 400 且不落盘，这里把中文原因显示在该行下面 */
@@ -977,10 +981,15 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       setSchedBad((m) => ({ ...m, [item.id ?? 'new']: (e as Error).message }));
     }
   }, [loadSchedules]);
-  /** 改动即保存（cron 输入走 1.2s 防抖，避免每键都打一次宿主） */
-  const patchScheduleLocal = useCallback((id: string, patch: any, opts: { debounce?: boolean } = {}) => {
+  /** 改动即保存（**立即落盘**）。
+   *  ★ 2026-10-04 清理：原先这里还有个 1.2s 防抖分支（`opts.debounce` + `schedTimers`），
+   *    在 cron 改成「草稿 + 行内保存」后**已无调用方**，故整体删除。删它的另一个理由：
+   *    那个分支把记录快照在**注册防抖时**取走，1.2s 后才发出——正是"改完 cron 后点开关被弹回"
+   *    那个竞态的载体；留着等于给未来埋一颗静默复现的雷。若将来真要防抖保存，
+   *    记得必须**在触发时**重读 `schedItemsRef.current`，不要用注册时算好的值。 */
+  const patchScheduleLocal = useCallback((id: string, patch: any) => {
     // ★ 2026-10-04 sched-inline 修 bug：旧实现从**闭包里的 schedItems** 取当前条目（`schedItems.find(...)`），
-    //   而 cron 输入是 1.2s 防抖保存——于是"改完 cron、在防抖触发前点了启用/停用"时，防抖那次保存带的是
+    //   而 cron 输入当时是 1.2s 防抖保存——于是"改完 cron、在防抖触发前点了启用/停用"时，那次保存带的是
     //   **旧的 enabled**，落盘后 loadSchedules 一刷新就把用户的开关**悄悄改回去**（真机表现为开关闪一下弹回）。
     //   现在用 ref 保存列表的**最新同步值**：state 与 ref 一起更新，读的时候拿 ref。
     const cur = schedItemsRef.current;
@@ -989,11 +998,29 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     schedItemsRef.current = next;
     setSchedItems(next);
     if (cronError(String(item.cron ?? ''))) return;   // 非法 cron 不保存（等改对）
-    const fire = () => void saveSchedule({ id, workflow: item.workflow ?? def.name, cron: item.cron, enabled: item.enabled !== false, inputs: item.inputs });
-    if (!opts.debounce) { fire(); return; }
-    if (schedTimers.current[id]) window.clearTimeout(schedTimers.current[id]);
-    schedTimers.current[id] = window.setTimeout(fire, 1200);
-  }, [schedItems, saveSchedule, def.name]);
+    void saveSchedule({ id, workflow: item.workflow ?? def.name, cron: item.cron, enabled: item.enabled !== false, inputs: item.inputs });
+  }, [saveSchedule, def.name]);
+  // ★ 2026-10-04 用户拍板：cron 改成**手动确认生效**（不再边敲边自动保存）
+  /** 某行当前显示的 cron（草稿优先于已落盘值） */
+  const schedCronOf = (it: any): string => schedDraft[it.id] ?? String(it.cron ?? '');
+  /** 该行是否有未保存的改动 */
+  const schedDirty = (it: any): boolean => schedDraft[it.id] !== undefined && schedDraft[it.id] !== String(it.cron ?? '');
+  /** 列表里是否还有任何未保存的改动（关闭前判断用） */
+  const schedHasDirty = (): boolean => schedItems.some((it: any) => schedDirty(it));
+  /** 保存某行的 cron 草稿：非法不发请求；成功后清掉该行草稿（输入框回落到已落盘值） */
+  const saveSchedCron = (it: any): void => {
+    const v = schedCronOf(it);
+    if (cronError(v)) return;                     // 非法：按钮本来就禁用，这里再兜一层
+    patchScheduleLocal(it.id, { cron: v });   // 立即落盘
+    setSchedDraft((m) => { const n = { ...m }; delete n[it.id]; return n; });
+  };
+  /** 关闭弹窗：**直接放弃**未保存的 cron 草稿，只给一条浮层提示
+   *  （2026-10-04 用户改口：不要二次确认弹窗——「未保存关闭直接放弃，给个提示就行，不用弹窗处理」）。 */
+  const requestCloseSched = (): void => {
+    if (schedHasDirty()) setImportMsg({ ok: true, text: '未保存的 cron 改动已丢弃' });
+    setSchedDraft({});
+    setSchedOpen(false);
+  };
   const addSchedule = useCallback(() => {
     void saveSchedule({ workflow: def.name, cron: '0 9 * * *', enabled: true });
   }, [saveSchedule, def.name]);
@@ -1489,7 +1516,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       'div',
       {
         className: 'dag-flow-picker-overlay',
-        onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) setSchedOpen(false); },
+        onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) requestCloseSched(); },
       },
       createElement(
         'div',
@@ -1499,7 +1526,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
           createElement('span', { className: 'dsh-wf-sched-title-wf' }, def.name),
           createElement('button', {
             className: 'dag-flow-picker-close', title: '关闭',
-            onClick: () => setSchedOpen(false),
+            onClick: () => requestCloseSched(),
           }, '✕'),
         ),
         createElement('div', { className: 'dag-flow-picker-body' },
@@ -1522,19 +1549,31 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
           createElement('div', { className: 'dsh-wf-sched-list' },
             schedItems.length
               ? schedItems.map((it) => {
-                const bad = cronError(String(it.cron ?? ''));
+                const cur = schedCronOf(it);   // ★ 草稿优先：预览与校验都按"编辑中的值"算（所见即所存）
+                const dirty = schedDirty(it);
+                const bad = cronError(cur);
                 const err = schedBad[it.id] || bad || '';
                 return createElement('div', { key: it.id, className: `dsh-wf-sched-item${it.enabled === false ? ' is-off' : ''}` },
                   createElement('div', { className: 'dsh-wf-sched-row' },
                     createElement('span', { className: 'dsh-wf-sched-ico' }, '⏰'),
+                    // ★ 2026-10-04 用户拍板：cron 改成**手动确认生效**——敲键只改草稿（描黄边），点「保存」才落盘
                     createElement('input', {
-                      className: 'dsh-wf-input dsh-wf-sched-cron',
-                      value: String(it.cron ?? ''),
+                      className: `dsh-wf-input dsh-wf-sched-cron${dirty ? ' is-dirty' : ''}${bad ? ' is-bad' : ''}`,
+                      value: cur,
                       placeholder: '分 时 日 月 周，如 0 9 * * 1-5',
-                      title: '标准 5 字段 cron：分 时 日 月 周；支持 * , - /（不支持 L W # 与秒级）',
-                      onChange: (e: React.ChangeEvent<HTMLInputElement>) => patchScheduleLocal(it.id, { cron: e.target.value }, { debounce: true }),
-                      onBlur: () => patchScheduleLocal(it.id, {}, {}),
+                      title: '标准 5 字段 cron：分 时 日 月 周；支持 * , - /（不支持 L W # 与秒级）\n改完点右侧「保存」才生效（回车也可保存）',
+                      onChange: (e: React.ChangeEvent<HTMLInputElement>) => setSchedDraft((m) => ({ ...m, [it.id]: e.target.value })),
+                      onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+                        if (e.key === 'Enter' && dirty && !bad) saveSchedCron(it);
+                      },
                     }),
+                    // 「保存」：没改动或表达式非法时禁用（三态见原型）
+                    createElement('button', {
+                      className: `dsh-wf-btn dsh-wf-sched-save${dirty && !bad ? ' is-ready' : ''}`,
+                      disabled: !dirty || !!bad,
+                      title: !dirty ? '没有改动' : (bad ? '表达式不合法，先改对再保存' : '保存这次修改（立即生效）'),
+                      onClick: () => saveSchedCron(it),
+                    }, '保存'),
                     // ★ 2026-10-04 用户要求：「▶ 立即运行一次」不要单独占第二行，放在 cron 表达式右边
                     createElement('button', {
                       className: 'dsh-wf-btn dsh-wf-sched-run',
@@ -1542,21 +1581,21 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
                       title: '立刻真实执行一次（等价于到点触发，会花钱）',
                       onClick: () => askRunScheduleNow(it),
                     }, schedRunningId === it.id ? '运行中…' : '▶ 立即运行一次'),
-                    createElement('span', { className: 'dsh-wf-sched-preview' },
-                      bad ? '⚠ 表达式不合法' : describeCron(String(it.cron ?? ''))),
-                    createElement('label', { className: 'dsh-wf-sched-toggle', title: it.enabled === false ? '已停用（点开启）' : '已启用（点停用）' },
-                      createElement('input', {
-                        type: 'checkbox', checked: it.enabled !== false,
-                        onChange: (e: React.ChangeEvent<HTMLInputElement>) => patchScheduleLocal(it.id, { enabled: e.target.checked }, {}),
-                      }),
-                      it.enabled === false ? '停用' : '启用',
-                    ),
+                    createElement('span', { className: `dsh-wf-sched-preview${bad ? ' is-bad' : ''}` },
+                      bad ? '⚠ 表达式不合法' : describeCron(cur)),
+                    // ★ 2026-10-04 用户拍板：启用/停用**不用勾选框**，改单按钮切换（图标 ●/○，点一下即生效）
+                    createElement('button', {
+                      className: `dsh-wf-sched-state${it.enabled === false ? ' is-off' : ''}`,
+                      title: it.enabled === false ? '当前已停用，点击启用（立即生效）' : '当前已启用，点击停用（立即生效）',
+                      onClick: () => patchScheduleLocal(it.id, { enabled: it.enabled === false }),
+                    }, it.enabled === false ? '○ 已停用' : '● 启用中'),
                     createElement('button', {
                       className: 'dsh-wf-btn', title: '删除该定时（不影响其它定时）',
                       onClick: () => void removeSchedule(it.id),
                     }, '✕'),
                   ),
                   err ? createElement('div', { className: 'dsh-wf-sched-bad' }, '⚠ ' + err) : null,
+                  dirty ? createElement('div', { className: 'dsh-wf-sched-dirty' }, '● cron 已修改，点「保存」才生效') : null,
                   createElement('div', { className: 'dsh-wf-sched-meta' },
                     `上次 ${fmtLastRun(it.lastRun)}`,
                     ' · ',
@@ -1575,7 +1614,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
             onClick: addSchedule,
           }, '＋ 添加定时'),
           createElement('div', { className: 'dsh-wf-sched-foot' },
-            '配置存在工作区 .dag-flow/schedules.json；cron 为本机时区的「分 时 日 月 周」。',
+            '配置存在工作区 .dag-flow/schedules.json；cron 为本机时区的「分 时 日 月 周」；cron 改完点行内「保存」才生效。',
             createElement('br'),
             '同一工作流上一次没跑完时，本次会跳过并记「⏭ 本次跳过」；dsh 重启后不补跑错过的档期。'),
         ),

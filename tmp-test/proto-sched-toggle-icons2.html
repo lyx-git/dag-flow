@@ -1,0 +1,146 @@
+<!doctype html>
+<!-- tmp-test/proto-sched-toggle-icons2.html — ⏰ 启用/停用单按钮 · **第二轮图标候选**（换"更醒目/好看"方向）
+     背景：第一轮（●○ / 🟢⚪ / ⏻⏼ / ⏸▶ / ⚡💤 / 纯文字）用户都不满意，要求再出一轮"更醒目/好看"方向。
+     用户已拍板：单按钮切换（不是勾选框）；cron 手动保存；启用/停用点一下即生效；未保存关闭弹二次确认。
+     约束：行里已有 ⏰（行首）、▶ 立即运行一次、✕（删除）——候选不能与它们撞图标。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>启用/停用 单按钮 · 图标候选（第二轮）</title>
+<style>
+  :root{
+    --wf-bg:#0b1120; --wf-panel:#0d1728; --wf-panel2:#111e32; --wf-panel3:#172640;
+    --wf-border:#22304a; --wf-border-strong:#2a3a56; --wf-text:#e6edf7; --wf-text2:#f1f5fb;
+    --wf-muted:#8b9bb3; --wf-accent:#6f8fff; --wf-accent-dark:#5574e8;
+    --wf-ok:#34d399; --wf-warn:#fbbf24; --wf-danger:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--wf-bg);
+    background-image:radial-gradient(circle at 20% 15%,rgba(111,143,255,.10),transparent 45%),
+      linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);
+    background-size:auto,28px 28px,28px 28px;
+    color:var(--wf-text);font:13px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;padding:22px 26px 30px}
+  .dialog{width:780px;border-radius:14px;overflow:hidden;
+    background:linear-gradient(180deg,color-mix(in srgb,var(--wf-panel2) 97%,white 3%),var(--wf-panel));
+    border:1px solid var(--wf-border-strong);box-shadow:0 24px 60px rgba(0,0,0,.55)}
+  .head{display:flex;align-items:center;gap:9px;padding:13px 15px 11px;border-bottom:1px solid var(--wf-border)}
+  .title{font-size:15px;font-weight:650;color:var(--wf-text2)}
+  .sub{font-size:11.5px;color:var(--wf-muted);font-family:ui-monospace,Consolas,monospace;
+    background:var(--wf-panel3);border:1px solid var(--wf-border);border-radius:6px;padding:1px 7px}
+  .x{margin-left:auto;width:26px;height:26px;border-radius:7px;cursor:pointer;
+    background:transparent;border:1px solid var(--wf-border);color:var(--wf-muted);font-size:13px}
+  .rows{padding:12px 15px 14px;display:flex;flex-direction:column;gap:12px}
+  .cap{font-size:12px;color:var(--wf-muted);margin:2px 0 -4px 2px}
+  .cap b{color:var(--wf-text2);font-weight:650}
+  .cap .rec{color:var(--wf-ok);font-weight:650}
+  .cap .wt{color:var(--wf-warn)}
+  .row{border:1px solid var(--wf-border);border-radius:10px;background:var(--wf-panel2);padding:9px 11px}
+  .row.off{opacity:.66}
+  .row-main{display:flex;align-items:center;gap:8px}
+  .ico{font-size:13px;flex:none}
+  .cron{width:150px;flex:none;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;
+    padding:5px 8px;border-radius:7px;border:1px solid var(--wf-border-strong);
+    background:var(--wf-panel);color:var(--wf-text)}
+  .btn{flex:none;font-size:11px;line-height:1.5;padding:4px 9px;border-radius:7px;cursor:pointer;
+    border:1px solid var(--wf-border-strong);background:var(--wf-panel3);color:var(--wf-text);
+    white-space:nowrap;font-family:inherit}
+  .btn.save:disabled{opacity:.42;cursor:not-allowed;border-color:var(--wf-border);color:var(--wf-muted)}
+  .preview{flex:1;min-width:0;font-size:11.5px;color:var(--wf-accent);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .del{flex:none;width:26px;height:26px;border-radius:7px;cursor:pointer;
+    border:1px solid var(--wf-border);background:transparent;color:var(--wf-muted)}
+  .meta{margin-top:5px;font-size:11px;color:var(--wf-muted)}
+  /* 单按钮切换基底 */
+  .tg{flex:none;font-size:11px;line-height:1.5;padding:4px 9px;border-radius:7px;cursor:pointer;
+    white-space:nowrap;font-family:inherit;
+    border:1px solid color-mix(in srgb,var(--wf-ok) 45%,transparent);
+    color:#bbf7d0;background:color-mix(in srgb,var(--wf-ok) 12%,transparent)}
+  .tg.off{border-color:var(--wf-border-strong);color:var(--wf-muted);background:var(--wf-panel3)}
+  /* G 铃铛 */
+  /* H 日月 */
+  /* I 勾禁 */
+  /* J ON/OFF 字母徽标（等宽、加粗、字距） */
+  .tg.mono{font-family:ui-monospace,Consolas,monospace;font-weight:700;letter-spacing:.6px}
+  .tg.mono.on{color:#d7ffe9;background:color-mix(in srgb,var(--wf-ok) 20%,transparent);
+    border-color:color-mix(in srgb,var(--wf-ok) 60%,transparent)}
+  /* L 拨杆滑块（不是勾选框：滑块外观，点整块即切换） */
+  .sw{flex:none;display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-size:11px;color:var(--wf-muted)}
+  .sw .track{position:relative;width:36px;height:19px;border-radius:999px;
+    background:linear-gradient(180deg,#2a3a56,#1d2a41);border:1px solid var(--wf-border-strong);
+    transition:background .15s ease}
+  .sw .knob{position:absolute;top:1px;left:1px;width:15px;height:15px;border-radius:50%;
+    background:#8b9bb3;transition:left .15s ease, background .15s ease}
+  .sw.on .track{background:linear-gradient(180deg,#34d399,#10b981);border-color:#0f9d6f}
+  .sw.on .knob{left:18px;background:#eafff5}
+  .sw.on{color:#bbf7d0}
+</style>
+</head>
+<body>
+<div class="dialog">
+  <div class="head"><span class="title">⏰ 定时任务</span><span class="sub">金融政策日报</span><span class="x">✕</span></div>
+  <div class="rows">
+
+    <div class="cap"><b>G. 铃铛开 / 关</b> 🔔 启用中 · 🔕 已停用 <span class="rec">——"提醒开/关"语义直观，两个铃铛形状差异明显</span></div>
+    <div class="row"><div class="row-main"><span class="ico">⏰</span><input class="cron" value="0 9 * * *">
+      <button class="btn save" disabled>保存</button><button class="btn">▶ 立即运行一次</button>
+      <span class="preview">每天 09:00</span><button class="tg">🔔 启用中</button><button class="del">✕</button></div></div>
+    <div class="row off"><div class="row-main"><span class="ico">⏰</span><input class="cron" value="0 9 * * *">
+      <button class="btn save" disabled>保存</button><button class="btn">▶ 立即运行一次</button>
+      <span class="preview">每天 09:00</span><button class="tg off">🔕 已停用</button><button class="del">✕</button></div></div>
+
+    <div class="cap"><b>H. 日 / 月</b> ☀️ 启用中 · 🌙 已停用 <span class="rec">——最好看、颜色对比强；语义靠联想（白天干活/夜里歇着）</span></div>
+    <div class="row"><div class="row-main"><span class="ico">⏰</span><input class="cron" value="0 9 * * *">
+      <button class="btn save" disabled>保存</button><button class="btn">▶ 立即运行一次</button>
+      <span class="preview">每天 09:00</span><button class="tg">☀️ 启用中</button><button class="del">✕</button></div></div>
+    <div class="row off"><div class="row-main"><span class="ico">⏰</span><input class="cron" value="0 9 * * *">
+      <button class="btn save" disabled>保存</button><button class="btn">▶ 立即运行一次</button>
+      <span class="preview">每天 09:00</span><button class="tg off">🌙 已停用</button><button class="del">✕</button></div></div>
+
+    <div class="cap"><b>I. 勾 / 禁</b> ✅ 启用中 · ⛔ 已停用 <span class="wt">——最直白，但 ⛔ 容易被读成"出错了"而不是"已停用"</span></div>
+    <div class="row"><div class="row-main"><span class="ico">⏰</span><input class="cron" value="0 9 * * *">
+      <button class="btn save" disabled>保存</button><button class="btn">▶ 立即运行一次</button>
+      <span class="preview">每天 09:00</span><button class="tg">✅ 启用中</button><button class="del">✕</button></div></div>
+    <div class="row off"><div class="row-main"><span class="ico">⏰</span><input class="cron" value="0 9 * * *">
+      <button class="btn save" disabled>保存</button><button class="btn">▶ 立即运行一次</button>
+      <span class="preview">每天 09:00</span><button class="tg off">⛔ 已停用</button><button class="del">✕</button></div></div>
+
+    <div class="cap"><b>J. ON / OFF 字母徽标</b> <span class="rec">——最醒目、零歧义、等宽字体带"仪表感"，不依赖 emoji 渲染</span></div>
+    <div class="row"><div class="row-main"><span class="ico">⏰</span><input class="cron" value="0 9 * * *">
+      <button class="btn save" disabled>保存</button><button class="btn">▶ 立即运行一次</button>
+      <span class="preview">每天 09:00</span><button class="tg mono on">ON 启用中</button><button class="del">✕</button></div></div>
+    <div class="row off"><div class="row-main"><span class="ico">⏰</span><input class="cron" value="0 9 * * *">
+      <button class="btn save" disabled>保存</button><button class="btn">▶ 立即运行一次</button>
+      <span class="preview">每天 09:00</span><button class="tg mono off">OFF 已停用</button><button class="del">✕</button></div></div>
+
+    <div class="cap"><b>K. 开 / 关 中文徽标</b> <span class="rec">——同上但用中文，一眼就懂</span></div>
+    <div class="row"><div class="row-main"><span class="ico">⏰</span><input class="cron" value="0 9 * * *">
+      <button class="btn save" disabled>保存</button><button class="btn">▶ 立即运行一次</button>
+      <span class="preview">每天 09:00</span><button class="tg mono on">开 · 启用中</button><button class="del">✕</button></div></div>
+    <div class="row off"><div class="row-main"><span class="ico">⏰</span><input class="cron" value="0 9 * * *">
+      <button class="btn save" disabled>保存</button><button class="btn">▶ 立即运行一次</button>
+      <span class="preview">每天 09:00</span><button class="tg mono off">关 · 已停用</button><button class="del">✕</button></div></div>
+
+    <div class="cap"><b>L. 拨杆滑块</b> <span class="wt">——最好看的"开关感"，但它本质仍是二态开关（不是勾选框，是滑块外观）；点整块即切换</span></div>
+    <div class="row"><div class="row-main"><span class="ico">⏰</span><input class="cron" value="0 9 * * *">
+      <button class="btn save" disabled>保存</button><button class="btn">▶ 立即运行一次</button>
+      <span class="preview">每天 09:00</span>
+      <span class="sw on"><span class="track"><span class="knob"></span></span>启用中</span><button class="del">✕</button></div></div>
+    <div class="row off"><div class="row-main"><span class="ico">⏰</span><input class="cron" value="0 9 * * *">
+      <button class="btn save" disabled>保存</button><button class="btn">▶ 立即运行一次</button>
+      <span class="preview">每天 09:00</span>
+      <span class="sw"><span class="track"><span class="knob"></span></span>已停用</span><button class="del">✕</button></div></div>
+
+    <div class="cap"><b>保底：A 的加强版（实心彩色胶囊状态灯）</b> <span class="rec">● 启用中（绿底实心）· ○ 已停用（灰底）——第一轮 A 的"更醒目"版本</span></div>
+    <div class="row"><div class="row-main"><span class="ico">⏰</span><input class="cron" value="0 9 * * *">
+      <button class="btn save" disabled>保存</button><button class="btn">▶ 立即运行一次</button>
+      <span class="preview">每天 09:00</span>
+      <button class="tg mono on">● 启用中</button><button class="del">✕</button></div></div>
+    <div class="row off"><div class="row-main"><span class="ico">⏰</span><input class="cron" value="0 9 * * *">
+      <button class="btn save" disabled>保存</button><button class="btn">▶ 立即运行一次</button>
+      <span class="preview">每天 09:00</span><button class="tg mono off">○ 已停用</button><button class="del">✕</button></div></div>
+
+  </div>
+</div>
+</body>
+</html>

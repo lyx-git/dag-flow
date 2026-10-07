@@ -158,14 +158,28 @@ export async function resolveStorageRoot(): Promise<StorageInfo> {
 
 // ---------- 兜底目录一次性迁入（fail-soft）：~/.dsh/workflows（user-dir-fallback 时代产物）→ 新根 ----------
 
+/** 迁移一次性标记（2026-10-04 修「删掉的工作流会复活」）。
+ *  点号开头 ⇒ 不会被 listJsonNames 当工作流列出（且不以 .json 结尾，双重安全）。 */
+const MIGRATION_MARKER = '.fallback-migrated';
+
 async function migrateFallbackWorkflows(info: StorageInfo): Promise<void> {
   if (info.source === 'user-dir-fallback') return; // 仍落在兜底目录，无需自迁
   const oldDir = path.join(USER_DIR, 'workflows');
   if (path.resolve(oldDir) === path.resolve(info.dir)) return;
+  // ★ 2026-10-04 修 bug（用户报「删掉的工作流又回来了」）：
+  //   此前判据只有"目标文件不存在就复制"，而源目录 ~/.dsh/workflows 按设计**永久保留原文件**，
+  //   迁移又会在**每次宿主启动**重跑（resolveRoot 里只有进程级 _migrated 标志）⇒ 用户在界面上
+  //   删掉的工作流，下次 dsh web 重启就被原样复制回来（实测：删了 test.json/测试.json，重启后出现，
+  //   且 mtime 与源一致 = 确系被重新复制）。现在用一次性标记把"这个工作区已迁过"钉死。
+  //   标记只在**真的处理过兜底目录**之后才写：若旧目录不存在则不写，将来它出现了仍能迁一次。
+  const marker = path.join(info.dir, MIGRATION_MARKER);
+  try {
+    await fs.access(marker);
+    return; // 已经迁过：不再补缺（用户删掉的就是删掉了）
+  } catch { /* 没迁过，继续 */ }
   try {
     const entries = await fs.readdir(oldDir);
     const jsons = entries.filter((f) => f.endsWith('.json') && !f.startsWith('.'));
-    if (jsons.length === 0) return;
     for (const f of jsons) {
       const dst = path.join(info.dir, f);
       try { await fs.access(dst); continue; } catch { /* 不存在才复制 */ }
@@ -180,7 +194,8 @@ async function migrateFallbackWorkflows(info: StorageInfo): Promise<void> {
         await fs.cp(oldVersions, newVersions, { recursive: true, force: false, errorOnExist: false });
       }
     } catch { /* 无 versions 目录，正常 */ }
-    console.info('[dag-flow] fallback workflows migrated:', oldDir, '→', info.dir, `(${jsons.length} files)`);
+    await fs.writeFile(marker, JSON.stringify({ migratedAt: new Date().toISOString(), from: oldDir, files: jsons.length }) + '\n', 'utf8');
+    if (jsons.length > 0) console.info('[dag-flow] fallback workflows migrated:', oldDir, '→', info.dir, `(${jsons.length} files)`);
   } catch {
     /* 旧目录不存在，正常 */
   }

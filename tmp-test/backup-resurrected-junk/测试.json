@@ -1,0 +1,15 @@
+{
+  "name": "测试",
+  "version": 1,
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

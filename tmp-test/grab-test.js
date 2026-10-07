@@ -75481,8 +75481,8 @@ ${fmtLogValue(e2.out)}`);
     const [schedInfo, setSchedInfo] = (0, import_react101.useState)(null);
     const [schedNote, setSchedNote] = (0, import_react101.useState)("");
     const [schedBad, setSchedBad] = (0, import_react101.useState)({});
+    const [schedDraft, setSchedDraft] = (0, import_react101.useState)({});
     const manualCount = (def.nodes ?? []).filter((n2) => n2.type === "manual").length;
-    const schedTimers = (0, import_react101.useRef)({});
     const loadSchedules = (0, import_react101.useCallback)(async () => {
       try {
         const res = await fetch(`/api/dag-flow/schedules?workflow=${encodeURIComponent(def.name)}`, { credentials: "include" });
@@ -75499,6 +75499,7 @@ ${fmtLogValue(e2.out)}`);
     const openSchedules = (0, import_react101.useCallback)(() => {
       ensurePickerStyles();
       setSchedOpen(true);
+      setSchedDraft({});
       void loadSchedules();
     }, [loadSchedules]);
     const saveSchedule = (0, import_react101.useCallback)(async (item) => {
@@ -75520,21 +75521,33 @@ ${fmtLogValue(e2.out)}`);
         setSchedBad((m4) => ({ ...m4, [item.id ?? "new"]: e2.message }));
       }
     }, [loadSchedules]);
-    const patchScheduleLocal = (0, import_react101.useCallback)((id3, patch, opts = {}) => {
+    const patchScheduleLocal = (0, import_react101.useCallback)((id3, patch) => {
       const cur = schedItemsRef.current;
       const item = { ...cur.find((x4) => x4.id === id3) ?? {}, ...patch, id: id3 };
       const next2 = cur.map((x4) => x4.id === id3 ? { ...x4, ...patch } : x4);
       schedItemsRef.current = next2;
       setSchedItems(next2);
       if (cronError(String(item.cron ?? ""))) return;
-      const fire = () => void saveSchedule({ id: id3, workflow: item.workflow ?? def.name, cron: item.cron, enabled: item.enabled !== false, inputs: item.inputs });
-      if (!opts.debounce) {
-        fire();
-        return;
-      }
-      if (schedTimers.current[id3]) window.clearTimeout(schedTimers.current[id3]);
-      schedTimers.current[id3] = window.setTimeout(fire, 1200);
-    }, [schedItems, saveSchedule, def.name]);
+      void saveSchedule({ id: id3, workflow: item.workflow ?? def.name, cron: item.cron, enabled: item.enabled !== false, inputs: item.inputs });
+    }, [saveSchedule, def.name]);
+    const schedCronOf = (it3) => schedDraft[it3.id] ?? String(it3.cron ?? "");
+    const schedDirty = (it3) => schedDraft[it3.id] !== void 0 && schedDraft[it3.id] !== String(it3.cron ?? "");
+    const schedHasDirty = () => schedItems.some((it3) => schedDirty(it3));
+    const saveSchedCron = (it3) => {
+      const v5 = schedCronOf(it3);
+      if (cronError(v5)) return;
+      patchScheduleLocal(it3.id, { cron: v5 });
+      setSchedDraft((m4) => {
+        const n2 = { ...m4 };
+        delete n2[it3.id];
+        return n2;
+      });
+    };
+    const requestCloseSched = () => {
+      if (schedHasDirty()) setImportMsg({ ok: true, text: "\u672A\u4FDD\u5B58\u7684 cron \u6539\u52A8\u5DF2\u4E22\u5F03" });
+      setSchedDraft({});
+      setSchedOpen(false);
+    };
     const addSchedule = (0, import_react101.useCallback)(() => {
       void saveSchedule({ workflow: def.name, cron: "0 9 * * *", enabled: true });
     }, [saveSchedule, def.name]);
@@ -76048,7 +76061,7 @@ ${fmtLogValue(e2.out)}`);
         {
           className: "dag-flow-picker-overlay",
           onClick: (e2) => {
-            if (e2.target === e2.currentTarget) setSchedOpen(false);
+            if (e2.target === e2.currentTarget) requestCloseSched();
           }
         },
         (0, import_react102.createElement)(
@@ -76062,7 +76075,7 @@ ${fmtLogValue(e2.out)}`);
             (0, import_react102.createElement)("button", {
               className: "dag-flow-picker-close",
               title: "\u5173\u95ED",
-              onClick: () => setSchedOpen(false)
+              onClick: () => requestCloseSched()
             }, "\u2715")
           ),
           (0, import_react102.createElement)(
@@ -76092,7 +76105,9 @@ ${fmtLogValue(e2.out)}`);
               "div",
               { className: "dsh-wf-sched-list" },
               schedItems.length ? schedItems.map((it3) => {
-                const bad = cronError(String(it3.cron ?? ""));
+                const cur = schedCronOf(it3);
+                const dirty2 = schedDirty(it3);
+                const bad = cronError(cur);
                 const err = schedBad[it3.id] || bad || "";
                 return (0, import_react102.createElement)(
                   "div",
@@ -76101,14 +76116,24 @@ ${fmtLogValue(e2.out)}`);
                     "div",
                     { className: "dsh-wf-sched-row" },
                     (0, import_react102.createElement)("span", { className: "dsh-wf-sched-ico" }, "\u23F0"),
+                    // ★ 2026-10-04 用户拍板：cron 改成**手动确认生效**——敲键只改草稿（描黄边），点「保存」才落盘
                     (0, import_react102.createElement)("input", {
-                      className: "dsh-wf-input dsh-wf-sched-cron",
-                      value: String(it3.cron ?? ""),
+                      className: `dsh-wf-input dsh-wf-sched-cron${dirty2 ? " is-dirty" : ""}${bad ? " is-bad" : ""}`,
+                      value: cur,
                       placeholder: "\u5206 \u65F6 \u65E5 \u6708 \u5468\uFF0C\u5982 0 9 * * 1-5",
-                      title: "\u6807\u51C6 5 \u5B57\u6BB5 cron\uFF1A\u5206 \u65F6 \u65E5 \u6708 \u5468\uFF1B\u652F\u6301 * , - /\uFF08\u4E0D\u652F\u6301 L W # \u4E0E\u79D2\u7EA7\uFF09",
-                      onChange: (e2) => patchScheduleLocal(it3.id, { cron: e2.target.value }, { debounce: true }),
-                      onBlur: () => patchScheduleLocal(it3.id, {}, {})
+                      title: "\u6807\u51C6 5 \u5B57\u6BB5 cron\uFF1A\u5206 \u65F6 \u65E5 \u6708 \u5468\uFF1B\u652F\u6301 * , - /\uFF08\u4E0D\u652F\u6301 L W # \u4E0E\u79D2\u7EA7\uFF09\n\u6539\u5B8C\u70B9\u53F3\u4FA7\u300C\u4FDD\u5B58\u300D\u624D\u751F\u6548\uFF08\u56DE\u8F66\u4E5F\u53EF\u4FDD\u5B58\uFF09",
+                      onChange: (e2) => setSchedDraft((m4) => ({ ...m4, [it3.id]: e2.target.value })),
+                      onKeyDown: (e2) => {
+                        if (e2.key === "Enter" && dirty2 && !bad) saveSchedCron(it3);
+                      }
                     }),
+                    // 「保存」：没改动或表达式非法时禁用（三态见原型）
+                    (0, import_react102.createElement)("button", {
+                      className: `dsh-wf-btn dsh-wf-sched-save${dirty2 && !bad ? " is-ready" : ""}`,
+                      disabled: !dirty2 || !!bad,
+                      title: !dirty2 ? "\u6CA1\u6709\u6539\u52A8" : bad ? "\u8868\u8FBE\u5F0F\u4E0D\u5408\u6CD5\uFF0C\u5148\u6539\u5BF9\u518D\u4FDD\u5B58" : "\u4FDD\u5B58\u8FD9\u6B21\u4FEE\u6539\uFF08\u7ACB\u5373\u751F\u6548\uFF09",
+                      onClick: () => saveSchedCron(it3)
+                    }, "\u4FDD\u5B58"),
                     // ★ 2026-10-04 用户要求：「▶ 立即运行一次」不要单独占第二行，放在 cron 表达式右边
                     (0, import_react102.createElement)("button", {
                       className: "dsh-wf-btn dsh-wf-sched-run",
@@ -76118,19 +76143,15 @@ ${fmtLogValue(e2.out)}`);
                     }, schedRunningId === it3.id ? "\u8FD0\u884C\u4E2D\u2026" : "\u25B6 \u7ACB\u5373\u8FD0\u884C\u4E00\u6B21"),
                     (0, import_react102.createElement)(
                       "span",
-                      { className: "dsh-wf-sched-preview" },
-                      bad ? "\u26A0 \u8868\u8FBE\u5F0F\u4E0D\u5408\u6CD5" : describeCron(String(it3.cron ?? ""))
+                      { className: `dsh-wf-sched-preview${bad ? " is-bad" : ""}` },
+                      bad ? "\u26A0 \u8868\u8FBE\u5F0F\u4E0D\u5408\u6CD5" : describeCron(cur)
                     ),
-                    (0, import_react102.createElement)(
-                      "label",
-                      { className: "dsh-wf-sched-toggle", title: it3.enabled === false ? "\u5DF2\u505C\u7528\uFF08\u70B9\u5F00\u542F\uFF09" : "\u5DF2\u542F\u7528\uFF08\u70B9\u505C\u7528\uFF09" },
-                      (0, import_react102.createElement)("input", {
-                        type: "checkbox",
-                        checked: it3.enabled !== false,
-                        onChange: (e2) => patchScheduleLocal(it3.id, { enabled: e2.target.checked }, {})
-                      }),
-                      it3.enabled === false ? "\u505C\u7528" : "\u542F\u7528"
-                    ),
+                    // ★ 2026-10-04 用户拍板：启用/停用**不用勾选框**，改单按钮切换（图标 ●/○，点一下即生效）
+                    (0, import_react102.createElement)("button", {
+                      className: `dsh-wf-sched-state${it3.enabled === false ? " is-off" : ""}`,
+                      title: it3.enabled === false ? "\u5F53\u524D\u5DF2\u505C\u7528\uFF0C\u70B9\u51FB\u542F\u7528\uFF08\u7ACB\u5373\u751F\u6548\uFF09" : "\u5F53\u524D\u5DF2\u542F\u7528\uFF0C\u70B9\u51FB\u505C\u7528\uFF08\u7ACB\u5373\u751F\u6548\uFF09",
+                      onClick: () => patchScheduleLocal(it3.id, { enabled: it3.enabled === false })
+                    }, it3.enabled === false ? "\u25CB \u5DF2\u505C\u7528" : "\u25CF \u542F\u7528\u4E2D"),
                     (0, import_react102.createElement)("button", {
                       className: "dsh-wf-btn",
                       title: "\u5220\u9664\u8BE5\u5B9A\u65F6\uFF08\u4E0D\u5F71\u54CD\u5176\u5B83\u5B9A\u65F6\uFF09",
@@ -76138,6 +76159,7 @@ ${fmtLogValue(e2.out)}`);
                     }, "\u2715")
                   ),
                   err ? (0, import_react102.createElement)("div", { className: "dsh-wf-sched-bad" }, "\u26A0 " + err) : null,
+                  dirty2 ? (0, import_react102.createElement)("div", { className: "dsh-wf-sched-dirty" }, "\u25CF cron \u5DF2\u4FEE\u6539\uFF0C\u70B9\u300C\u4FDD\u5B58\u300D\u624D\u751F\u6548") : null,
                   (0, import_react102.createElement)(
                     "div",
                     { className: "dsh-wf-sched-meta" },
@@ -76163,7 +76185,7 @@ ${fmtLogValue(e2.out)}`);
             (0, import_react102.createElement)(
               "div",
               { className: "dsh-wf-sched-foot" },
-              "\u914D\u7F6E\u5B58\u5728\u5DE5\u4F5C\u533A .dag-flow/schedules.json\uFF1Bcron \u4E3A\u672C\u673A\u65F6\u533A\u7684\u300C\u5206 \u65F6 \u65E5 \u6708 \u5468\u300D\u3002",
+              "\u914D\u7F6E\u5B58\u5728\u5DE5\u4F5C\u533A .dag-flow/schedules.json\uFF1Bcron \u4E3A\u672C\u673A\u65F6\u533A\u7684\u300C\u5206 \u65F6 \u65E5 \u6708 \u5468\u300D\uFF1Bcron \u6539\u5B8C\u70B9\u884C\u5185\u300C\u4FDD\u5B58\u300D\u624D\u751F\u6548\u3002",
               (0, import_react102.createElement)("br"),
               "\u540C\u4E00\u5DE5\u4F5C\u6D41\u4E0A\u4E00\u6B21\u6CA1\u8DD1\u5B8C\u65F6\uFF0C\u672C\u6B21\u4F1A\u8DF3\u8FC7\u5E76\u8BB0\u300C\u23ED \u672C\u6B21\u8DF3\u8FC7\u300D\uFF1Bdsh \u91CD\u542F\u540E\u4E0D\u8865\u8DD1\u9519\u8FC7\u7684\u6863\u671F\u3002"
             )

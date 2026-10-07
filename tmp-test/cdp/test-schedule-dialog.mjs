@@ -100,76 +100,119 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, sleep, name, base })
       cron: it.querySelector('.dsh-wf-sched-cron')?.value ?? '',
       preview: it.querySelector('.dsh-wf-sched-preview')?.textContent ?? '',
       off: it.classList.contains('is-off'),
-      checked: !!it.querySelector('.dsh-wf-sched-toggle input[type="checkbox"]')?.checked,
+      state: it.querySelector('.dsh-wf-sched-state')?.textContent ?? '',
+      saveDisabled: !!it.querySelector('.dsh-wf-sched-save')?.disabled,
     };
   })()`);
   eq(it1.cron, '0 9 * * *', '⑤ 新增的一条默认 cron = 0 9 * * *');
   ok(it1.preview.includes('09:00'), '⑤ 中文预览含「09:00」（实际：' + it1.preview + '）');
-  ok(it1.checked && !it1.off, '⑤ 新条默认启用（勾选、无 is-off）');
+  ok(!it1.off && it1.state.includes('启用中'), '⑤ 新条默认启用（状态按钮「● 启用中」、无 is-off）（实际：' + it1.state + '）');
+  ok(it1.saveDisabled, '⑤ 没有改动时「保存」置灰不可点（手动确认模型）');
   ok((await log()).some((e) => e.op === 'save' && e.workflow === name && e.cron === '0 9 * * *'),
     '⑤ 夹具 log 里有一条 save（cron=0 9 * * *）');
 
-  // ⑥ 改 cron → 1.2s 防抖后才 save；预览变「每 30 分钟」
+  // ⑥ ★ 2026-10-04 用户拍板：cron 改**手动确认生效**——敲键只改草稿（不发请求），点「保存」才落盘
+  const lenBefore6 = (await log()).length;
   await evaluate(cdp, `window.__sa_setVal(document.querySelector('.dsh-wf-sched-cron'), '*/30 * * * *')`);
-  await sleep(300);
-  ok(!(await log()).some((e) => e.op === 'save' && e.cron === '*/30 * * * *'),
-    '⑥ 改完 300ms 还没发 save（1.2s 防抖生效）');
+  await sleep(1600);   // 故意等过原来那 1.2s 防抖窗口，证明**不再**自动保存
+  eq((await log()).length, lenBefore6, '⑥ 改完等 1.6s 也没有发 save（边敲边存已取消）');
+  const after6 = await evaluate(cdp, `(() => {
+    const it = document.querySelector('.dsh-wf-sched-item');
+    return {
+      cron: it.querySelector('.dsh-wf-sched-cron')?.value ?? '',
+      preview: it.querySelector('.dsh-wf-sched-preview')?.textContent ?? '',
+      dirtyClass: it.querySelector('.dsh-wf-sched-cron')?.classList.contains('is-dirty') ?? false,
+      saveReady: it.querySelector('.dsh-wf-sched-save')?.classList.contains('is-ready') ?? false,
+      saveDisabled: !!it.querySelector('.dsh-wf-sched-save')?.disabled,
+      dirtyHint: it.querySelector('.dsh-wf-sched-dirty')?.textContent ?? '',
+    };
+  })()`);
+  ok(after6.preview.includes('每 30 分钟'), '⑥ 预览按**草稿**算，立刻变成「每 30 分钟」（实际：' + after6.preview + '）');
+  eq(after6.cron, '*/30 * * * *', '⑥ 输入框回显草稿 */30 * * * *');
+  ok(after6.dirtyClass && after6.saveReady && !after6.saveDisabled, '⑥ 草稿态：输入框描黄边 + 「保存」高亮可点');
+  ok(after6.dirtyHint.includes('保存'), '⑥ 出现「cron 已修改，点「保存」才生效」提示（实际：' + after6.dirtyHint + '）');
+
+  // ⑥b 点「保存」→ 才落盘；草稿清空、黄边消失、「保存」重新置灰
+  await evaluate(cdp, `window.__sa_click('.dsh-wf-sched-item .dsh-wf-sched-save')`);
   await waitFor(cdp, `(async () => (await window.__sa_log()).some((e) => e.op === 'save' && e.workflow === ${JSON.stringify(name)} && e.cron === '*/30 * * * *'))()`,
     { timeout: 6000 });
-  const after6 = await evaluate(cdp, `(() => ({
-    cron: document.querySelector('.dsh-wf-sched-cron')?.value ?? '',
-    preview: document.querySelector('.dsh-wf-sched-preview')?.textContent ?? '',
-  }))()`);
-  ok(after6.preview.includes('每 30 分钟'), '⑥ 防抖保存后预览变成「每 30 分钟」（实际：' + after6.preview + '）');
-  eq(after6.cron, '*/30 * * * *', '⑥ 输入框回显 */30 * * * *');
-  eq((await lastSave())?.cron, '*/30 * * * *', '⑥ log 里最后一条 save 的 cron = */30 * * * *');
+  eq((await lastSave())?.cron, '*/30 * * * *', '⑥b 点「保存」才落盘：log 最后一条 save 的 cron = */30 * * * *');
+  await waitFor(cdp, `document.querySelector('.dsh-wf-sched-cron')?.classList.contains('is-dirty') === false`, { timeout: 4000 });
+  ok(await evaluate(cdp, `!!document.querySelector('.dsh-wf-sched-save')?.disabled`), '⑥b 保存后草稿清空、黄边消失、「保存」重新置灰');
 
-  // ⑦ 非法 cron：本地就拦下（不发请求）+ 行内红字 + 预览告警
+  // ⑦ 非法 cron：「保存」禁用（点不了）+ 行内红字 + 预览告警 + 永远不发请求
   const lenBefore7 = (await log()).length;
   await evaluate(cdp, `window.__sa_setVal(document.querySelector('.dsh-wf-sched-cron'), '99 * * * *')`);
   await sleep(250);
-  const bad7 = await evaluate(cdp, `(() => ({
-    preview: document.querySelector('.dsh-wf-sched-preview')?.textContent ?? '',
-    bad: document.querySelector('.dsh-wf-sched-bad')?.textContent ?? '',
-  }))()`);
-  ok(bad7.bad.includes('越界') || bad7.bad.includes('不合法'), '⑦ 行内红字 .dsh-wf-sched-bad 含「越界/不合法」（实际：' + bad7.bad + '）');
-  eq(bad7.preview, '⚠ 表达式不合法', '⑦ 预览显示「⚠ 表达式不合法」');
-  await sleep(1600);
-  const log7 = await log();
-  ok(!log7.some((e) => e.op === 'save' && e.cron === '99 * * * *'),
-    '⑦ 等 1.6s 后 log 里没有任何针对非法值的 save（本地非法 → 客户端根本不发请求）');
-  eq(log7.length, lenBefore7, '⑦ 同一窗口内 log 长度不变（没有多余请求）');
-
-  // ⑦b 改回合法值 → 红字消失并重新落盘（证明闸门只挡非法值）
-  await evaluate(cdp, `window.__sa_setVal(document.querySelector('.dsh-wf-sched-cron'), '*/30 * * * *')`);
-  await waitFor(cdp, `document.querySelector('.dsh-wf-sched-bad') === null`, { timeout: 5000 });
-  await waitFor(cdp, `(async () => (await window.__sa_log()).filter((e) => e.op === 'save' && e.cron === '*/30 * * * *').length >= 2)()`,
-    { timeout: 6000 });
-  ok(true, '⑦b 改回合法值 → 红字消失并重新落盘');
-
-  // ⑧ 取消勾选启用 → is-off + 最后一条 save 的 enabled === false
-  await evaluate(cdp, `window.__sa_click('.dsh-wf-sched-item .dsh-wf-sched-toggle input[type="checkbox"]')`);
-  await waitFor(cdp, `document.querySelector('.dsh-wf-sched-item')?.classList.contains('is-off') === true`, { timeout: 6000 });
-  const off8 = await evaluate(cdp, `(() => {
+  const bad7 = await evaluate(cdp, `(() => {
     const it = document.querySelector('.dsh-wf-sched-item');
     return {
-      off: it.classList.contains('is-off'),
-      toggle: it.querySelector('.dsh-wf-sched-toggle')?.textContent ?? '',
-      checked: !!it.querySelector('input[type="checkbox"]')?.checked,
+      preview: it.querySelector('.dsh-wf-sched-preview')?.textContent ?? '',
+      bad: it.querySelector('.dsh-wf-sched-bad')?.textContent ?? '',
+      saveDisabled: !!it.querySelector('.dsh-wf-sched-save')?.disabled,
+      saveReady: it.querySelector('.dsh-wf-sched-save')?.classList.contains('is-ready') ?? false,
     };
   })()`);
-  ok(off8.off, '⑧ 取消勾选后该条加 is-off 类');
-  ok(off8.toggle.includes('停用') && !off8.checked, '⑧ 开关文案变「停用」且勾选框已取消（实际：' + off8.toggle + '）');
+  ok(bad7.bad.includes('越界') || bad7.bad.includes('不合法'), '⑦ 行内红字 .dsh-wf-sched-bad 含「越界/不合法」（实际：' + bad7.bad + '）');
+  eq(bad7.preview, '⚠ 表达式不合法', '⑦ 预览显示「⚠ 表达式不合法」');
+  ok(bad7.saveDisabled && !bad7.saveReady, '⑦ 非法时「保存」禁用（点不了）');
+  await sleep(1600);
+  eq((await log()).length, lenBefore7, '⑦ 非法值永远不会发 save（等 1.6s 也没有请求）');
+
+  // ⑦b 改回合法值（用一个**与已保存不同**的值，否则"无改动"会让保存按钮保持禁用）→ 红字消失、「保存」可点
+  await evaluate(cdp, `window.__sa_setVal(document.querySelector('.dsh-wf-sched-cron'), '15 8 * * *')`);
+  await waitFor(cdp, `document.querySelector('.dsh-wf-sched-bad') === null`, { timeout: 5000 });
+  ok(await evaluate(cdp, `!document.querySelector('.dsh-wf-sched-save')?.disabled`), '⑦b 改回合法值 → 红字消失、「保存」恢复可点');
+  // 提交掉这个草稿，避免影响后续步骤（保存按钮点下去 → 落盘 + 草稿清空）
+  await evaluate(cdp, `window.__sa_click('.dsh-wf-sched-item .dsh-wf-sched-save')`);
+  await waitFor(cdp, `(async () => { const s = [...(await window.__sa_log())].reverse().find((e) => e.op === 'save' && e.workflow === ${JSON.stringify(name)}); return !!s && s.cron === '15 8 * * *'; })()`,
+    { timeout: 6000 });
+  ok(true, '⑦b 提交后落盘 cron = 15 8 * * *');
+
+  // ⑧ ★ 2026-10-04 用户拍板：启用/停用**不用勾选框**，改单按钮切换（图标 ●/○），点一下即生效
+  ok(await evaluate(cdp, `!document.querySelector('.dsh-wf-sched-toggle input[type="checkbox"]')`),
+    '⑧ 旧的勾选框已移除（不再是勾选方式）');
+  const st8a = await evaluate(cdp, `document.querySelector('.dsh-wf-sched-state')?.textContent ?? ''`);
+  ok(st8a.includes('●') && st8a.includes('启用中'), '⑧ 状态按钮显示「● 启用中」（实际：' + st8a + '）');
+  await evaluate(cdp, `window.__sa_click('.dsh-wf-sched-item .dsh-wf-sched-state')`);
+  await waitFor(cdp, `document.querySelector('.dsh-wf-sched-item')?.classList.contains('is-off') === true`, { timeout: 6000 });
+  const st8b = await evaluate(cdp, `document.querySelector('.dsh-wf-sched-state')?.textContent ?? ''`);
+  ok(st8b.includes('○') && st8b.includes('已停用'), '⑧ 点一下变「○ 已停用」（实际：' + st8b + '）');
   await waitFor(cdp, `(async () => { const s = [...(await window.__sa_log())].reverse().find((e) => e.op === 'save' && e.workflow === ${JSON.stringify(name)}); return !!s && s.enabled === false; })()`,
     { timeout: 6000 });
-  eq((await lastSave())?.enabled, false, '⑧ log 里最后一条 save 的 enabled === false');
+  eq((await lastSave())?.enabled, false, '⑧ 点一下就落盘：最后一条 save 的 enabled === false（无需点保存）');
 
-  // ⑨ 再勾回启用 → is-off 消失
-  await evaluate(cdp, `window.__sa_click('.dsh-wf-sched-item .dsh-wf-sched-toggle input[type="checkbox"]')`);
+  // ⑨ 再点一下 → 回到启用
+  await evaluate(cdp, `window.__sa_click('.dsh-wf-sched-item .dsh-wf-sched-state')`);
   await waitFor(cdp, `document.querySelector('.dsh-wf-sched-item')?.classList.contains('is-off') === false`, { timeout: 6000 });
-  ok(true, '⑨ 再勾回启用 → is-off 消失');
+  ok(true, '⑨ 再点一下 → is-off 消失');
   await waitFor(cdp, `(async () => { const s = [...(await window.__sa_log())].reverse().find((e) => e.op === 'save' && e.workflow === ${JSON.stringify(name)}); return !!s && s.enabled === true; })()`,
     { timeout: 6000 });
+
+  // ⑨b ★ 2026-10-04 用户改口：改了 cron 没保存就关弹窗 → **直接放弃** + 一条浮层提示（**不弹二次确认**）
+  await evaluate(cdp, `(() => { window.__sa_confirm = 0; window.confirm = () => { window.__sa_confirm++; return true; }; return true; })()`);
+  await evaluate(cdp, `window.__sa_setVal(document.querySelector('.dsh-wf-sched-cron'), '30 7 * * *')`);
+  await sleep(150);
+  ok(await evaluate(cdp, `document.querySelector('.dsh-wf-sched-cron')?.classList.contains('is-dirty') === true`),
+    '⑨b 先制造一个未保存的草稿（输入框描黄边）');
+  await evaluate(cdp, `window.__sa_click('.dsh-wf-sched .dag-flow-picker-close')`);
+  // 直接关闭：定时弹窗消失，且**没有**任何二次确认弹窗
+  await waitFor(cdp, `!document.querySelector('.dsh-wf-sched')`, { timeout: 6000 });
+  ok(true, '⑨b 有未保存草稿时点 ✕ → 直接关闭（不再拦一道）');
+  ok(!(await evaluate(cdp, `!!document.querySelector('.dsh-wf-sched-confirm')`)),
+    '⑨b ★没有二次确认弹窗（上轮那个已按用户要求删掉）');
+  eq(await evaluate(cdp, `window.__sa_confirm`), 0, '⑨b 也没有调用 window.confirm（原生弹窗始终不用）');
+  // 浮层提示：说明改动已丢弃
+  await waitFor(cdp, `(document.body.textContent || '').includes('未保存的 cron 改动已丢弃')`, { timeout: 4000 });
+  ok(true, '⑨b 给了浮层提示「未保存的 cron 改动已丢弃」');
+  ok(!(await log()).some((e) => e.op === 'save' && e.cron === '30 7 * * *'), '⑨b 被丢弃的草稿没有落盘（log 里没有 30 7 * * *）');
+  // 关掉提示，重新打开：草稿不跨次保留，输入框回到已落盘值
+  await evaluate(cdp, `(() => { const el = [...document.querySelectorAll('div[title="点击关闭"]')].find((x) => (x.textContent || '').includes('已丢弃')); el?.click(); return true; })()`);
+  await evaluate(cdp, `(() => { const b = [...document.querySelectorAll('.dsh-wf-btn')].find((x) => (x.title || '').startsWith('定时任务（')); b.click(); return true; })()`);
+  await waitFor(cdp, `!!document.querySelector('.dsh-wf-sched')`, { timeout: 8000 });
+  await sleep(300);
+  eq(await evaluate(cdp, `document.querySelector('.dsh-wf-sched-cron')?.value`), '15 8 * * *', '⑨b 重开后输入框回到已落盘值 15 8 * * *（草稿不跨次保留）');
+  ok(await evaluate(cdp, `document.querySelector('.dsh-wf-sched-cron')?.classList.contains('is-dirty') === false`), '⑨b 重开后无脏标记');
   eq((await lastSave())?.enabled, true, '⑨ log 里最后一条 save 的 enabled === true');
 
   // ⑩ ▶ 立即运行一次 —— 2026-10-04 用户反馈两条：

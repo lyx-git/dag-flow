@@ -6,6 +6,22 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261004-sched-cleanup：**定时任务弹窗交互改造**（2026-10-04 用户原话：「定时任务弹窗里面，修改cron表达式
+//   是自动生效的，增加一个保存，修改按钮，手动确认生效，启用按钮不要使用勾选的方式，一些我能筛选的方案，让我自己选」）。
+//   ① **cron 改手动确认**：敲键只改**草稿**（输入框描黄边 + 行内「● cron 已修改，点「保存」才生效」+「保存」高亮），
+//      点行内「保存」（或回车）才落盘；非法表达式时「保存」禁用并显示红字原因；预览按草稿算（所见即所存）。
+//      原来的 1.2s 防抖自动保存**不再用于 cron**（patchScheduleLocal 的 debounce 能力保留备用）。
+//   ② **启用/停用不再用勾选框**：改成单按钮切换（用户从两轮候选里选定图标 **● 启用中 / ○ 已停用**），
+//      点一下即生效（用户同轮确认：它本身就是明确动作，不需要再点保存）。
+//   ③ **未保存就关弹窗 → 直接放弃 + 浮层提示**（用户当天改口：「未保存关闭直接放弃，给个提示就行，不用弹窗处理，
+//      上轮做的弹窗，是因为我点错了，删掉就行」）——关闭即丢弃草稿并关窗，只在底部浮层提示「未保存的 cron 改动已丢弃」；
+//      ★当天早些时候那版「二次确认弹窗」已**整体删除**（不弹窗、也不用 window.confirm）。草稿不跨次保留。
+//   ④ **清掉随之变成死代码的防抖保存**（用户 2026-10-04 拍板"删掉"）：`patchScheduleLocal` 的 `opts.debounce`
+//      参数 + `if (!opts.debounce)` 分支 + `schedTimers` ref 一并删除，它现在只做"立即落盘"；
+//      顺带把已不使用的 `schedItems` 从 useCallback 依赖里去掉（函数体只读 `schedItemsRef`）。
+//      删它的理由：无调用方、无用例覆盖、且它正是那个"开关闪回"竞态的载体（快照在注册防抖时取、1.2s 后才发）。
+//      将来若真要防抖，必须**在触发时**重读 `schedItemsRef.current`。
+//
 // v20261004-nosettings：**删掉设置页「工作流配置」分区**（2026-10-04 用户原话：「工作流配置设置页面，
 //   直接删掉吧，已经没啥用了」）。该分区自 09-25 模型/密钥配置移除后只剩「🎨 画布主题」下拉 + 一行说明，
 //   是旧功能的残壳。删除：registerSettingsSection 调用 + src/client/SettingsPage.tsx + 它的 re-export + 死 CSS。
@@ -562,7 +578,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261004-nosettings · apply OK');
+    console.log('[dag-flow] client v20261004-sched-cleanup · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }
