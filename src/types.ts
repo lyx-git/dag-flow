@@ -63,6 +63,9 @@ export interface NodeResult {
   durationMs: number;
   startedAt: string; // ISO
   endedAt: string;   // ISO
+  /** ★ 节点调试信息（2026-10-04：AI 节点的 prompt/模型/token 用量/结束原因）——
+   *  **不进 out**（不污染数据流），只走 试跑结果 + 运行日志 展示。 */
+  debug?: JsonValue;
 }
 
 export interface CtxLogger {

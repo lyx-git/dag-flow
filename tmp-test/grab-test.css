@@ -1098,17 +1098,6 @@
 .dsh-wf-h-full {
   height: 100%;
 }
-.dsh-wf-settings {
-  padding: 20px;
-  font-size: 13px;
-  color: var(--dsh-wf-fg);
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  overflow: auto;
-  height: 100%;
-  box-sizing: border-box;
-}
 .dsh-wf-win {
   position: fixed;
   background: color-mix(in srgb, var(--wf-panel, #0d1728) 98%, transparent);
@@ -1535,7 +1524,7 @@
 .dsh-wf-ver-item:hover {
   border-color: var(--wf-accent, #4f8cff);
 }
-.dsh-wf-sched {
+.dag-flow-picker.dsh-wf-sched {
   width: min(720px, 92vw);
 }
 .dsh-wf-sched-title-wf {
@@ -1651,13 +1640,13 @@
 .dsh-wf-sched-actions {
   margin-top: 6px;
 }
-.dsh-wf-sched-confirm {
+.dag-flow-picker.dsh-wf-sched-confirm {
   width: min(460px, 92vw);
 }
 .dsh-wf-sched-confirm .dsh-wf-sched-warn {
   margin-bottom: 8px;
 }
-.dsh-wf-selfcheck {
+.dag-flow-picker.dsh-wf-selfcheck {
   width: min(620px, 92vw);
 }
 .dsh-wf-selfcheck-list {
@@ -2015,7 +2004,7 @@
   color: var(--wf-muted, #8b9bb3);
   opacity: 0.75;
 }
-.dsh-wf-logdlg {
+.dag-flow-picker.dsh-wf-logdlg {
   width: min(920px, 95vw);
 }
 .dsh-wf-log-toolbar {
@@ -2181,6 +2170,45 @@
   background: var(--wf-bg, #08101e);
   border: 1px solid var(--wf-border, #22304a);
   color: var(--wf-text, #dbe6f7);
+}
+.dsh-wf-test-debug {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--wf-border, #22304a);
+}
+.dsh-wf-test-debug-head {
+  font-size: 11px;
+  color: #7dd3fc;
+  word-break: break-all;
+}
+.dsh-wf-test-debug-title {
+  font-size: 10.5px;
+  color: var(--wf-muted, #8b9bb3);
+  margin: 5px 0 2px;
+}
+.dsh-wf-test-debug-pre {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-size: 11px;
+  line-height: 1.5;
+  font-family:
+    ui-monospace,
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 22vh;
+  overflow: auto;
+  background: var(--wf-bg, #08101e);
+  border: 1px solid var(--wf-border, #22304a);
+  color: var(--wf-text, #dbe6f7);
+}
+.dsh-wf-log-aidebug {
+  font-size: 11px;
+  color: #7dd3fc;
+  word-break: break-all;
+  margin-bottom: 4px;
 }
 
 /* node_modules/@flowgram.ai/free-layout-editor/index.css */

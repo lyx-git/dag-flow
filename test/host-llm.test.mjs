@@ -147,6 +147,32 @@ console.log('\n== H. 模态不匹配报错用「显示名」（2026-10-03 与下
   t('H4. 拦在调用前（未发起 LLM 请求，不浪费额度）', state.calls.length === before, `calls ${before} → ${state.calls.length}`);
 }
 
+console.log('\n== I. AI 调试信息（2026-10-04：试跑面板 + 运行日志共用的采集口径）==');
+{
+  state.chunks = [
+    { type: 'text-delta', index: 0, text: '调试正文' },
+    // ★ dsh-llm 的 usage chunk（适配器在 finish 之前发出）：TokenUsage = { inputTokens, outputTokens, totalTokens }
+    { type: 'usage', usage: { inputTokens: 123, outputTokens: 45, totalTokens: 168 } },
+    { type: 'finish', reason: { kind: 'stop' } },
+  ];
+  const tg = await runNode({ prompt: '调试用的提示词 {{inputs.x}}', model: MODEL, maxTokens: 2048, timeoutMs: 5000 });
+  const d = tg?.debug ?? {};
+  t('I1. 成功结果带 debug（不进 out）', tg?.status === 'success' && !!tg?.debug && tg?.out === '调试正文', JSON.stringify({ out: tg?.out, hasDebug: !!tg?.debug }));
+  t('I2. ★采集到 token 用量（宿主 usage chunk）', d.usage?.inputTokens === 123 && d.usage?.outputTokens === 45 && d.usage?.totalTokens === 168, JSON.stringify(d.usage));
+  t('I3. ★记录"实际发出的提示词"（模板已展开：不再是 {{}} 原文）',
+    String(d.prompt ?? '').startsWith('调试用的提示词') && !String(d.prompt ?? '').includes('{{'),
+    String(d.prompt).slice(0, 60));
+  t('I4. 记录模型 + 显示名 + 提供方', d.model === MODEL && !!d.provider && d.modelLabel === '探针模型-显示名', JSON.stringify({ model: d.model, provider: d.provider, label: d.modelLabel }));
+  t('I5. 走宿主标记 + 结束原因 + maxTokens', d.viaHost === true && d.finishReason === 'stop' && d.maxTokens === 2048, JSON.stringify({ viaHost: d.viaHost, fin: d.finishReason, maxTokens: d.maxTokens }));
+  t('I6. 有耗时与返回字数', typeof d.durationMs === 'number' && d.textChars === 4, JSON.stringify({ ms: d.durationMs, chars: d.textChars }));
+}
+{
+  // 宿主不给 usage chunk 时：debug 里就没有 usage（面板会显示"宿主未提供"，不编造数字）
+  state.chunks = [{ type: 'text-delta', index: 0, text: '无用量' }, { type: 'finish', reason: { kind: 'stop' } }];
+  const tg = await runNode({ prompt: 'x', model: MODEL, timeoutMs: 5000 });
+  t('I7. 宿主未给 usage → debug.usage 缺失（不编造）', tg?.debug && tg.debug.usage === undefined, JSON.stringify(tg?.debug?.usage ?? null));
+}
+
 server.close();
 console.log(`\n=== host-llm 契约：${pass} passed, ${fail} failed ===`);
 if (fail) console.log('失败项：' + failures.join(' | '));

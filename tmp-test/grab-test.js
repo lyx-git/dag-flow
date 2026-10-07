@@ -75019,10 +75019,12 @@ ${fmtLogValue(e2.out)}`);
     const [verList, setVerList] = (0, import_react101.useState)([]);
     const [verLoading, setVerLoading] = (0, import_react101.useState)(false);
     const [verH, setVerH] = (0, import_react101.useState)(420);
+    const [verOff, setVerOff] = (0, import_react101.useState)(0);
     const [verDir, setVerDir] = (0, import_react101.useState)("");
     const openVersions = (0, import_react101.useCallback)(async () => {
       ensurePickerStyles();
       setVerOpen(true);
+      setVerOff(0);
       setVerLoading(true);
       try {
         const res = await fetch(`/api/dag-flow/workflows/${encodeURIComponent(def.name)}/versions`, { credentials: "include" });
@@ -75555,6 +75557,7 @@ ${fmtLogValue(e2.out)}`);
     const [logMeta, setLogMeta] = (0, import_react101.useState)(null);
     const [logBusy, setLogBusy] = (0, import_react101.useState)(false);
     const [logFilter, setLogFilter] = (0, import_react101.useState)("");
+    const [logScope, setLogScope] = (0, import_react101.useState)("all");
     const [logExpanded, setLogExpanded] = (0, import_react101.useState)({});
     const logLiveRef = (0, import_react101.useRef)(false);
     const fetchRunLog = (0, import_react101.useCallback)(async () => {
@@ -75591,17 +75594,33 @@ ${fmtLogValue(e2.out)}`);
       if (prevRunningRef.current && !running && logOpen) void fetchRunLog();
       prevRunningRef.current = running;
     }, [running, logOpen, fetchRunLog]);
+    (0, import_react101.useEffect)(() => {
+      if (!logEntries.length) return;
+      setLogExpanded((m4) => {
+        const next2 = { ...m4 };
+        let changed = false;
+        for (const e2 of logEntries) {
+          if ((e2?.status === "failed" || e2?.status === "skipped") && next2[e2.id] === void 0) {
+            next2[e2.id] = true;
+            changed = true;
+          }
+        }
+        return changed ? next2 : m4;
+      });
+    }, [logEntries]);
     const logView = (0, import_react101.useMemo)(() => {
+      let list = logEntries;
+      if (logScope === "problem") list = list.filter((e2) => e2?.status === "failed" || e2?.status === "skipped");
       const q3 = logFilter.trim().toLowerCase();
-      if (!q3) return logEntries;
-      return logEntries.filter((e2) => {
+      if (!q3) return list;
+      return list.filter((e2) => {
         try {
           return JSON.stringify(e2 ?? {}).toLowerCase().includes(q3);
         } catch {
           return false;
         }
       });
-    }, [logEntries, logFilter]);
+    }, [logEntries, logFilter, logScope]);
     const [selfcheckBlock, setSelfcheckBlock] = (0, import_react101.useState)(null);
     const [selfcheckState, setSelfcheckState] = (0, import_react101.useState)(null);
     const askRunScheduleNow = (0, import_react101.useCallback)((it3) => {
@@ -76144,7 +76163,7 @@ ${fmtLogValue(e2.out)}`);
             (0, import_react102.createElement)(
               "div",
               { className: "dsh-wf-sched-foot" },
-              "\u914D\u7F6E\u5B58\u5728\u5DE5\u4F5C\u533A .dag-flow/schedules.json\uFF1Bcron \u4E3A**\u672C\u673A\u65F6\u533A**\u7684\u300C\u5206 \u65F6 \u65E5 \u6708 \u5468\u300D\u3002",
+              "\u914D\u7F6E\u5B58\u5728\u5DE5\u4F5C\u533A .dag-flow/schedules.json\uFF1Bcron \u4E3A\u672C\u673A\u65F6\u533A\u7684\u300C\u5206 \u65F6 \u65E5 \u6708 \u5468\u300D\u3002",
               (0, import_react102.createElement)("br"),
               "\u540C\u4E00\u5DE5\u4F5C\u6D41\u4E0A\u4E00\u6B21\u6CA1\u8DD1\u5B8C\u65F6\uFF0C\u672C\u6B21\u4F1A\u8DF3\u8FC7\u5E76\u8BB0\u300C\u23ED \u672C\u6B21\u8DF3\u8FC7\u300D\uFF1Bdsh \u91CD\u542F\u540E\u4E0D\u8865\u8DD1\u9519\u8FC7\u7684\u6863\u671F\u3002"
             )
@@ -76157,8 +76176,10 @@ ${fmtLogValue(e2.out)}`);
         "div",
         {
           className: "dag-flow-picker-overlay",
-          // 底部锚定：拖上边缘时顶边跟随光标向上生长（顶部锚定会变成向下长，手感不对）
-          style: { alignItems: "flex-end", paddingTop: 0, paddingBottom: "8vh" },
+          // 2026-10-04 用户反馈「历史版本弹窗有点偏中下部了，最好和定时任务弹窗保持一致」：
+          //   此前这里内联了 alignItems:'flex-end' + paddingBottom:'8vh'（底部锚定，弹窗落在中下部），
+          //   现改为**不覆盖** —— 用 overlay 默认的顶部锚定（align-items:flex-start; padding-top:14vh），
+          //   与 ⏰ 定时任务弹窗同一落点。「顶边跟随光标」的手感由下面 handle 的 verOff 偏移保留。
           onClick: (e2) => {
             if (e2.target === e2.currentTarget) setVerOpen(false);
           }
@@ -76167,9 +76188,10 @@ ${fmtLogValue(e2.out)}`);
           "div",
           {
             className: "dag-flow-picker dag-flow-picker-ver",
-            style: { height: verH, maxHeight: "90vh", display: "flex", flexDirection: "column" }
+            // maxHeight 与顶部锚定配套：顶边在 14vh，可用高度 = 100vh-14vh，留 16px 下边距（原 90vh 会在顶部锚定下越出视口底部）
+            style: { height: verH, maxHeight: "calc(86vh - 16px)", marginTop: -verOff, display: "flex", flexDirection: "column" }
           },
-          // 上边缘拖拽把手：向上拖加高、向下拖收矮（钳位 280px ~ 90vh）
+          // 上边缘拖拽把手：向上拖 = 顶边跟随光标上移 + 加高；向下拖 = 收矮（钳位 280px ~ 视口剩余高度）
           (0, import_react102.createElement)("div", {
             className: "dag-flow-picker-resize-y",
             title: "\u4E0A\u4E0B\u62D6\u52A8\u8C03\u6574\u5F39\u7A97\u9AD8\u5EA6",
@@ -76177,8 +76199,19 @@ ${fmtLogValue(e2.out)}`);
               e2.preventDefault();
               const startY = e2.clientY;
               const startH = verH;
-              const maxH = Math.round(window.innerHeight * 0.9);
-              const onMove = (ev) => setVerH(Math.min(Math.max(startH + (startY - ev.clientY), 280), maxH));
+              const startOff = verOff;
+              const vh = window.innerHeight;
+              const baseTop = Math.round(vh * 0.14);
+              const GAP = 16;
+              const MIN_H = 280;
+              const maxOff = Math.max(0, baseTop - GAP);
+              const onMove = (ev) => {
+                const dy = startY - ev.clientY;
+                const off = Math.min(Math.max(startOff + dy, 0), maxOff);
+                const maxH = Math.max(MIN_H, vh - GAP - (baseTop - off));
+                setVerOff(off);
+                setVerH(Math.min(Math.max(startH + dy, MIN_H), maxH));
+              };
               const onUp = () => {
                 window.removeEventListener("mousemove", onMove, true);
                 window.removeEventListener("mouseup", onUp, true);
@@ -76559,6 +76592,12 @@ ${fmtLogValue(e2.out)}`);
               "div",
               { className: "dsh-wf-log-toolbar" },
               (0, import_react102.createElement)("button", { className: "dsh-wf-btn", title: "\u91CD\u65B0\u62C9\u53D6\u65E5\u5FD7", onClick: () => void fetchRunLog() }, logBusy ? "\u23F3 \u5237\u65B0\u4E2D" : "\u{1F504} \u5237\u65B0"),
+              // ★ 只看失败/跳过（2026-10-04 便利性：大图排查时不必在几十条里翻）
+              (0, import_react102.createElement)("button", {
+                className: `dsh-wf-btn${logScope === "problem" ? " primary" : ""}`,
+                title: "\u53EA\u770B\u5931\u8D25\u4E0E\u8DF3\u8FC7\u7684\u8282\u70B9\uFF08\u5927\u56FE\u6392\u67E5\u7528\uFF09",
+                onClick: () => setLogScope((v5) => v5 === "problem" ? "all" : "problem")
+              }, "\u26A0 \u53EA\u770B\u5931\u8D25/\u8DF3\u8FC7"),
               (0, import_react102.createElement)("input", {
                 className: "dsh-wf-log-search",
                 value: logFilter,
@@ -76603,8 +76642,12 @@ ${fmtLogValue(e2.out)}`);
                     "div",
                     {
                       className: "dsh-wf-log-head",
-                      onClick: () => setLogExpanded((m4) => ({ ...m4, [e2.id]: !m4[e2.id] })),
-                      title: "\u70B9\u51FB\u5C55\u5F00/\u6298\u53E0\u8BE5\u8282\u70B9\u7684\u53C2\u6570\u4E0E\u51FA\u53C2"
+                      // ★ 点一下展开参数/出参，**同时在画布上选中该节点**（2026-10-04 便利性：看完日志能立刻回画布定位）
+                      onClick: () => {
+                        setLogExpanded((m4) => ({ ...m4, [e2.id]: !m4[e2.id] }));
+                        if ((def.nodes ?? []).some((n2) => n2.id === e2.id)) setSelectedNodeId(e2.id);
+                      },
+                      title: "\u70B9\u51FB\u5C55\u5F00/\u6298\u53E0\u8BE5\u8282\u70B9\u7684\u53C2\u6570\u4E0E\u51FA\u53C2\uFF0C\u5E76\u5728\u753B\u5E03\u4E0A\u9009\u4E2D\u5B83"
                     },
                     (0, import_react102.createElement)("span", { className: "dsh-wf-log-caret" }, open ? "\u25BE" : "\u25B8"),
                     (0, import_react102.createElement)("span", { className: `dsh-wf-log-dot is-${st2}` }),
@@ -76622,6 +76665,25 @@ ${fmtLogValue(e2.out)}`);
                     e2?.rawParams !== void 0 ? section("\u539F\u59CB\u53C2\u6570\uFF08\u542B {{}} \u6A21\u677F\u5F15\u7528\uFF09", e2.rawParams) : null,
                     e2?.params !== void 0 ? section("\u5B9E\u9645\u5165\u53C2\uFF08\u6A21\u677F\u5DF2\u5C55\u5F00 = \u8282\u70B9\u771F\u6B63\u6536\u5230\u7684\uFF09", e2.params) : null,
                     e2?.out !== void 0 ? section("\u51FA\u53C2", e2.out) : null,
+                    // ★ AI 调用详情（2026-10-04）：与「🧪 试跑本节点」共用同一份采集——
+                    //   模型/提供方/走宿主还是直连/token 用量/结束原因（max-tokens 会显式提醒截断）+ 实际提示词
+                    e2?.debug ? (0, import_react102.createElement)(
+                      "div",
+                      { className: "dsh-wf-log-sec", key: "ai-debug" },
+                      (0, import_react102.createElement)("div", { className: "dsh-wf-log-sec-title" }, "\u{1F916} AI \u8C03\u7528\u8BE6\u60C5"),
+                      (0, import_react102.createElement)(
+                        "div",
+                        { className: "dsh-wf-log-aidebug" },
+                        String([
+                          `${e2.debug.modelLabel ?? e2.debug.model ?? "?"}${e2.debug.provider ? `\uFF08${e2.debug.provider}\uFF09` : ""}`,
+                          e2.debug.viaHost ? "\u8D70\u5BBF\u4E3B" : "\u76F4\u8FDE",
+                          e2.debug.usage ? `tokens \u5165 ${e2.debug.usage.inputTokens ?? "?"} / \u51FA ${e2.debug.usage.outputTokens ?? "?"}` : "tokens\uFF1A\u5BBF\u4E3B\u672A\u63D0\u4F9B",
+                          e2.debug.finishReason ? `\u7ED3\u675F ${e2.debug.finishReason}${e2.debug.finishReason === "max-tokens" ? "\uFF08\u26A0 \u649E maxTokens \u622A\u65AD\uFF09" : ""}` : "",
+                          e2.debug.textChars != null ? `\u8FD4\u56DE ${e2.debug.textChars} \u5B57` : ""
+                        ].filter(Boolean).join(" \xB7 "))
+                      ),
+                      e2.debug.prompt !== void 0 ? (0, import_react102.createElement)("pre", { className: "dsh-wf-log-pre" }, String(e2.debug.prompt).slice(0, 1200)) : null
+                    ) : null,
                     st2 === "skipped" ? (0, import_react102.createElement)("div", { className: "dsh-wf-log-sec-title" }, "\uFF08\u8BE5\u8282\u70B9\u672A\u6267\u884C\uFF1A\u6240\u5728\u5206\u652F\u672A\u547D\u4E2D\uFF09") : null,
                     Array.isArray(e2?.truncated) && e2.truncated.length ? (0, import_react102.createElement)("div", { className: "dsh-wf-log-sec-title" }, `\uFF08\u5B57\u6BB5\u5DF2\u622A\u65AD\uFF1A${e2.truncated.join("\u3001")}\uFF09`) : null,
                     (0, import_react102.createElement)("button", {
@@ -77027,7 +77089,7 @@ ${fmtLogValue(e2.out)}`);
         (0, import_react102.createElement)(
           "div",
           { className: "dsh-wf-panel-hint", key: "loop-hint" },
-          "loop \u53EA\u4EA7\u51FA\u8FED\u4EE3\u5E8F\u5217\uFF08out.count / out.items\uFF09\uFF0C**\u4E0D\u4F1A\u91CD\u590D\u6267\u884C\u4E0B\u6E38\u8282\u70B9**\uFF1A\u5B83\u7B97\u51FA\u300C\u8DD1\u51E0\u6B21 / \u8DD1\u54EA\u4E9B\u9879\u300D\uFF0C\u7531\u4E0B\u6E38\u8282\u70B9\u81EA\u5DF1\u9010\u9879\u5904\u7406\u3002\u4E09\u79CD\u8FB9\u754C\u540C\u65F6\u53EA\u6309\u4E00\u4E2A\u751F\u6548\uFF0C\u4F18\u5148\u7EA7 over > count > while\u3002"
+          "loop \u53EA\u4EA7\u51FA\u8FED\u4EE3\u5E8F\u5217\uFF08out.count / out.items\uFF09\uFF0C\u300C\u4E0D\u4F1A\u91CD\u590D\u6267\u884C\u4E0B\u6E38\u8282\u70B9\u300D\uFF1A\u5B83\u7B97\u51FA\u300C\u8DD1\u51E0\u6B21 / \u8DD1\u54EA\u4E9B\u9879\u300D\uFF0C\u7531\u4E0B\u6E38\u8282\u70B9\u81EA\u5DF1\u9010\u9879\u5904\u7406\u3002\u4E09\u79CD\u8FB9\u754C\u540C\u65F6\u53EA\u6309\u4E00\u4E2A\u751F\u6548\uFF0C\u4F18\u5148\u7EA7 over > count > while\u3002"
         ),
         (0, import_react102.createElement)(
           "select",
@@ -77161,7 +77223,7 @@ ${fmtLogValue(e2.out)}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
         const target = data.summary?.results?.target;
-        setTestResult({ ok: data.ok, status: target?.status ?? data.summary?.status, ms: target?.durationMs, output: target?.out ?? target?.output });
+        setTestResult({ ok: data.ok, status: target?.status ?? data.summary?.status, ms: target?.durationMs, output: target?.out ?? target?.output, debug: target?.debug });
       } catch (e2) {
         setTestResult({ error: e2.message });
       } finally {
@@ -77523,6 +77585,19 @@ ${fmtLogValue(e2.out)}`);
             "div",
             null,
             testResult.error ? `\u2717 ${testResult.error}` : `${testResult.ok ? "\u2713" : "\u2717"} \u8282\u70B9\u72B6\u6001: ${testResult.status}${testResult.ms != null ? ` \xB7 ${Math.round(testResult.ms)}ms` : ""}`
+          ),
+          // ★ AI 调试信息（2026-10-04 用户问「试跑本节点能不能当 LLM 调试面板」→ 能，这里把它补全）：
+          //   模型/提供方 · token 用量 · 结束原因 · 实际提示词——调 AI 节点时最需要看的几项
+          testResult.debug && (0, import_react102.createElement)(
+            "div",
+            { className: "dsh-wf-test-debug" },
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dsh-wf-test-debug-head" },
+              `\u{1F916} ${testResult.debug.modelLabel ?? testResult.debug.model}${testResult.debug.provider ? `\uFF08${testResult.debug.provider}\uFF09` : ""} \xB7 ${testResult.debug.viaHost ? "\u8D70\u5BBF\u4E3B" : "\u76F4\u8FDE"}` + (testResult.debug.usage ? ` \xB7 tokens \u5165 ${testResult.debug.usage.inputTokens ?? "?"} / \u51FA ${testResult.debug.usage.outputTokens ?? "?"}` : " \xB7 tokens\uFF1A\u5BBF\u4E3B\u672A\u63D0\u4F9B") + (testResult.debug.finishReason ? ` \xB7 \u7ED3\u675F ${testResult.debug.finishReason}` : "") + (testResult.debug.finishReason === "max-tokens" ? "\uFF08\u26A0 \u649E\u5230 maxTokens \u4E0A\u9650\uFF0C\u8F93\u51FA\u88AB\u622A\u65AD\uFF09" : "")
+            ),
+            (0, import_react102.createElement)("div", { className: "dsh-wf-test-debug-title" }, "\u5B9E\u9645\u63D0\u793A\u8BCD\uFF08\u6A21\u677F\u5DF2\u5C55\u5F00 = \u6A21\u578B\u771F\u6B63\u770B\u5230\u7684\uFF09"),
+            (0, import_react102.createElement)("pre", { className: "dsh-wf-test-debug-pre" }, String(testResult.debug.prompt ?? "").slice(0, 1200))
           ),
           testResult.output != null && (0, import_react102.createElement)("pre", null, JSON.stringify(testResult.output, null, 2).slice(0, 600))
         )
@@ -78303,6 +78378,32 @@ ${fmtLogValue(e2.out)}`);
       end: { x: 3120, y: 620 }
     }
   };
+  var hugeDef = (() => {
+    const nodes = [{ id: "start", type: "start", params: {} }];
+    const edges = [];
+    const layout2 = { start: { x: 40, y: 700 } };
+    const kinds = [
+      ["python", { code: "print(1)" }],
+      ["log", { level: "info", message: "m" }],
+      ["set_var", { vars: { a: 1 } }],
+      ["http", { url: "https://example.com", method: "GET" }],
+      ["web_search", { query: "x" }],
+      ["subagent", { prompt: "p", model: "stub-model" }]
+    ];
+    let prev2 = "start";
+    for (let i3 = 0; i3 < 21; i3++) {
+      const [type, params2] = kinds[i3 % kinds.length];
+      const id3 = `${type}_${i3 + 1}`;
+      nodes.push({ id: id3, type, label: `${type}${i3 + 1}`, params: params2 });
+      edges.push({ from: prev2, to: id3 });
+      layout2[id3] = { x: 320 + i3 % 5 * 620, y: 80 + Math.floor(i3 / 5) * 460 };
+      prev2 = id3;
+    }
+    nodes.push({ id: "end", type: "end", params: {} });
+    edges.push({ from: prev2, to: "end" });
+    layout2.end = { x: 320 + 21 % 5 * 620 + 620, y: 80 + Math.floor(21 / 5) * 460 };
+    return { name: wfName, version: 1, nodes, edges, layout: layout2 };
+  })();
   var gotoWarnDef = {
     name: wfName,
     version: 1,
@@ -78319,7 +78420,7 @@ ${fmtLogValue(e2.out)}`);
     ],
     layout: { start: { x: 60, y: 200 }, boom: { x: 340, y: 200 }, tail: { x: 620, y: 200 }, end: { x: 900, y: 200 } }
   };
-  var initialDef = params.has("goto") ? gotoWarnDef : params.has("big") ? bigDef : params.has("vars") ? varsDef : params.has("jump") ? jumpDef : params.has("chips") ? chipsDef : params.has("stale") ? staleDef : params.has("many") ? manyDef : params.has("loop") ? loopDef : params.has("branch") ? branchDef : {
+  var initialDef = params.has("goto") ? gotoWarnDef : params.has("huge") ? hugeDef : params.has("big") ? bigDef : params.has("vars") ? varsDef : params.has("jump") ? jumpDef : params.has("chips") ? chipsDef : params.has("stale") ? staleDef : params.has("many") ? manyDef : params.has("loop") ? loopDef : params.has("branch") ? branchDef : {
     name: wfName,
     version: 1,
     nodes: [

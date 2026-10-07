@@ -6,12 +6,6 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
-// v20261004-nosettings：**删掉设置页「工作流配置」分区**（2026-10-04 用户原话：「工作流配置设置页面，
-//   直接删掉吧，已经没啥用了」）。该分区自 09-25 模型/密钥配置移除后只剩「🎨 画布主题」下拉 + 一行说明，
-//   是旧功能的残壳。删除：registerSettingsSection 调用 + src/client/SettingsPage.tsx + 它的 re-export + 死 CSS。
-//   ★副作用（已 ask_user_question 讲清并获确认后执行）：画布主题从此**没有界面入口**，固定在 localStorage
-//   里已保存的值（默认 nodeflow 深空蓝）；theme.ts 与启动时的 applyTheme(getThemeMode()) 保留不动。
-//   ★防腐层 dsh-gate.ts 的 registerSettingsSection 能力**保留**（不再被调用，作为 ACL 能力位备用）。
 // v20261004-text-width：**纯文本星号 + 弹窗宽度规则失效**（2026-10-04，用户：「顺手发现、按红线没动手的
 //   两件事，这两件事都统一修掉」）。
 //   ① 用户可见文案里的 Markdown `**` 会被**原样渲染**（同一坑第三次复发）：FlowPanel 的 ⏰ 弹窗底部
@@ -212,6 +206,7 @@
 import { Component, createElement, useEffect, useRef, useSyncExternalStore } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { FlowPanel } from './FlowPanel';
+import { SettingsPage } from './SettingsPage';
 import { DEFAULT_WORKFLOW, type WorkflowDef } from './types';
 import { applyTheme, getThemeMode } from './theme';
 import { mountSidebarEntry } from './sidebar';
@@ -220,6 +215,7 @@ import { openWorkflowPicker } from './workflow-picker';
 import { bindNavSwap, backToParentWorkflow, enterSubWorkflow, navCrumbs, navCurrentName, navFocusNodeId, setNavCurrent } from './navStack';
 import {
   CLIENT_INJECT,
+  registerSettingsSection,
   registerMainPanel,
   dumpMainPanelKeys,
   selectPanel as gateSelectPanel,
@@ -532,7 +528,10 @@ export function apply(ctx: any): void {
   try {
     hostCtx = ctx ?? null;
 
-    // 1. 侧栏入口（左上方"新会话"按钮下方）：点击 = 直接切到主区域停靠画布
+    // 1. settings.section — 设置页"工作流配置"分区（形状假设/容错在防腐层）
+    registerSettingsSection(ctx, { id: 'dag-flow.settings', order: 80, label: '工作流配置' }, SettingsPage);
+
+    // 2. 侧栏入口（左上方"新会话"按钮下方）：点击 = 直接切到主区域停靠画布
     //    （与"新会话"切到会话面板同款交互，不弹窗）。宿主 DOM 锚点/样式拷贝在 sidebar.ts（专职 DOM 防腐点）。
     try {
       mountSidebarEntry(() => {
@@ -543,7 +542,7 @@ export function apply(ctx: any): void {
       console.warn('[dag-flow] sidebar entry mount failed:', e);
     }
 
-    // 2. 主区域停靠面板（keyed main，与 conversation/plugins 同机制）。
+    // 3. 主区域停靠面板（keyed main，与 conversation/plugins 同机制）。
     //    ★ generator + yield 注册形态与 selectPanel 的 key 校验假设都在防腐层
     //      （注册未生效时切换会抛 "main panel ... not registered"，2026-10-01 真机踩坑）。
     //    ★ 不注册 sidebar.panellist 行：入口按钮即切换，无需额外面板按钮（用户反馈）。
@@ -562,7 +561,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261004-nosettings · apply OK');
+    console.log('[dag-flow] client v20261004-text-width · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }
@@ -576,5 +575,6 @@ export default { apply, inject, mount: mountWorkflowPanel, unmount };
 
 // 辅助 re-export
 export { FlowPanel } from './FlowPanel';
+export { SettingsPage } from './SettingsPage';
 export { NODE_PALETTE } from './types';
 export type { WorkflowDef, MountContext } from './types';

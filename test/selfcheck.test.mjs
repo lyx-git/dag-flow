@@ -315,6 +315,9 @@ console.log('== N. 轮 4：建议类（全部只提醒，不拦运行）==');
   const it = r.items.find((i) => i.code === 'SOURCE_SKIP_SILENT');
   ok(!!it && it.level === 'warn' && it.nodeId === 'cfg', 'N5. 数据源 skip + ≥2 下游引用 → warn');
   ok(it.message.includes('成功'), 'N6. 点明真实风险：整轮仍显示成功、像"什么都没做"');
+  // ★ 2026-10-04：这条消息原来写成「整轮却仍显示**成功**」——** 在 React 纯文本节点里会原样显示成星号
+  //   （同一坑第三次复发）。判据从"含成功"收紧为"含成功且不含 **"，把复发变成会自动报红的回归。
+  ok(!it.message.includes('**'), 'N6b. 消息里没有 Markdown 星号（纯文本会被原样渲染）');
   ok(it.fix.includes('停止这条支路'), 'N7. ★建议改成「⛔ 停止这条支路」');
 }
 {

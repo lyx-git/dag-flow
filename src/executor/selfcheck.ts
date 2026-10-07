@@ -346,7 +346,7 @@ export function selfcheck(defInput: unknown, deps: SelfcheckDeps = {}): Selfchec
           code: 'SOURCE_SKIP_SILENT',
           nodeId: n.id,
           message: `节点「${labelOf(n.id)}」设了「跳过这条支路」，而它有 ${users} 个下游节点引用它的输出——它一旦失败，`
-            + '这条支路会被跳过、整轮却仍显示**成功**，看起来像"跑完了但什么都没做"',
+            + '这条支路会被跳过、整轮却仍显示「成功」，看起来像"跑完了但什么都没做"',
           fix: '数据源类节点建议改成「⛔ 停止这条支路」（失败就该报出来），或「🛟 忽略失败」并确保下游不依赖它的输出。',
         });
       }

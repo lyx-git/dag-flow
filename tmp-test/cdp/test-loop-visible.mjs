@@ -53,6 +53,14 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
   ok(panel0.bound === 'count', '边界类型下拉自动识别为 count（实际：' + panel0.bound + '）');
   ok(panel0.count === '3', 'count 值回显 3（实际：' + panel0.count + '）');
   ok(panel0.maxIter === '100', '最大迭代次数回显 100（实际：' + panel0.maxIter + '）');
+  // ★ 2026-10-04：这段提示曾写成 `**不会重复执行下游节点**` —— Markdown 星号在纯文本里**原样显示**（同一坑第三次复发）。
+  //   这里锁"渲染出来的文本里不许出现 **"，把它变成会自动报红的回归。
+  const loopHint = await evaluate(cdp, `(() => {
+    const row = [...document.querySelectorAll('.dsh-wf-panel-row')].find((r) => (r.textContent || '').includes('🔁 循环设置'));
+    return row?.querySelector('.dsh-wf-panel-hint')?.textContent ?? '';
+  })()`);
+  ok(loopHint.includes('不会重复执行下游节点') && !loopHint.includes('**'),
+    '循环设置提示无 Markdown 星号残留（实际：' + loopHint.slice(0, 36) + '…）');
 
   // 切换成 over：写入 over、**清掉 count**（不能留下 "count": null 脏数据）
   await evaluate(cdp, `(() => {

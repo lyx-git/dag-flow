@@ -436,11 +436,17 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   const [verLoading, setVerLoading] = useState(false);
   // 版本弹窗高度（2026-10-01 夜用户需求：上边缘可上下拖动，展示更多版本）
   const [verH, setVerH] = useState(420);
+  // 版本弹窗「上移偏移」（2026-10-04 用户要求：弹窗位置与 ⏰ 定时任务弹窗保持一致——默认落点 14vh，
+  //   拖上边缘时顶边跟随光标上移，偏移量记在这里；clamp 在 [0, 14vh-16px]，绝不让顶边越出视口）
+  const [verOff, setVerOff] = useState(0);
   // 版本数据实际落盘目录（服务端 versions 列表响应携带 dir；弹窗里标注存储位置）
   const [verDir, setVerDir] = useState('');
   const openVersions = useCallback(async () => {
     ensurePickerStyles(); // 版本弹窗复用 picker 的 .dag-flow-picker-* 样式——没开过 📂 时也要有样式
     setVerOpen(true);
+    // 每次打开都回到默认落点（14vh，与 ⏰ 定时任务弹窗一致）——上移偏移只影响本次打开期间；
+    // 高度 verH 仍然记忆（用户上轮拖高看更多版本的需求，见 2026-10-01 夜）
+    setVerOff(0);
     setVerLoading(true);
     try {
       const res = await fetch(`/api/dag-flow/workflows/${encodeURIComponent(def.name)}/versions`, { credentials: 'include' });
@@ -1012,6 +1018,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   const [logMeta, setLogMeta] = useState<{ runId?: string; live?: boolean; runStatus?: string; error?: string; at?: number } | null>(null);
   const [logBusy, setLogBusy] = useState(false);
   const [logFilter, setLogFilter] = useState('');
+  const [logScope, setLogScope] = useState<'all' | 'problem'>('all');
   const [logExpanded, setLogExpanded] = useState<Record<string, boolean>>({});
   const logLiveRef = useRef(false);
   const fetchRunLog = useCallback(async (): Promise<void> => {
@@ -1048,12 +1055,27 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     if (prevRunningRef.current && !running && logOpen) void fetchRunLog();
     prevRunningRef.current = running;
   }, [running, logOpen, fetchRunLog]);
+  /** 失败/跳过的条目**默认展开**（用户手动折叠过的不覆盖） */
+  useEffect(() => {
+    if (!logEntries.length) return;
+    setLogExpanded((m) => {
+      const next = { ...m };
+      let changed = false;
+      for (const e of logEntries) {
+        if ((e?.status === 'failed' || e?.status === 'skipped') && next[e.id] === undefined) { next[e.id] = true; changed = true; }
+      }
+      return changed ? next : m;
+    });
+  }, [logEntries]);
+
   /** 搜索过滤后的日志（按节点/参数/出参全文匹配） */
   const logView = useMemo(() => {
+    let list = logEntries;
+    if (logScope === 'problem') list = list.filter((e) => e?.status === 'failed' || e?.status === 'skipped');   // 只看失败/跳过（大图排查）
     const q = logFilter.trim().toLowerCase();
-    if (!q) return logEntries;
-    return logEntries.filter((e) => { try { return JSON.stringify(e ?? {}).toLowerCase().includes(q); } catch { return false; } });
-  }, [logEntries, logFilter]);
+    if (!q) return list;
+    return list.filter((e) => { try { return JSON.stringify(e ?? {}).toLowerCase().includes(q); } catch { return false; } });
+  }, [logEntries, logFilter, logScope]);
   // ★ 运行前自检拦住（2026-10-04 轮 1）：存住 host 返回的问题清单（含解决办法），弹窗让用户人工确认
   const [selfcheckBlock, setSelfcheckBlock] = useState<{ items: { level?: string; code?: string; nodeId?: string; message?: string; fix?: string }[]; errorCount: number; warnCount?: number; stats?: { nodes?: number; edges?: number } } | null>(null);
   // 「点运行 → 先自检（按钮显示『自检中…』）→ 自检通过 → 人工确认 → 才真正开跑」的中间态
@@ -1553,7 +1575,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
             onClick: addSchedule,
           }, '＋ 添加定时'),
           createElement('div', { className: 'dsh-wf-sched-foot' },
-            '配置存在工作区 .dag-flow/schedules.json；cron 为**本机时区**的「分 时 日 月 周」。',
+            '配置存在工作区 .dag-flow/schedules.json；cron 为本机时区的「分 时 日 月 周」。',
             createElement('br'),
             '同一工作流上一次没跑完时，本次会跳过并记「⏭ 本次跳过」；dsh 重启后不补跑错过的档期。'),
         ),
@@ -1565,17 +1587,20 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       'div',
       {
         className: 'dag-flow-picker-overlay',
-        // 底部锚定：拖上边缘时顶边跟随光标向上生长（顶部锚定会变成向下长，手感不对）
-        style: { alignItems: 'flex-end', paddingTop: 0, paddingBottom: '8vh' },
+        // 2026-10-04 用户反馈「历史版本弹窗有点偏中下部了，最好和定时任务弹窗保持一致」：
+        //   此前这里内联了 alignItems:'flex-end' + paddingBottom:'8vh'（底部锚定，弹窗落在中下部），
+        //   现改为**不覆盖** —— 用 overlay 默认的顶部锚定（align-items:flex-start; padding-top:14vh），
+        //   与 ⏰ 定时任务弹窗同一落点。「顶边跟随光标」的手感由下面 handle 的 verOff 偏移保留。
         onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) setVerOpen(false); },
       },
       createElement(
         'div',
         {
           className: 'dag-flow-picker dag-flow-picker-ver',
-          style: { height: verH, maxHeight: '90vh', display: 'flex', flexDirection: 'column' },
+          // maxHeight 与顶部锚定配套：顶边在 14vh，可用高度 = 100vh-14vh，留 16px 下边距（原 90vh 会在顶部锚定下越出视口底部）
+          style: { height: verH, maxHeight: 'calc(86vh - 16px)', marginTop: -verOff, display: 'flex', flexDirection: 'column' },
         },
-        // 上边缘拖拽把手：向上拖加高、向下拖收矮（钳位 280px ~ 90vh）
+        // 上边缘拖拽把手：向上拖 = 顶边跟随光标上移 + 加高；向下拖 = 收矮（钳位 280px ~ 视口剩余高度）
         createElement('div', {
           className: 'dag-flow-picker-resize-y',
           title: '上下拖动调整弹窗高度',
@@ -1583,8 +1608,21 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
             e.preventDefault();
             const startY = e.clientY;
             const startH = verH;
-            const maxH = Math.round(window.innerHeight * 0.9);
-            const onMove = (ev: MouseEvent) => setVerH(Math.min(Math.max(startH + (startY - ev.clientY), 280), maxH));
+            const startOff = verOff;
+            const vh = window.innerHeight;
+            // 与 .dag-flow-picker-overlay 的 padding-top:14vh 对齐（默认锚点 = ⏰ 定时任务弹窗的落点）
+            const baseTop = Math.round(vh * 0.14);
+            const GAP = 16;
+            const MIN_H = 280;
+            const maxOff = Math.max(0, baseTop - GAP);
+            const onMove = (ev: MouseEvent) => {
+              const dy = startY - ev.clientY; // 向上拖为正
+              // 顶边跟随光标上移（不越过视口上沿、也不低于默认锚点），高度同步长高
+              const off = Math.min(Math.max(startOff + dy, 0), maxOff);
+              const maxH = Math.max(MIN_H, vh - GAP - (baseTop - off));
+              setVerOff(off);
+              setVerH(Math.min(Math.max(startH + dy, MIN_H), maxH));
+            };
             const onUp = () => {
               window.removeEventListener('mousemove', onMove, true);
               window.removeEventListener('mouseup', onUp, true);
@@ -1861,6 +1899,12 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
               : `工作流「${def.name}」${logMeta?.runId ? ` · ${logMeta.runId}` : ''} · 状态 ${logStatusLabel(logMeta?.runStatus)} · ${logEntries.length} 个节点${logMeta?.live ? ' · 运行中，自动刷新' : ''}`),
           createElement('div', { className: 'dsh-wf-log-toolbar' },
             createElement('button', { className: 'dsh-wf-btn', title: '重新拉取日志', onClick: () => void fetchRunLog() }, logBusy ? '⏳ 刷新中' : '🔄 刷新'),
+            // ★ 只看失败/跳过（2026-10-04 便利性：大图排查时不必在几十条里翻）
+            createElement('button', {
+              className: `dsh-wf-btn${logScope === 'problem' ? ' primary' : ''}`,
+              title: '只看失败与跳过的节点（大图排查用）',
+              onClick: () => setLogScope((v) => (v === 'problem' ? 'all' : 'problem')),
+            }, '⚠ 只看失败/跳过'),
             createElement('input', {
               className: 'dsh-wf-log-search',
               value: logFilter,
@@ -1894,8 +1938,12 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
                 return createElement('div', { className: 'dsh-wf-log-item', key: e.id },
                   createElement('div', {
                     className: 'dsh-wf-log-head',
-                    onClick: () => setLogExpanded((m) => ({ ...m, [e.id]: !m[e.id] })),
-                    title: '点击展开/折叠该节点的参数与出参',
+                    // ★ 点一下展开参数/出参，**同时在画布上选中该节点**（2026-10-04 便利性：看完日志能立刻回画布定位）
+                    onClick: () => {
+                      setLogExpanded((m) => ({ ...m, [e.id]: !m[e.id] }));
+                      if ((def.nodes ?? []).some((n) => n.id === e.id)) setSelectedNodeId(e.id);
+                    },
+                    title: '点击展开/折叠该节点的参数与出参，并在画布上选中它',
                   },
                     createElement('span', { className: 'dsh-wf-log-caret' }, open ? '▾' : '▸'),
                     createElement('span', { className: `dsh-wf-log-dot is-${st}` }),
@@ -1911,6 +1959,23 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
                     e?.rawParams !== undefined ? section('原始参数（含 {{}} 模板引用）', e.rawParams) : null,
                     e?.params !== undefined ? section('实际入参（模板已展开 = 节点真正收到的）', e.params) : null,
                     e?.out !== undefined ? section('出参', e.out) : null,
+                    // ★ AI 调用详情（2026-10-04）：与「🧪 试跑本节点」共用同一份采集——
+                    //   模型/提供方/走宿主还是直连/token 用量/结束原因（max-tokens 会显式提醒截断）+ 实际提示词
+                    e?.debug ? createElement('div', { className: 'dsh-wf-log-sec', key: 'ai-debug' },
+                      createElement('div', { className: 'dsh-wf-log-sec-title' }, '🤖 AI 调用详情'),
+                      createElement('div', { className: 'dsh-wf-log-aidebug' },
+                        String([
+                          `${e.debug.modelLabel ?? e.debug.model ?? '?'}${e.debug.provider ? `（${e.debug.provider}）` : ''}`,
+                          e.debug.viaHost ? '走宿主' : '直连',
+                          e.debug.usage ? `tokens 入 ${e.debug.usage.inputTokens ?? '?'} / 出 ${e.debug.usage.outputTokens ?? '?'}` : 'tokens：宿主未提供',
+                          e.debug.finishReason ? `结束 ${e.debug.finishReason}${e.debug.finishReason === 'max-tokens' ? '（⚠ 撞 maxTokens 截断）' : ''}` : '',
+                          e.debug.textChars != null ? `返回 ${e.debug.textChars} 字` : '',
+                        ].filter(Boolean).join(' · ')),
+                      ),
+                      e.debug.prompt !== undefined
+                        ? createElement('pre', { className: 'dsh-wf-log-pre' }, String(e.debug.prompt).slice(0, 1200))
+                        : null,
+                    ) : null,
                     st === 'skipped' ? createElement('div', { className: 'dsh-wf-log-sec-title' }, '（该节点未执行：所在分支未命中）') : null,
                     Array.isArray(e?.truncated) && e.truncated.length
                       ? createElement('div', { className: 'dsh-wf-log-sec-title' }, `（字段已截断：${e.truncated.join('、')}）`) : null,
@@ -2344,7 +2409,7 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
     const out: React.ReactNode[] = [
       createElement('label', { className: 'dsh-wf-panel-label', key: 'loop-label' }, '🔁 循环设置'),
       createElement('div', { className: 'dsh-wf-panel-hint', key: 'loop-hint' },
-        'loop 只产出迭代序列（out.count / out.items），**不会重复执行下游节点**：它算出「跑几次 / 跑哪些项」，由下游节点自己逐项处理。三种边界同时只按一个生效，优先级 over > count > while。'),
+        'loop 只产出迭代序列（out.count / out.items），「不会重复执行下游节点」：它算出「跑几次 / 跑哪些项」，由下游节点自己逐项处理。三种边界同时只按一个生效，优先级 over > count > while。'),
       createElement('select', {
         className: 'dsh-wf-input', key: 'loop-bound', value: loopBound,
         onChange: (e: React.ChangeEvent<HTMLSelectElement>) => setLoopBound(e.target.value),
@@ -2445,7 +2510,7 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
       const target = data.summary?.results?.target;
-      setTestResult({ ok: data.ok, status: target?.status ?? data.summary?.status, ms: target?.durationMs, output: target?.out ?? target?.output });
+      setTestResult({ ok: data.ok, status: target?.status ?? data.summary?.status, ms: target?.durationMs, output: target?.out ?? target?.output, debug: target?.debug });
     } catch (e) {
       setTestResult({ error: (e as Error).message });
     } finally {
@@ -2756,6 +2821,21 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
           testResult.error
             ? `✗ ${testResult.error}`
             : `${testResult.ok ? '✓' : '✗'} 节点状态: ${testResult.status}${testResult.ms != null ? ` · ${Math.round(testResult.ms)}ms` : ''}`,
+        ),
+        // ★ AI 调试信息（2026-10-04 用户问「试跑本节点能不能当 LLM 调试面板」→ 能，这里把它补全）：
+        //   模型/提供方 · token 用量 · 结束原因 · 实际提示词——调 AI 节点时最需要看的几项
+        testResult.debug && createElement('div', { className: 'dsh-wf-test-debug' },
+          createElement('div', { className: 'dsh-wf-test-debug-head' },
+            `🤖 ${testResult.debug.modelLabel ?? testResult.debug.model}${testResult.debug.provider ? `（${testResult.debug.provider}）` : ''}`
+            + ` · ${testResult.debug.viaHost ? '走宿主' : '直连'}`
+            + (testResult.debug.usage
+                ? ` · tokens 入 ${testResult.debug.usage.inputTokens ?? '?'} / 出 ${testResult.debug.usage.outputTokens ?? '?'}`
+                : ' · tokens：宿主未提供')
+            + (testResult.debug.finishReason ? ` · 结束 ${testResult.debug.finishReason}` : '')
+            + (testResult.debug.finishReason === 'max-tokens' ? '（⚠ 撞到 maxTokens 上限，输出被截断）' : ''),
+          ),
+          createElement('div', { className: 'dsh-wf-test-debug-title' }, '实际提示词（模板已展开 = 模型真正看到的）'),
+          createElement('pre', { className: 'dsh-wf-test-debug-pre' }, String(testResult.debug.prompt ?? '').slice(0, 1200)),
         ),
         testResult.output != null && createElement('pre', null, JSON.stringify(testResult.output, null, 2).slice(0, 600)),
       ),

@@ -51,7 +51,14 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, sleep, name, base })
   })()`), '① 头部有 ⏰ 按钮（title 以「定时任务（」开头）');
   await waitFor(cdp, `!!document.querySelector('.dag-flow-picker.dsh-wf-sched')`, { timeout: 8000 });
   ok(true, '① 点开后出现弹窗根 .dag-flow-picker.dsh-wf-sched');
+  // ★ 2026-10-04：`.dsh-wf-sched { width: min(720px,92vw) }` 此前被运行时注入的 `.dag-flow-picker{width:680px}`
+  //   压掉（同权重、注入的更靠后）→ 实测所有弹窗都是 680。修法=把该规则提权成 `.dag-flow-picker.dsh-wf-sched`。
+  eq(await evaluate(cdp, `Math.round(document.querySelector('.dag-flow-picker.dsh-wf-sched').getBoundingClientRect().width)`),
+    720, '①b 定时弹窗宽度 = 720（宽度规则真的生效了，不再被压成 680）');
   eq(await evaluate(cdp, `window.__sa_icon`), '⏰', '① 按钮文案就是 ⏰');
+  // ★ 2026-10-04：底部说明曾写成「cron 为**本机时区**的」→ 纯文本里星号原样显示。锁"弹窗可见文案无 **"。
+  const schedText = await evaluate(cdp, `document.querySelector('.dag-flow-picker.dsh-wf-sched').textContent`);
+  ok(!schedText.includes('**'), '①c 定时弹窗可见文案里没有 Markdown 星号（此前底部说明带 **）');
 
   // ② 标题 / 工作流名 / 黄色费用提示
   const head = await evaluate(cdp, `(() => {
@@ -194,6 +201,8 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, sleep, name, base })
   await evaluate(cdp, `window.__sa_click('.dsh-wf-sched-run')`);
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-sched-confirm')`, { timeout: 6000 });
   ok(true, '⑩f 点按钮后出现应用内确认弹窗');
+  eq(await evaluate(cdp, `Math.round(document.querySelector('.dsh-wf-sched-confirm').getBoundingClientRect().width)`),
+    460, '⑩f2 确认弹窗宽度 = 460（小确认框的宽度规则生效）');
   eq(await evaluate(cdp, `window.__sa_confirm`), 0, '⑩g ★没有调用 window.confirm（原生弹窗已废弃）');
   const ctext = await evaluate(cdp, `document.querySelector('.dsh-wf-sched-confirm')?.textContent ?? ''`);
   ok(ctext.includes('费用'), '⑩h 确认弹窗写明会产生费用');

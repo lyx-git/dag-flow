@@ -53,6 +53,8 @@ export interface NodeRunDetail {
   out?: JsonValue;
   error?: { code: string; message: string; stack?: string };
   tolerated?: boolean;
+  /** ★ 节点调试信息（2026-10-04）：AI 节点的 prompt／模型／token 用量／结束原因（**不进 out**） */
+  debug?: JsonValue;
   durationMs?: number;
   startedAt?: string;
   endedAt?: string;
@@ -427,7 +429,7 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
       opts.onNodeLog?.({
         id, type: nodeById.get(id)?.type ?? '', phase: 'done',
         status: r.status, out: r.out as JsonValue, error: r.error as NodeRunDetail['error'],
-        tolerated: r.tolerated, durationMs: r.durationMs, startedAt: r.startedAt, endedAt: r.endedAt,
+        tolerated: r.tolerated, debug: r.debug, durationMs: r.durationMs, startedAt: r.startedAt, endedAt: r.endedAt,
       });
     }
 

@@ -918,6 +918,19 @@
 .dsh-wf-w-full { width: 100%; }
 .dsh-wf-h-full { height: 100%; }
 
+/* ========== 璁剧疆椤碉紙浠呯敾甯冧富棰樺垏鎹紱妯″瀷/瀵嗛挜缁熶竴鍙栬嚜 dsh锛岃 FlowGramCanvas /models锛?========== */
+.dsh-wf-settings {
+  padding: 20px;
+  font-size: 13px;
+  color: var(--dsh-wf-fg);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: auto;
+  height: 100%;
+  box-sizing: border-box;
+}
+
 /* ========== 宸ヤ綔娴佺獥鍙ｏ紙涓瓑寮圭獥 + 鏈€澶у寲/鏈€灏忓寲/鎷栨嫿锛?========== */
 .dsh-wf-win {
   position: fixed;

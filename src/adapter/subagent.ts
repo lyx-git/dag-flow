@@ -43,9 +43,54 @@ export interface SubagentOptions {
 export interface SubagentResult {
   text: string;
   raw?: JsonValue;
+  /** ★ AI 调试信息（2026-10-04 用户问「试跑本节点能不能当 LLM 调试面板」→ 把调试要看的都采集出来）：
+   *  实际提示词（模板已展开）、模型/提供方、耗时、token 用量、结束原因、是否走宿主。 */
+  debug?: SubagentDebug;
+}
+
+/** AI 节点调试信息（进 NodeResult.debug → 试跑面板 + 运行日志共用；**不进 out**，不污染数据流） */
+export interface SubagentDebug {
+  /** 实际发出的提示词（模板已展开——这就是"AI 到底看到了什么"） */
+  prompt: string;
+  system?: string;
+  /** 存值模型 id（workflow 里写的那个） */
+  model: string;
+  /** 实际提供方（host provider / settings provider 键名） */
+  provider?: string;
+  /** 显示名（宿主给的模型名） */
+  modelLabel?: string;
+  /** true = 走宿主 llm.stream；false = 直连 OpenAI 兼容端点 */
+  viaHost: boolean;
+  /** 本次调用耗时 */
+  durationMs: number;
+  /** 结束原因（stop / max-tokens / 直连的 finish_reason） */
+  finishReason?: string;
+  /** token 用量（宿主给 usage chunk 才有；直连读响应里的 usage） */
+  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  /** 请求的 maxTokens（配合 finishReason 判断"是不是被上限截断"） */
+  maxTokens?: number;
+  /** 返回文本长度 */
+  textChars?: number;
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
+
+/** 组装 AI 调试信息（2026-10-04）：把"这次调用到底发生了什么"打包给上层（试跑面板 + 运行日志共用） */
+function baseDebug(
+  endpoint: LlmEndpoint,
+  opts: SubagentOptions,
+  rest: Pick<SubagentDebug, 'viaHost' | 'durationMs'> & Partial<Pick<SubagentDebug, 'finishReason' | 'usage' | 'textChars'>>,
+): SubagentDebug {
+  return {
+    prompt: opts.prompt,
+    ...(opts.system ? { system: opts.system } : {}),
+    model: String(opts.model ?? endpoint.model ?? ''),
+    ...(endpoint.providerName ? { provider: endpoint.providerName } : {}),
+    ...(endpoint.modelLabel ? { modelLabel: endpoint.modelLabel } : {}),
+    ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
+    ...rest,
+  };
+}
 
 export class SubagentUnavailableError extends Error {
   /** 可选的节点级错误码：同一种病在不同路径要报同一个码（如空输出 SUBAGENT_EMPTY_OUTPUT），
@@ -241,7 +286,7 @@ export async function resolveLlmEndpoint(modelId?: string): Promise<LlmEndpoint>
  * 自动探测协议：先试 /chat/completions（标准），再试 /v1/responses（Responses API）。
  * @returns 模型文本输出
  */
-async function callOpenAICompatible(endpoint: LlmEndpoint, prompt: string, opts: SubagentOptions, signal: AbortSignal): Promise<string> {
+async function callOpenAICompatible(endpoint: LlmEndpoint, prompt: string, opts: SubagentOptions, signal: AbortSignal): Promise<{ text: string; usage?: SubagentDebug['usage']; finishReason?: string }> {
   const { baseURL, apiKey, model } = parseOpenAICompat(endpoint);
   if (!baseURL) throw new SubagentUnavailableError('端点 baseURL 为空');
   const messages = [];
@@ -258,14 +303,23 @@ async function callOpenAICompatible(endpoint: LlmEndpoint, prompt: string, opts:
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
   };
   const lastErr: string[] = [];
+  /** OpenAI 兼容响应里的 usage → 统一形状（2026-10-04：AI 调试面板要显示 token 用量） */
+  const usageOf = (u: unknown): SubagentDebug['usage'] | undefined => {
+    if (!u || typeof u !== 'object') return undefined;
+    const x = u as { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number };
+    const input = x.input_tokens ?? x.prompt_tokens;
+    const output = x.output_tokens ?? x.completion_tokens;
+    if (input === undefined && output === undefined) return undefined;
+    return { inputTokens: input, outputTokens: output, totalTokens: x.total_tokens ?? ((input ?? 0) + (output ?? 0)) };
+  };
 
   // 路径 1：标准 /chat/completions
   try {
     const resp = await fetch(`${baseURL}/chat/completions`, { method: 'POST', headers, body: JSON.stringify(body), signal });
     if (resp.ok) {
-      const data = (await resp.json()) as { choices?: { message?: { content?: string } }[] };
+      const data = (await resp.json()) as { choices?: { message?: { content?: string }; finish_reason?: string }[]; usage?: unknown };
       const text = data.choices?.[0]?.message?.content ?? '';
-      if (text) return text;
+      if (text) return { text, usage: usageOf(data.usage), finishReason: data.choices?.[0]?.finish_reason };
     } else {
       let detail = '';
       try { detail = (await resp.text()).slice(0, 300); } catch { /* */ }
@@ -282,13 +336,13 @@ async function callOpenAICompatible(endpoint: LlmEndpoint, prompt: string, opts:
     try {
       const resp = await fetch(`${baseURL}${p}`, { method: 'POST', headers, body: JSON.stringify(respBody), signal });
       if (resp.ok) {
-        const data = (await resp.json()) as { output?: { content?: { type?: string; text?: string }[] }[] };
+        const data = (await resp.json()) as { output?: { content?: { type?: string; text?: string }[] }[]; usage?: unknown; status?: string };
         const text = (data.output ?? [])
           .flatMap((o) => o.content ?? [])
           .filter((c) => c.type === 'output_text' || c.type === 'text')
           .map((c) => c.text ?? '')
           .join('\n');
-        if (text) return text;
+        if (text) return { text, usage: usageOf(data.usage), finishReason: data.status };
       } else {
         let detail = '';
         try { detail = (await resp.text()).slice(0, 300); } catch { /* */ }
@@ -305,7 +359,10 @@ async function callOpenAICompatible(endpoint: LlmEndpoint, prompt: string, opts:
 
 /** viaHost 端点执行：走 host llm.stream 分发（自带模型 Messages 协议/凭证全由 host 适配器解决）。
  *  onDelta 传入时逐段推送增量文本（流式路径复用）；返回聚合全文。 */
-async function callViaHostLlm(endpoint: LlmEndpoint, opts: SubagentOptions, onDelta?: (delta: string) => void): Promise<string> {
+async function callViaHostLlm(endpoint: LlmEndpoint, opts: SubagentOptions, onDelta?: (delta: string) => void): Promise<{ text: string; usage?: SubagentDebug['usage']; finishReason?: string }> {
+  const t0 = Date.now();
+  let usage: SubagentDebug['usage'] | undefined;
+  let finishReason: string | undefined;
   const llm = hostLlmRuntime();
   if (!llm || typeof llm.stream !== 'function') {
     throw new SubagentUnavailableError('host llm 服务不可用（未注入或无 stream 方法）');
@@ -356,7 +413,13 @@ async function callViaHostLlm(endpoint: LlmEndpoint, opts: SubagentOptions, onDe
             : (typeof reason === 'string' ? '（host 没有提供错误详情）' : JSON.stringify(reason));
           throw new SubagentUnavailableError(`host llm.stream ${kind === 'aborted' ? '被中止' : '失败'}: ${detail}`);
         }
+        finishReason = kind || (typeof reason === 'string' ? reason : JSON.stringify(reason));
         seen.push(`finish:${typeof reason === 'string' ? reason : JSON.stringify(reason)}`);
+      } else if ((chunk as { type?: string })?.type === 'usage') {
+        // ★ dsh-llm 的 usage chunk（适配器在 finish **之前**发出）：TokenUsage = { inputTokens, outputTokens, totalTokens? }
+        //   —— 2026-10-04 从宿主类型定义里确认它存在，token 用量由此而来
+        const u = (chunk as { usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }).usage;
+        if (u && typeof u === 'object') usage = { inputTokens: u.inputTokens, outputTokens: u.outputTokens, totalTokens: u.totalTokens };
       } else if (chunk?.type) {
         seen.push(String(chunk.type));
       }
@@ -379,7 +442,7 @@ async function callViaHostLlm(endpoint: LlmEndpoint, opts: SubagentOptions, onDe
     console.warn(`[dag-flow] host llm.stream 空流：provider=${endpoint.hostProvider ?? '?'} model=${endpoint.model} chunks=[${detail}]`);
     throw new SubagentUnavailableError(`host llm.stream 未返回任何文本（provider=${endpoint.hostProvider ?? '?'} model=${endpoint.model}；收到的 chunk：${detail}）——请确认该模型在 dsh 里可用，或在节点「选择模型」里换一个`, 'SUBAGENT_EMPTY_OUTPUT');
   }
-  return text;
+  return { text, usage, finishReason };
 }
 
 /** 业务代码调这个。内部决定走 DSH host、直连 fetch、还是抛 Unavailable。 */
@@ -409,16 +472,18 @@ export async function callSubagent(opts: SubagentOptions): Promise<SubagentResul
   // Messages 协议 / 账号 token / api-key / 重试全由 host 适配器解决——直连 fetch 无法承载。
   const endpoint = await resolveLlmEndpoint(opts.model);
   if (endpoint.viaHost) {
-    const text = await callViaHostLlm(endpoint, opts);
-    return { text };
+    const t0 = Date.now();
+    const r = await callViaHostLlm(endpoint, opts);
+    return { text: r.text, debug: baseDebug(endpoint, opts, { viaHost: true, durationMs: Date.now() - t0, finishReason: r.finishReason, usage: r.usage, textChars: r.text.length }) };
   }
 
   // 路径 2（方案 B）：直连 DSH 已配 LLM / 用户自定义模型
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const t1 = Date.now();
   try {
-    const text = await callOpenAICompatible(endpoint, opts.prompt, opts, ac.signal);
-    return { text };
+    const r = await callOpenAICompatible(endpoint, opts.prompt, opts, ac.signal);
+    return { text: r.text, debug: baseDebug(endpoint, opts, { viaHost: false, durationMs: Date.now() - t1, finishReason: r.finishReason, usage: r.usage, textChars: r.text.length }) };
   } catch (e) {
     if ((e as Error).name === 'AbortError') {
       throw new SubagentUnavailableError(`AI 节点超时（${opts.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms）`);
@@ -460,8 +525,9 @@ export async function callSubagentStream(
   // ★ viaHost 端点（DSH 自带模型）：走 host llm.stream，真实流式增量（2026-10-02）
   const endpoint = await resolveLlmEndpoint(opts.model);
   if (endpoint.viaHost) {
-    const text = await callViaHostLlm(endpoint, opts, onDelta);
-    return { text };
+    const t0 = Date.now();
+    const r = await callViaHostLlm(endpoint, opts, onDelta);
+    return { text: r.text, debug: baseDebug(endpoint, opts, { viaHost: true, durationMs: Date.now() - t0, finishReason: r.finishReason, usage: r.usage, textChars: r.text.length }) };
   }
 
   const ac = new AbortController();
@@ -556,6 +622,8 @@ export async function runSubagentNode(
     return {
       status: 'success',
       out: r.text,
+      // ★ AI 调试信息（2026-10-04）：prompt/模型/token 用量/结束原因——试跑面板与运行日志共用
+      ...(r.debug ? { debug: r.debug as unknown as JsonValue } : {}),
       durationMs: Date.now() - t0,
       startedAt,
       endedAt: new Date().toISOString(),

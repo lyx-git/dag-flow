@@ -53,6 +53,9 @@ export async function run({ cdp, evaluate, waitFor: wf, ok, eq, sleep, name, bas
 
   // ===== B. 有 error → 问题清单（报错提示 + 解决办法）=====
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-selfcheck')`, { timeout: 8000 });
+  // ★ 2026-10-04：自检弹窗宽度规则同样被运行时注入的 `.dag-flow-picker{width:680px}` 压掉 → 实测 680
+  eq(await evaluate(cdp, `Math.round(document.querySelector('.dsh-wf-selfcheck').getBoundingClientRect().width)`),
+    620, 'B0 自检未通过弹窗宽度 = 620（宽度规则生效）');
   const dlg = await evaluate(cdp, `(() => {
     const d = document.querySelector('.dsh-wf-selfcheck');
     return {

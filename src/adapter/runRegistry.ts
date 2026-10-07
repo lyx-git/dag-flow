@@ -58,6 +58,8 @@ export interface NodeLogEntry {
   out?: unknown;
   error?: { code?: string; message?: string; stack?: string };
   tolerated?: boolean;
+  /** ★ 节点调试信息（2026-10-04）：AI 节点的 prompt／模型／token 用量／结束原因（超长会被裁剪） */
+  debug?: unknown;
   durationMs?: number;
   startedAt?: string;
   endedAt?: string;
@@ -82,7 +84,7 @@ export function mergeNodeLog(rec: ActiveRun, d: {
   id: string; type?: string; phase: 'resolved' | 'done';
   status?: string; params?: unknown; rawParams?: unknown;
   refs?: NodeLogEntry['refs']; out?: unknown;
-  error?: NodeLogEntry['error']; tolerated?: boolean;
+  error?: NodeLogEntry['error']; tolerated?: boolean; debug?: unknown;
   durationMs?: number; startedAt?: string; endedAt?: string;
 }): void {
   if (!rec.log) { rec.log = {}; rec.logOrder = []; }
@@ -97,6 +99,7 @@ export function mergeNodeLog(rec: ActiveRun, d: {
     if (d.status) cur.status = String(d.status);
     if (d.out !== undefined) cur.out = clipLogField('out', d.out, truncated);
     if (d.error) cur.error = d.error;
+    if (d.debug !== undefined) cur.debug = clipLogField('debug', d.debug, truncated);
     if (d.tolerated) cur.tolerated = true;
     if (typeof d.durationMs === 'number') cur.durationMs = d.durationMs;
     if (d.startedAt) cur.startedAt = String(d.startedAt);

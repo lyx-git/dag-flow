@@ -47,7 +47,8 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, name, sleep }) {
     '11px', 'hint 字号 11px');
   ok(await evaluate(cdp, `!!document.querySelector('.dag-flow-picker .dag-flow-picker-close')`), '右上角 ✕ 关闭按钮');
   ok(await evaluate(cdp, `!document.querySelector('.dag-flow-picker-foot')`), '底部按钮行已移除');
-  const h1 = await evaluate(cdp, `document.querySelector('.dag-flow-picker').getBoundingClientRect().height`);
+  const h1 = await evaluate(cdp, `document.querySelector('.dag-flow-picker-ver').getBoundingClientRect().height`);
+  const top1 = await evaluate(cdp, `document.querySelector('.dag-flow-picker-ver').getBoundingClientRect().top`);
   await evaluate(cdp, `
     const handle = document.querySelector('.dag-flow-picker-resize-y');
     const y = handle.getBoundingClientRect().top + 5;
@@ -56,18 +57,47 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, name, sleep }) {
     window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
     true;
   `);
-  await waitFor(cdp, `document.querySelector('.dag-flow-picker').getBoundingClientRect().height > ${h1 + 100}`, { timeout: 3000 });
+  await waitFor(cdp, `document.querySelector('.dag-flow-picker-ver').getBoundingClientRect().height > ${h1 + 100}`, { timeout: 3000 });
+  // 顶边跟随光标上移（顶部锚定后仍然成立——这是 2026-10-01 夜定下的手感，不能被定位改动破坏）
+  const top2 = await evaluate(cdp, `document.querySelector('.dag-flow-picker-ver').getBoundingClientRect().top`);
+  ok(top2 < top1 - 40, `5b 拖上边缘时顶边跟随光标上移（${top1} → ${top2}）`);
   await evaluate(cdp, `document.querySelector('.dag-flow-picker-close').click()`);
   await waitFor(cdp, `!document.querySelector('.dag-flow-picker')`, { timeout: 3000 });
   await evaluate(cdp, `window.__df_clickBtn('🕘')`);
   await waitFor(cdp, `!!document.querySelector('.dag-flow-picker')`, { timeout: 5000 });
   eq(await evaluate(cdp, `document.querySelectorAll('.dag-flow-picker .dsh-wf-btn').length`), 2, '✕ 关闭重开后仍渲染 2 行');
+  // 重开回到默认落点（上移偏移不跨次记忆）
+  const top3 = await evaluate(cdp, `document.querySelector('.dag-flow-picker-ver').getBoundingClientRect().top`);
+  ok(Math.abs(top3 - top1) <= 4, `5b 重开回到默认落点（${top1} → ${top3}）`);
 
   // 5c. 标题去工作流名后缀 + 数据存储位置标注（2026-10-01 夜用户要求）
   ok(await evaluate(cdp, `(() => { const t = document.querySelector('.dag-flow-picker-ver .dag-flow-picker-title').textContent; return t.includes('历史版本') && !t.includes(${JSON.stringify(name)}); })()`),
     'title 只剩「🕘 历史版本」（不带工作流名）');
   ok(await evaluate(cdp, `(() => { const t = (document.querySelector('.dag-flow-picker-ver-path')?.textContent) ?? ''; return t.includes('数据存于') && t.includes('versions') && t.includes(${JSON.stringify(name)}); })()`),
     '标注了数据存储位置（dir\\versions\\<名>\\）');
+
+  // 5d. ★ 位置与 ⏰ 定时任务弹窗一致（2026-10-04 用户反馈「历史版本弹窗有点偏中下部了，最好和定时任务弹窗保持一致」）
+  //     旧实现内联了 alignItems:'flex-end' + paddingBottom:'8vh'（底部锚定 → 落在中下部）；
+  //     现改用 overlay 默认的顶部锚定（align-items:flex-start; padding-top:14vh），与 ⏰ 同一落点。
+  const verTop = await evaluate(cdp, `document.querySelector('.dag-flow-picker-ver').getBoundingClientRect().top`);
+  const vh = await evaluate(cdp, `window.innerHeight`);
+  ok(Math.abs(verTop - vh * 0.14) <= 4,
+    `5d 版本弹窗顶部锚在 14vh（实测 top=${verTop}，期望 ${(vh * 0.14).toFixed(1)}）`);
+  // 宽度保持 .dag-flow-picker 默认 680（本弹窗没有专属宽度规则 → 确认提权只影响"有规则的"弹窗，没有外溢）
+  eq(await evaluate(cdp, `Math.round(document.querySelector('.dag-flow-picker-ver').getBoundingClientRect().width)`),
+    680, '5d 版本弹窗保持默认宽度 680（宽度规则没有外溢到它身上）');
+  const verText = await evaluate(cdp, `document.querySelector('.dag-flow-picker-ver').textContent`);
+  ok(!verText.includes('**'), '5d 版本弹窗可见文案里没有 Markdown 星号');
+  // 打开 ⏰ 弹窗量同一参照点 → 两个弹窗必须落在同一水平线上
+  await evaluate(cdp, `[...document.querySelectorAll('.dsh-wf-btn')].find((x) => (x.title || '').startsWith('定时任务（'))?.click()`);
+  await waitFor(cdp, `!!document.querySelector('.dag-flow-picker.dsh-wf-sched')`, { timeout: 8000 });
+  const schedTop = await evaluate(cdp, `document.querySelector('.dag-flow-picker.dsh-wf-sched').getBoundingClientRect().top`);
+  ok(Math.abs(verTop - schedTop) <= 2,
+    `5d 版本弹窗与定时任务弹窗同一落点（版本 ${verTop} vs 定时 ${schedTop}）`);
+  // 关掉 ⏰ 弹窗（后面的步骤按 .dag-flow-picker 首个匹配取元素，留着会串味）
+  await evaluate(cdp, `document.querySelector('.dsh-wf-sched .dag-flow-picker-close').click()`);
+  await waitFor(cdp, `!document.querySelector('.dsh-wf-sched')`, { timeout: 5000 });
+  ok(await evaluate(cdp, `!!document.querySelector('.dag-flow-picker-ver')`), '5d 关掉定时弹窗后版本弹窗仍在（互不干扰）');
 
   // 6. 回载旧版本（第 2 行 = 初始 2 节点内容）→ def 恢复、弹窗关闭、落盘、版本数不虚增
   await evaluate(cdp,

@@ -305,6 +305,7 @@ createServer((req, res) => {
     });
     return;
   }
+
   // ★ 运行日志 stub（2026-10-04 CDP 用）：按工作流名返回最近一次的逐节点日志
   if (u.pathname === '/api/dag-flow/run/log') {
     const byName = u.searchParams.get('name') ?? '';
@@ -365,13 +366,28 @@ createServer((req, res) => {
         }
         json({ ok: true, summary: { status: 'success', totalDurationMs: 5, results } });
         // ★ 运行日志 stub（2026-10-04 CDP 用）：每个节点造一条「原始参数（含 {{}}）→ 实际入参 → 引用上游 → 出参」
+        //   + 第一个非 start 节点造**失败**（验证"失败项默认展开"+「只看失败/跳过」过滤）
+        //   + 给 subagent 节点带 **debug**（AI 调用详情：prompt/模型/token/结束原因）
+        const nodes = def.nodes ?? [];
+        //   失败/跳过放在**末尾**（别打断用例前半段对前两条的断言）
+        const failIdx = Math.max(1, nodes.length - 2);
         lastRunLog = {
           name: def.name, runId: 'run-stub-log',
-          entries: (def.nodes ?? []).map((n, i) => ({
-            id: n.id, type: n.type, status: 'success', durationMs: 11 + i,
+          entries: nodes.map((n, i) => ({
+            id: n.id, type: n.type,
+            status: i === failIdx ? 'failed' : (i === failIdx + 1 ? 'skipped' : 'success'),
+            durationMs: 11 + i,
+            ...(i === failIdx ? { error: { code: 'STUB_FAILED', message: 'stub 造的失败（验证日志联动/过滤）' } } : {}),
             rawParams: { code: 'print("{{start.out}}")', level: 'info' },
             params: { code: 'print("ok")', level: 'info' },
-            refs: i === 0 ? { nodeRefs: [], varsUsed: [], inputsUsed: [] } : { nodeRefs: ['start'], varsUsed: ['loopIndex'], inputsUsed: [] },
+            refs: { nodeRefs: ['start'], varsUsed: ['loopIndex'], inputsUsed: [] },
+            ...(n.type === 'subagent' || i === failIdx ? {
+              debug: {
+                prompt: `stub 实际提示词（节点 ${n.id}）`, model: 'stub-model', provider: 'stub-provider', modelLabel: 'Stub 模型',
+                viaHost: true, durationMs: 11 + i, finishReason: i === failIdx ? 'max-tokens' : 'stop',
+                usage: { inputTokens: 111, outputTokens: 222, totalTokens: 333 }, textChars: 12,
+              },
+            } : {}),
             out: stubOut(n),
           })),
         };
@@ -454,8 +470,25 @@ createServer((req, res) => {
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
       try {
-        const { nodeType } = JSON.parse(body);
-        json({ ok: true, summary: { status: 'success', totalDurationMs: 5, results: { target: { status: 'success', durationMs: 5, out: `STUB_OUTPUT_${nodeType}` } } } });
+        const { nodeType, params } = JSON.parse(body);
+        json({
+          ok: true,
+          summary: {
+            status: 'success', totalDurationMs: 5,
+            results: {
+              target: {
+                status: 'success', durationMs: 5, out: `STUB_OUTPUT_${nodeType}`,
+                // ★ AI 调试信息 stub（2026-10-04）：试跑面板的「AI 调试」显示依赖它
+                debug: {
+                  prompt: `stub 实际提示词（${nodeType}）：${String(params?.prompt ?? '').slice(0, 30)}`,
+                  model: 'stub-model', provider: 'stub-provider', modelLabel: 'Stub 模型',
+                  viaHost: true, durationMs: 5, finishReason: 'stop',
+                  usage: { inputTokens: 11, outputTokens: 22, totalTokens: 33 }, textChars: 8,
+                },
+              },
+            },
+          },
+        });
       } catch { res.writeHead(400); res.end('bad json'); }
     });
     return;

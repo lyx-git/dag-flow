@@ -18,7 +18,7 @@
   ✓ effect 标签可辨识
   ✓ 加载日志同时报告 tool / api 的注册结果
   ✓ 加载日志不再声称 safe mode
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-apply-2nO7qD\.dag-flow\workflow (2 files)
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-apply-9EQq5x\.dag-flow\workflow (2 files)
   ✓ dag-flow 自己的文件日志已落盘
   ✓ 文件日志含路由注册条数与 loaded 行
   ✓ storage 根解析为宿主工作区（host-ctx）
@@ -121,8 +121,8 @@
   ✓ R3 契约: python 节点不允许回退到系统 python（除非 bundled/cache 都没有）
 
 === Result: 24 passed, 0 failed ===
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dsh-wf-test-VdDhfH\.dag-flow\workflow (2 files)
-[1] storage dir = C:\Users\lmz\AppData\Local\Temp\dsh-wf-test-VdDhfH\.dag-flow\workflow (source: process-cwd)
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dsh-wf-test-rO3r4h\.dag-flow\workflow (2 files)
+[1] storage dir = C:\Users\lmz\AppData\Local\Temp\dsh-wf-test-rO3r4h\.dag-flow\workflow (source: process-cwd)
 [2] readWorkflow roundtrip = OK
 [3] raw JSON on disk: demo-flow | pretty-printed: yes
 [4] listWorkflows = ["demo-flow","测试","test"]
@@ -131,12 +131,12 @@
 [7] chinese name roundtrip: 每日简报
 
 ✅ storage JSON 端到端全部通过
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dsh-ws-a-OjXuG7\.dag-flow\workflow (2 files)
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dsh-ws-a-Zgd4j7\.dag-flow\workflow (2 files)
   ✓ 单一工作区 → <ws>/.dag-flow/workflow
   ✓ 来源标记 workspace-registry
   ✓ 目录已创建
   ✓ 写工作流落到工作区目录
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dsh-ws-b-pcFB6M\.dag-flow\workflow (2 files)
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dsh-ws-b-krTBW6\.dag-flow\workflow (2 files)
   ✓ 多工作区 → 取 updatedAt 最新
 [dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → D:\workspace\pluginspace\dag-flow\.dag-flow\workflow (2 files)
   ✓ 无 registry → 回退 process.cwd() 链
@@ -147,7 +147,7 @@
   ✓ apply(ctx) 完成且捕获到路由
   ✓ GET /nodes → 200
   ✓ 节点列表含 13 内置类型
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-e2e-PHLfto\.dag-flow\workflow (2 files)
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-e2e-Da5W7h\.dag-flow\workflow (2 files)
   ✓ POST /workflows/save → 200 且名称规范化
   ✓ 工作流已落盘为工作区 JSON（.dag-flow/workflow/）
   ✓ 落盘内容是 pretty JSON 且 name 规范化
@@ -183,8 +183,8 @@
   ✓ 删除后读取 → 404
   ✓ GET /runs?workflowName → 200 且含记录
 npm.cmd : [workflow] fallback-path
-At line:1 char:129
-+ ... ext.UTF8Encoding]::new($false); npm.cmd run test:offline *>&1 | Out-F ...
+At line:1 char:213
++ ...  "host-llm exit=$LASTEXITCODE"; npm.cmd run test:offline *>&1 | Out-F ...
 +                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     + CategoryInfo          : NotSpecified: ([workflow] fallback-path:String) [], RemoteException
     + FullyQualifiedErrorId : NativeCommandError
@@ -252,7 +252,7 @@ At line:1 char:129
   ✓ A1. auto → 命中内置 bing 引擎并解析出结果
   ✓ A2. bing 结果字段完整（title/url/snippet）
   ✓ A3. count 钳制生效（count=5 → 最多 5 条）
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-search-vhXh38\.dag-flow\workflow (2 files)
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-search-JYPyKn\.dag-flow\workflow (2 files)
   ✓ A4. bing 无关缓存页 → 自动回退 ddg-lite
   ✓ A5. ddg-lite uddg 跳转链接已解码
   ✓ A6. provider=searxng → 公共实例 JSON 解析
@@ -280,8 +280,8 @@ At line:1 char:129
   ✓ A1. python 空白 code → 预检拦截
 [dag-flow] 以下节点不可达（未连接到 start）: end
   ✓ A2. bash 空 code → 预检拦截
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-params-vjTIyK\.dag-flow\workflow (2 files)
 [dag-flow] 以下节点不可达（未连接到 start）: end
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-params-2V5sxQ\.dag-flow\workflow (2 files)
   ✓ A3. http 空 url → 预检拦截
 [dag-flow] 以下节点不可达（未连接到 start）: end
   ✓ A4. if 空白 condition → 预检拦截（防静默 false）
@@ -436,7 +436,7 @@ At line:1 char:129
 [workflow] before-manual
   ✓ A1. /run 撞上 manual → 202 awaiting
   ✓ A2. 返回 runId + awaiting.nodeId/prompt
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-manual-GFwQrK\.dag-flow\workflow (2 files)
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-manual-LbzIIl\.dag-flow\workflow (2 files)
   ✓ A3. /run/status 查回等待态
   ✓ A4. status 带已完成节点结果（供画布徽标）
 [workflow] 已核对，图 2 需替换
@@ -465,7 +465,7 @@ At line:1 char:129
   ✓ count=3 → count 3
   ✓ count=3 → items=[0,1,2]
   ✓ count=3 → 状态 success
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-loop-QaKa7J\.dag-flow\workflow (2 files)
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-loop-AmRWz3\.dag-flow\workflow (2 files)
   ✓ count=0 → 0 次（不报错）
 
 == B. over 遍历上游数组（模板解析）==
@@ -621,11 +621,20 @@ At line:1 char:129
   ✓ H3. 内部串（llm:provider:model）不再出现在报错里
   ✓ H4. 拦在调用前（未发起 LLM 请求，不浪费额度）
 
-=== host-llm 契约：23 passed, 0 failed ===
+== I. AI 调试信息（2026-10-04：试跑面板 + 运行日志共用的采集口径）==
+  ✓ I1. 成功结果带 debug（不进 out）
+  ✓ I2. ★采集到 token 用量（宿主 usage chunk）
+  ✓ I3. ★记录"实际发出的提示词"（模板已展开：不再是 {{}} 原文）
+  ✓ I4. 记录模型 + 显示名 + 提供方
+  ✓ I5. 走宿主标记 + 结束原因 + maxTokens
+  ✓ I6. 有耗时与返回字数
+  ✓ I7. 宿主未给 usage → debug.usage 缺失（不编造）
+
+=== host-llm 契约：30 passed, 0 failed ===
   ✓ apply(ctx) 捕获到路由
 
 == ① 默认（不勾 tolerate）→ 下游停止 + 运行记失败（2026-10-04 轮 2：只停下游，不再中止全图）==
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-tol-nwF8PB\.dag-flow\workflow (2 files)
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-tol-gd0wAn\.dag-flow\workflow (2 files)
   ✓ HTTP 200（不是 500）
   ✓ 汇总 status=failed
   ✓ failedCount=1
@@ -753,7 +762,7 @@ At line:1 char:129
 
 === runProgress 运行进度映射：27 passed, 0 failed ===
 == A. 文本保存：同名自动改名、绝不覆盖 ==
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\df-asset-name-3uhFMU\.dag-flow\workflow (2 files)
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\df-asset-name-Y7Yp14\.dag-flow\workflow (2 files)
   ✓ A1. 首次保存 → 报告.md
   ✓ A2. 返回值是实际路径（.dag-flow/报告.md）
   ✓ A3. absolutePath 同步（邮件节点靠它找文件）
@@ -779,7 +788,7 @@ At line:1 char:129
 === 产出文件同名策略（方案 A）：17 passed, 0 failed ===
   ✓ apply(ctx) 捕获到路由
 == A. 运行中（流程未结束）就已完成的节点带 out ==
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-midrun-wqpefL\.dag-flow\workflow (2 files)
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-midrun-Fgz7o0\.dag-flow\workflow (2 files)
   ✓ A1. 抓到了「运行中 + a 已完成」的窗口
   ✓ A2. 运行中 a 的结果带 out 且内容正确
   ✓ A3. 同一时刻 b 正在执行（running 列表含 b）
@@ -957,14 +966,14 @@ At line:1 char:129
   ✓ M14. 非法表达式同样抛中文错（message=cron「分」字段取值 60 越界（原文「60」）——合法范围 0-59）
 
 === cron 解析与下次时间：90 passed, 0 failed ===
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\df-sched-wFihVc\.dag-flow\workflow (2 files)
-schedules 路径 = C:\Users\lmz\AppData\Local\Temp\df-sched-wFihVc\.dag-flow\schedules.json
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\df-sched-jR9kNz\.dag-flow\workflow (2 files)
+schedules 路径 = C:\Users\lmz\AppData\Local\Temp\df-sched-jR9kNz\.dag-flow\schedules.json
   ✓ 配置文件落在 <工作区>/.dag-flow/schedules.json（与 workflow/ 同级）
 
 == A. 初始与落盘 ==
   ✓ A1. 文件不存在时读为空列表（actual=0 expected=0）
   ✓ A2. 文件不存在不算错误（不报 warning）（actual=undefined expected=undefined）
-  ✓ A3. 新建返回 sch_ 前缀 id（sch_8a0si5）
+  ✓ A3. 新建返回 sch_ 前缀 id（sch_u1lj5s）
   ✓ A4. 新建默认启用（actual=true expected=true）
   ✓ A5. 并发策略固定为 skip（用户拍板 B）（actual="skip" expected="skip"）
   ✓ A6. 新建即写入未来的 nextRunAt（2026-10-05T01:00:00.000Z）
@@ -1032,11 +1041,11 @@ schedules 路径 = C:\Users\lmz\AppData\Local\Temp\df-sched-wFihVc\.dag-flow\sch
   ✓ B3. interactive:false（无人值守；manual 节点自动通过）（actual=false expected=false）
   ✓ B4. 定时项 inputs 透传给执行器（actual="每日" expected="每日"）
   ✓ B5. timeoutMs 透传（actual=5000 expected=5000）
-  ✓ B6. 每次触发带独立 runId（run-1791103201491-xfsv9b）
+  ✓ B6. 每次触发带独立 runId（run-1791106446078-8jwsvu）
   ✓ B7. 触发后 nextRunAt 立刻推进到未来（防同一分钟重复触发）
   ✓ B8. 跑完回写 lastRun.status=success（actual="success" expected="success"）
   ✓ B9. 回写耗时取自 summary.totalDurationMs（actual=12 expected=12）
-  ✓ B10. lastRun 记的就是这次 runId（actual="run-1791103201491-xfsv9b" expected="run-1791103201491-xfsv9b"）
+  ✓ B10. lastRun 记的就是这次 runId（actual="run-1791106446078-8jwsvu" expected="run-1791106446078-8jwsvu"）
 
 == C. 失败与异常 ==
   ✓ C1. 执行器报 failed → lastRun.status=failed（actual="failed" expected="failed"）
@@ -1111,7 +1120,7 @@ schedules 路径 = C:\Users\lmz\AppData\Local\Temp\df-sched-wFihVc\.dag-flow\sch
 
 == A. stop（默认）：失败节点的下游跳过；**其它分支继续**（旧实现是全图停）==
 [workflow] ok
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-failpol-Ish6Cm\.dag-flow\workflow (2 files)
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-failpol-EaUpdT\.dag-flow\workflow (2 files)
 [workflow] ok
   ✓ HTTP 200
   ✓ A1. 失败节点 status=failed
@@ -1164,7 +1173,7 @@ schedules 路径 = C:\Users\lmz\AppData\Local\Temp\df-sched-wFihVc\.dag-flow\sch
   ✓ apply(ctx) 捕获到路由
 
 == A. goto 到还没跑到的节点 → 目标执行（它本来会因失败节点的出边作废而被跳过）==
-[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-goto-SV6X2U\.dag-flow\workflow (2 files)
+[dag-flow] fallback workflows migrated: C:\Users\lmz\.dsh\workflows → C:\Users\lmz\AppData\Local\Temp\dag-flow-goto-jTrBcM\.dag-flow\workflow (2 files)
 [workflow] 兜底路径
   ✓ HTTP 200
   ✓ A1. ★goto 目标执行成功（失败边生效）

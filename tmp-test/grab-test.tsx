@@ -229,6 +229,36 @@ const bigDef: any = {
   },
 };
 
+/** ?huge=1：23 节点的「真实规模」夹具（对标用户真实工作流「金融政策日报」23 节点）——
+ *  用于性能实测：点输入框 / 复制文字的开销是否随节点数增长（2026-10-04 用户反馈卡顿）。
+ *  节点类型混排（含 subagent/http/web_search 等"字段多"的节点），比纯 log 更接近真实渲染重量。 */
+const hugeDef: any = (() => {
+  const nodes: any[] = [{ id: 'start', type: 'start', params: {} }];
+  const edges: any[] = [];
+  const layout: Record<string, { x: number; y: number }> = { start: { x: 40, y: 700 } };
+  const kinds: Array<[string, any]> = [
+    ['python', { code: 'print(1)' }],
+    ['log', { level: 'info', message: 'm' }],
+    ['set_var', { vars: { a: 1 } }],
+    ['http', { url: 'https://example.com', method: 'GET' }],
+    ['web_search', { query: 'x' }],
+    ['subagent', { prompt: 'p', model: 'stub-model' }],
+  ];
+  let prev = 'start';
+  for (let i = 0; i < 21; i++) {
+    const [type, params] = kinds[i % kinds.length];
+    const id = `${type}_${i + 1}`;
+    nodes.push({ id, type, label: `${type}${i + 1}`, params });
+    edges.push({ from: prev, to: id });
+    layout[id] = { x: 320 + (i % 5) * 620, y: 80 + Math.floor(i / 5) * 460 };
+    prev = id;
+  }
+  nodes.push({ id: 'end', type: 'end', params: {} });
+  edges.push({ from: prev, to: 'end' });
+  layout.end = { x: 320 + (21 % 5) * 620 + 620, y: 80 + Math.floor(21 / 5) * 460 };
+  return { name: wfName, version: 1, nodes, edges, layout };
+})();
+
 /** ?goto=1：失败策略「回跳不生效」告警夹具（2026-10-04 轮 5）
  *  形状：start → boom(失败策略 = 跳到 start，**start 在它之前** → 引擎按"停止这条支路"处理)
  *  → 断言问题面板给出 warn（提前显形，不必等运行）。 */
@@ -247,7 +277,7 @@ const gotoWarnDef: any = {
   layout: { start: { x: 60, y: 200 }, boom: { x: 340, y: 200 }, tail: { x: 620, y: 200 }, end: { x: 900, y: 200 } },
 };
 
-const initialDef: any = params.has('goto') ? gotoWarnDef : params.has('big') ? bigDef : params.has('vars') ? varsDef : params.has('jump') ? jumpDef : params.has('chips') ? chipsDef : params.has('stale') ? staleDef : params.has('many') ? manyDef : params.has('loop') ? loopDef : params.has('branch') ? branchDef : {
+const initialDef: any = params.has('goto') ? gotoWarnDef : params.has('huge') ? hugeDef : params.has('big') ? bigDef : params.has('vars') ? varsDef : params.has('jump') ? jumpDef : params.has('chips') ? chipsDef : params.has('stale') ? staleDef : params.has('many') ? manyDef : params.has('loop') ? loopDef : params.has('branch') ? branchDef : {
   name: wfName,
   version: 1,
   nodes: [
