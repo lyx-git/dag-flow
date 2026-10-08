@@ -113,6 +113,17 @@ const runNode = async (nodeType, params = {}) => {
   const tg = await runNode('subagent', { prompt: '看 data.csv 的列', model: 'dsh:custom-model:kimi-vision' });
   t('B7. kimi-vision（input: text,image）+ 引用 csv → 拦截（模型缺 file 模态）', tg?.status === 'failed' && tg?.error?.code === 'MODEL_MODALITY_MISMATCH', JSON.stringify(tg)?.slice(0, 200));
 }
+{
+  // ★ 2026-10-08 真机回归：材料型长提示词（新闻正文里含「附件.pdf」）不得被判成"引用文件"。
+  //   真机现场：金融政策日报 ai_policy/ai_bank 因正文里的「…（征求意见稿）.pdf」直接 failed。
+  const material = '【材料开始】\n（附件下载：1.企业会计准则——一般规定（修订征求意见稿）.pdf 2.起草说明.pdf）\n'
+    + '央行公开市场操作公告：为保持银行体系流动性合理充裕，开展逆回购操作……\n'.repeat(120);
+  t('B8a. 构造的长材料提示词确实超过阈值（>4000 字）', material.length > 4000, `长度=${material.length}`);
+  const tg = await runNode('subagent', { prompt: material, model: 'dsh:custom-model:glm-text-only' });
+  t('B8b. 材料型长提示词含 .pdf → 不再误判，正常调用 LLM', tg?.status === 'success' && tg?.out === 'llm-ok', JSON.stringify(tg)?.slice(0, 200));
+  const short = await runNode('subagent', { prompt: '读取附件 征求意见稿.pdf 并总结', model: 'dsh:custom-model:glm-text-only' });
+  t('B8c. 同一句话在短指令里仍按原口径拦截（避免把检查改废）', short?.status === 'failed' && short?.error?.code === 'MODEL_MODALITY_MISMATCH', JSON.stringify(short)?.slice(0, 200));
+}
 
 // ===== C. /test-image-api（image_generate 提前测试） =====
 const realFetch = globalThis.fetch;

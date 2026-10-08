@@ -144,6 +144,37 @@ export function selfcheck(defInput: unknown, deps: SelfcheckDeps = {}): Selfchec
       }
     }
 
+    // ---------- 死路：非 end 节点没有任何出边（warn 不拦——支路到此结束是合法形态）----------
+    //  2026-10-08 新增：此前只有画布问题面板会提示「无出边（死路）」，点 ▶ 时看不到（用户追问过）。
+    //  ★ 真正要提醒的不是"没出边"本身，而是"**有人在取它的输出却没连线**"——那没有先后顺序保证。
+    const hasOut = new Set(edgesN.map((e) => e.from));
+    const referencedBy = new Map<string, string[]>();
+    for (const node of def.nodes) {
+      const { nodeRefs } = extractRefs((node.params ?? {}) as Record<string, JsonValue>);
+      for (const ref of nodeRefs) {
+        if (ref === node.id || !ids.has(ref)) continue;
+        const l = referencedBy.get(ref);
+        if (l) l.push(node.id); else referencedBy.set(ref, [node.id]);
+      }
+    }
+    for (const n of def.nodes) {
+      if (n.type === 'end' || hasOut.has(n.id)) continue;
+      const users = [...new Set(referencedBy.get(n.id) ?? [])].filter((id) => id !== n.id);
+      push({
+        level: 'warn',
+        code: 'DEAD_END',
+        nodeId: n.id,
+        message: users.length
+          ? `节点「${labelOf(n.id)}」没有出边（支路到此结束），但「${users.map((u) => labelOf(u)).join('、')}」在取它的输出`
+            + `——两者之间没有连线，就没有执行先后顺序的保证`
+          : `节点「${labelOf(n.id)}」没有出边（支路到此结束）`,
+        fix: users.length
+          ? `从它拖一条线连到取用它的节点，让执行顺序有保证（画布上「${labelOf(n.id)}」→「${labelOf(users[0])}」）。`
+            + `如果它的执行顺序本来就无所谓，忽略这条提醒即可。`
+          : '如果这就是支路的终点（比如收尾的 log），忽略即可；否则从它拖一条线接到下一个节点，或删掉它。',
+      });
+    }
+
     // ---------- 轮 1 ④：环路（用归一化后的 edges，和引擎同一套判据）----------
     const topo = topoSort(normalized.def);
     if (!topo.ok) {

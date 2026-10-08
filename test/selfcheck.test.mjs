@@ -68,10 +68,11 @@ console.log('== D. 不可达节点：warn（不拦运行），但要说清"会�
     [{ from: 'start', to: 'end' }],
   ));
   ok(r.ok, 'D1. 只有 warn → ok 仍为 true（不拦）');
-  eq(codes(r), ['UNREACHABLE'], 'D2. 错误码 UNREACHABLE');
-  eq(r.warnCount, 1, 'D3. warnCount=1');
+  eq(codes(r), ['UNREACHABLE', 'DEAD_END'], 'D2. 错误码 UNREACHABLE + DEAD_END（孤立节点同时也无出边，两条都成立）');
+  eq(r.warnCount, 2, 'D3. warnCount=2');
   ok(r.items[0].message.includes('独立入口'), 'D4. 消息点明真实后果（会被当独立入口执行，不是跳过）');
   ok(r.items[0].fix.length > 10, 'D5. 带解决办法');
+  ok(r.items[1].message.includes('没有出边'), 'D6. DEAD_END 说清"支路到此结束"');
 }
 
 console.log('== E. 环路：error（引擎会直接拒绝，必须提前报） ==');
@@ -356,6 +357,40 @@ console.log('== N. 轮 4：建议类（全部只提醒，不拦运行）==');
     [{ from: 'start', to: 'lp' }, { from: 'lp', to: 'end' }],
   ));
   ok(!codes(r).includes('BIG_LOOP'), 'N12. 小循环（3 次）→ 不打扰');
+}
+
+console.log('== O. 死路（非 end 无出边）：warn 不拦，且区分"收尾"与"有人在取它的输出" ==');
+{
+  // O1-O3：普通死路（支路到此结束）——不拦运行
+  const r = selfcheck(mk(
+    [{ id: 'start', type: 'start' }, lg('a'), lg('tail'), { id: 'end', type: 'end' }],
+    [{ from: 'start', to: 'a' }, { from: 'a', to: 'end' }, { from: 'start', to: 'tail' }],
+  ));
+  const it = r.items.find((i) => i.code === 'DEAD_END');
+  ok(!!it, 'O1. 非 end 无出边 → 报 DEAD_END');
+  ok(it?.level === 'warn' && r.ok, 'O2. ★是 warn、不拦运行（支路到此结束是合法形态）');
+  ok(it?.message.includes('没有出边') && it?.fix.length > 10, 'O3. 消息说清后果 + 带解决办法');
+  ok(!r.items.some((i) => i.code === 'DEAD_END' && i.nodeId === 'a'), 'O4. 有出边的节点不报（a→end 存在）');
+}
+{
+  // O5-O7：★真正要提醒的情形——有人取它的输出但没连线（无执行顺序保证）
+  const r = selfcheck(mk(
+    [{ id: 'start', type: 'start' }, lg('producer'), { id: 'consumer', type: 'log', params: { level: 'info', message: '{{producer.out}}' } }, { id: 'end', type: 'end' }],
+    [{ from: 'start', to: 'producer' }, { from: 'start', to: 'consumer' }, { from: 'consumer', to: 'end' }],
+  ));
+  const it = r.items.find((i) => i.code === 'DEAD_END' && i.nodeId === 'producer');
+  ok(!!it, 'O5. 被引用但无出边 → 报 DEAD_END');
+  ok(it?.message.includes('在取它的输出') && it?.message.includes('顺序'), 'O6. ★消息点明真实风险（取它的输出 / 没有先后顺序保证）');
+  ok(it?.fix.includes('拖一条线'), 'O7. 解决办法给具体动作（拖一条线连过去）');
+  ok(r.ok, 'O8. 仍不拦运行（warn）');
+}
+{
+  // O9：全部接好 → 一条都不报（降噪）
+  const r = selfcheck(mk(
+    [{ id: 'start', type: 'start' }, lg('a'), lg('b'), { id: 'end', type: 'end' }],
+    [{ from: 'start', to: 'a' }, { from: 'a', to: 'b' }, { from: 'b', to: 'end' }],
+  ));
+  ok(!codes(r).includes('DEAD_END'), 'O9. 全接好的工作流不报 DEAD_END（降噪）');
 }
 
 console.log(`\n=== selfcheck 工作流自检（轮 1+2+3+4）：${pass} passed, ${fail} failed ===`);
