@@ -15,6 +15,7 @@ import { fieldsFromValue } from './outFields';
 import { progressToStatusMap } from './runProgress';
 import { toRF, fromRF, canonicalizeDef, type RFNode, type RFEdge } from './util/flowDef';
 import { buildGraphSvg, svgToPngBlob, type GraphImageNode, type GraphImageEdge } from './util/graphImage';
+import { varMatch } from './util/varSearch';
 import { applyAutoLayout } from './util/layout';
 import { Canvas } from './Canvas';
 import { disposeCanvasNode } from './flowgram/FlowGramCanvas';
@@ -196,6 +197,44 @@ function fmtLogValue(v: unknown): string {
   if (v === null) return 'null';
   if (typeof v === 'string') return v;
   try { return JSON.stringify(v, null, 2) ?? String(v); } catch { return String(v); }
+}
+
+/**
+ * ★ 2026-10-09 性能优化（用户拍板做）：日志检索串**按条目对象引用缓存**。
+ * 原实现每次筛选都对**每一条**日志现场 `JSON.stringify(...).toLowerCase()` ✗ ——
+ * 日志条目里带 `rawParams`/`params`/`out`（单字段上限 4000 字），大图上每敲一个字都要全量重序列化。
+ * 用 WeakMap 按对象引用缓存：条目没换 → 直接命中；条目被新数组替换 → 旧键自动回收（不泄漏 ✓）。
+ */
+const logSearchCache = new WeakMap<object, string>();
+function logSearchText(e: unknown): string {
+  if (e && typeof e === 'object') {
+    const hit = logSearchCache.get(e as object);
+    if (hit !== undefined) return hit;
+    let s = '';
+    try { s = JSON.stringify(e).toLowerCase(); } catch { s = ''; }
+    logSearchCache.set(e as object, s);
+    return s;
+  }
+  return String(e ?? '').toLowerCase();
+}
+
+/** 字段表类型（见下面的 fieldsForRaw） */
+type FieldRow = { path: string; desc: string; sample?: string };
+type FieldTable = { list: FieldRow[]; live: boolean; skipped: number };
+
+/**
+ * ★ 2026-10-09 性能优化（用户拍板做）：字段表缓存按 **runOuts 的对象身份** 分桶。
+ * `fieldsFor` 只依赖 runOuts（outSpecOf 只看 type、上游字段清单在 key 里）→ 身份分桶天然正确：
+ * runOuts 换了新对象就是新桶，绝不会读到旧值 ✓。用 WeakMap 保证旧桶随对象回收（不泄漏 ✓）。
+ * 空 runOuts（`{}` 每次都新）会每次新建空 Map —— 属于廉价退化，不做特殊处理 ✓。
+ */
+const fieldsCacheByOuts = new WeakMap<object, Map<string, FieldTable>>();
+function fieldsCacheOf(runOuts: unknown): Map<string, FieldTable> {
+  if (!runOuts || typeof runOuts !== 'object') return new Map();
+  const key = runOuts as object;
+  let m = fieldsCacheByOuts.get(key);
+  if (!m) { m = new Map(); fieldsCacheByOuts.set(key, m); }
+  return m;
 }
 
 /** 引用关系 → 一行文字（节点/变量/工作流输入） */
@@ -1173,32 +1212,43 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   const [logScope, setLogScope] = useState<'all' | 'problem'>('all');
   const [logExpanded, setLogExpanded] = useState<Record<string, boolean>>({});
   const logLiveRef = useRef(false);
-  const fetchRunLog = useCallback(async (): Promise<void> => {
-    setLogBusy(true);
+  // ★ 2026-10-09 性能优化（用户拍板做）：轮询去重。
+  //   原实现每 1.2s **无条件** setLogEntries（新数组）+ setLogMeta（含 at:Date.now()）→ 即使这一轮
+  //   一个节点都没跑完，也会触发一次全量重渲染 ✗。现在算一份**廉价签名**（条目 id/status/耗时 + live +
+  //   runStatus，不序列化大 out）→ 没变就整个跳过 setState ✓；`silent` 用于自动轮询（不动 busy 转圈 ✓）。
+  const logSigRef = useRef('');
+  const fetchRunLog = useCallback(async (opts?: { silent?: boolean }): Promise<void> => {
+    if (!opts?.silent) setLogBusy(true);
     try {
       const r = await fetch(`/api/dag-flow/run/log?name=${encodeURIComponent(def.name)}`);
       const j: any = await r.json().catch(() => null);
       if (!r.ok) {
         logLiveRef.current = false;
+        logSigRef.current = '';
         setLogEntries([]);
         setLogMeta({ error: j?.error ?? `HTTP ${r.status}`, at: Date.now() });
         return;
       }
-      logLiveRef.current = !!j?.live;
-      setLogEntries(Array.isArray(j?.entries) ? j.entries : []);
-      setLogMeta({ runId: j?.runId, live: !!j?.live, runStatus: j?.runStatus, at: Date.now() });
+      const entries: any[] = Array.isArray(j?.entries) ? j.entries : [];
+      const live = !!j?.live;
+      const sig = `${live}|${j?.runStatus ?? ''}|${entries.map((e) => `${e?.id}:${e?.status}:${e?.durationMs ?? ''}`).join(',')}`;
+      logLiveRef.current = live;
+      if (sig === logSigRef.current) return;   // ★ 内容没变 → 不 setState（省一次全量重渲染）
+      logSigRef.current = sig;
+      setLogEntries(entries);
+      setLogMeta({ runId: j?.runId, live, runStatus: j?.runStatus, at: Date.now() });
     } catch (e) {
       logLiveRef.current = false;
       setLogMeta({ error: (e as Error).message, at: Date.now() });
     } finally {
-      setLogBusy(false);
+      if (!opts?.silent) setLogBusy(false);
     }
   }, [def.name]);
   /** 日志弹窗打开着时：运行中每 1.2s 自动刷新（用户要"逐节点看到彼此的交互"） */
   useEffect(() => {
     if (!logOpen) return undefined;
     void fetchRunLog();
-    const timer = window.setInterval(() => { if (logLiveRef.current) void fetchRunLog(); }, 1200);
+    const timer = window.setInterval(() => { if (logLiveRef.current) void fetchRunLog({ silent: true }); }, 1200);
     return () => window.clearInterval(timer);
   }, [logOpen, fetchRunLog]);
   /** 运行刚结束时补拉一次（拿到最终状态与耗时） */
@@ -1226,8 +1276,14 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     if (logScope === 'problem') list = list.filter((e) => e?.status === 'failed' || e?.status === 'skipped');   // 只看失败/跳过（大图排查）
     const q = logFilter.trim().toLowerCase();
     if (!q) return list;
-    return list.filter((e) => { try { return JSON.stringify(e ?? {}).toLowerCase().includes(q); } catch { return false; } });
+    return list.filter((e) => logSearchText(e).includes(q));
   }, [logEntries, logFilter, logScope]);
+  // ★ 2026-10-09 用户反馈「只看失败/跳过按钮，选择或取消，按钮状态没变化，最好有个按钮状态变化，
+  //   好让用户一眼就能判断」→ 除了激活样式，还把**命中条数**直接写进按钮文案（未开启时也能看出有几个问题 ✓）
+  const logProblemCount = useMemo(
+    () => logEntries.filter((e) => e?.status === 'failed' || e?.status === 'skipped').length,
+    [logEntries],
+  );
   // ★ 运行前自检拦住（2026-10-04 轮 1）：存住 host 返回的问题清单（含解决办法），弹窗让用户人工确认
   const [selfcheckBlock, setSelfcheckBlock] = useState<{ items: { level?: string; code?: string; nodeId?: string; message?: string; fix?: string }[]; errorCount: number; warnCount?: number; stats?: { nodes?: number; edges?: number } } | null>(null);
   // 「点运行 → 先自检（按钮显示『自检中…』）→ 自检通过 → 人工确认 → 才真正开跑」的中间态
@@ -1910,6 +1966,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     importMsg && createElement(
       'div',
       {
+        className: 'dsh-wf-toast',   // ★ 2026-10-09：加类名以便 CSS 做"缩放浮现"入场（见 styles.css 交互动画段）
         title: importMsg.onClick ? '点击查看详情' : '点击关闭',
         style: {
           position: 'fixed', top: '14vh', left: '50%', transform: 'translateX(-50%)', zIndex: 10001,
@@ -2129,15 +2186,24 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
           createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11, opacity: 0.72 } },
             logMeta?.error
               ? `日志读取失败：${logMeta.error}（先运行一次工作流，或点「🔄 刷新」重试）`
-              : `工作流「${def.name}」${logMeta?.runId ? ` · ${logMeta.runId}` : ''} · 状态 ${logStatusLabel(logMeta?.runStatus)} · ${logEntries.length} 个节点${logMeta?.live ? ' · 运行中，自动刷新' : ''}`),
+              : `工作流「${def.name}」${logMeta?.runId ? ` · ${logMeta.runId}` : ''} · 状态 ${logStatusLabel(logMeta?.runStatus)} · ${logEntries.length} 个节点${logMeta?.live ? ' · 运行中，自动刷新' : ''}`
+                + (logScope === 'problem'
+                  // ★ 2026-10-09：过滤生效时把"藏了多少条"也写出来，避免用户以为日志丢了 ✓
+                  ? ` · 已过滤：只看失败/跳过（显示 ${logView.length} 条，隐藏 ${Math.max(0, logEntries.length - logView.length)} 条）`
+                  : '')),
           createElement('div', { className: 'dsh-wf-log-toolbar' },
             createElement('button', { className: 'dsh-wf-btn', title: '重新拉取日志', onClick: () => void fetchRunLog() }, logBusy ? '⏳ 刷新中' : '🔄 刷新'),
             // ★ 只看失败/跳过（2026-10-04 便利性：大图排查时不必在几十条里翻）
+            //   ★ 2026-10-09 用户反馈"选择或取消按钮状态没变化" → 三处强化可见性：
+            //   ① 图标随状态切换（⚠ ↔ ✓）；② 文案带**命中条数**；③ 用 is-on 激活态 + aria-pressed
             createElement('button', {
-              className: `dsh-wf-btn${logScope === 'problem' ? ' primary' : ''}`,
-              title: '只看失败与跳过的节点（大图排查用）',
+              className: `dsh-wf-btn${logScope === 'problem' ? ' is-on' : ''}`,
+              'aria-pressed': logScope === 'problem',
+              title: logScope === 'problem'
+                ? '已开启：只看失败与跳过的节点（再点一下恢复全部）'
+                : '只看失败与跳过的节点（大图排查用）',
               onClick: () => setLogScope((v) => (v === 'problem' ? 'all' : 'problem')),
-            }, '⚠ 只看失败/跳过'),
+            }, `${logScope === 'problem' ? '✓' : '⚠'} 只看失败/跳过（${logProblemCount}）`),
             createElement('input', {
               className: 'dsh-wf-log-search',
               value: logFilter,
@@ -2516,7 +2582,11 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
   }, [defNodes]);
   /** 某节点的可引用字段：**优先用上次运行的真实输出反推**（用户自定义键/动态节点/深层路径都能出来），
    *  没跑过（或输出是标量）才退回静态字段表。返回的 desc 用静态表里的说明补含义，sample 是实测样例值。 */
-  const fieldsFor = (nid: string, type: string, staticExtra: { path: string; desc: string }[] = []): { list: { path: string; desc: string; sample?: string }[]; live: boolean; skipped: number } => {
+  /**
+   * ★ 2026-10-09 性能优化（用户拍板做）：字段表的**原始计算**（不做缓存，见下面的 fieldsFor 包装）。
+   * outSpecOf + fieldsFromValue（真实 out 反推）+ 静态表合并 —— 每个节点都要跑一遍，原来**每次 render 都重算** ✗。
+   */
+  const fieldsForRaw = (nid: string, type: string, staticExtra: { path: string; desc: string }[] = []): { list: { path: string; desc: string; sample?: string }[]; live: boolean; skipped: number } => {
     const spec = outSpecOf(type);
     const out = runOuts?.[nid]?.out;
     const live = fieldsFromValue(out);
@@ -2536,6 +2606,19 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
     }
     return { list: [...staticExtra, ...(spec.fields ?? []).map((f) => ({ path: f.path, desc: f.desc }))], live: false, skipped: 0 };
   };
+  // ★ 2026-10-09 性能优化（用户拍板做）：按 `runOuts` 的**对象身份**分桶缓存字段表。
+  //   原来的 `fieldsFor` 每次 render 都重算（outSpecOf + 真实 out 反推 + 静态表合并）✗；
+  //   它只依赖 `runOuts`（outSpecOf 只看 type、上游清单在 key 里）→ 用 WeakMap 按 runOuts 身份分桶既**正确**
+  //   （换成新对象就是新桶，绝不会读到旧值 ✓）又**不引入 hooks**（这段在接收 props 的组件里，避免 hooks 规则风险 ✓）。
+  const fieldsCache = fieldsCacheOf(runOuts);
+  const fieldsFor = (nid: string, type: string, staticExtra: { path: string; desc: string }[] = []): { list: { path: string; desc: string; sample?: string }[]; live: boolean; skipped: number } => {
+    const key = `${nid}\u0000${type}\u0000${staticExtra.map((x) => `${x.path}=${x.desc}`).join(',')}`;
+    const hit = fieldsCache.get(key);
+    if (hit) return hit;
+    const v = fieldsForRaw(nid, type, staticExtra);
+    fieldsCache.set(key, v);
+    return v;
+  };
   /** 本节点的字段（同样优先用真实输出反推） */
   const selfFields = fieldsFor(node.id, node.type);
   /** 可复制的变量 chip：显示引用写法，title 说明「这个变量是干什么的」 */
@@ -2545,13 +2628,50 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
     title: `点击复制：${text}\n作用：${desc}`,
     onClick: () => void copyRef(text),
   }, text);
-  /** 全局变量 chips ——「上游变量」「本节点输出」「全局变量」三处共用（用户要求后两处也要包含全局变量） */
-  const globalChips = (kp: string) => [
-    ...globalVars.map((k) => refChip(`{{vars.${k}}}`, `「${k}」——由设置变量节点 ${varOwner[k]} 写入，流程内随处可见`, `${kp}-v-${k}`, kp.startsWith('self'))),
-    ...inputKeys.map((k) => refChip(`{{inputs.${k}}}`, `工作流参数「${k}」——运行本工作流时由外部/参数面板填入`, `${kp}-i-${k}`, kp.startsWith('self'))),
-    refChip('{{vars.loopItem}}', '仅当本工作流被 loop 当循环体调用时可用：当轮的项或轮次序号', `${kp}-loopItem`, kp.startsWith('self')),
-    refChip('{{vars.loopIndex}}', '仅当本工作流被 loop 当循环体调用时可用：当前轮序号（从 0 开始）', `${kp}-loopIndex`, kp.startsWith('self')),
+  /**
+   * ★ 2026-10-09 用户拍板方案 C：变量面板「不平铺 + 口语化搜索」。
+   *   · 上游变量**已按来源节点分组**，但原来**全部展开** ✗（上游 24 个时一坨）→ 现在默认收起、点标题展开 ✓
+   *   · 顶部一个搜索框，四路匹配（节点显示名 / 字段中文说明 / 变量路径 / **拼音首字母** ✓）
+   *     → 命中时自动全部展开并只留命中项 ✓（搜索框空=回到"分组收起"的清爽形态 ✓）
+   */
+  const [varQ, setVarQ] = useState('');
+  const [varOpen, setVarOpen] = useState<Record<string, boolean>>({});   // 上游分组展开态（未记录=收起）
+  // ★ 2026-10-09 用户要求：「变量面板不是弹窗，最好改成弹窗格式，现在还是在编辑面板里面，导致编辑面板还是乱」
+  //   → 变量三块 + 搜索框整体搬进**独立弹窗**（沿用项目弹窗约定 ✓），面板只留入口按钮 ✓
+  const [varDlgOpen, setVarDlgOpen] = useState(false);
+  const varQuery = varQ.trim();
+  /** 变量条目（先建成条目再渲染 → 才能统一过滤 ✓） */
+  type VarItem = { path: string; desc: string; key: string; isOut: boolean };
+  /** 全局变量条目（vars + inputs + loop 专用），「上游」「本节点输出」「全局变量」三处共用 */
+  const globalItems = (isOut: boolean): VarItem[] => [
+    ...globalVars.map((k) => ({ path: `{{vars.${k}}}`, desc: `「${k}」——由设置变量节点 ${varOwner[k]} 写入，流程内随处可见`, key: `${isOut ? 'self' : 'up'}-v-${k}`, isOut })),
+    ...inputKeys.map((k) => ({ path: `{{inputs.${k}}}`, desc: `工作流参数「${k}」——运行本工作流时由外部/参数面板填入`, key: `${isOut ? 'self' : 'up'}-i-${k}`, isOut })),
+    { path: '{{vars.loopItem}}', desc: '仅当本工作流被 loop 当循环体调用时可用：当轮的项或轮次序号', key: `${isOut ? 'self' : 'up'}-loopItem`, isOut },
+    { path: '{{vars.loopIndex}}', desc: '仅当本工作流被 loop 当循环体调用时可用：当前轮序号（从 0 开始）', key: `${isOut ? 'self' : 'up'}-loopIndex`, isOut },
   ];
+  const chip = (it: VarItem) => refChip(it.path, it.desc, it.key, it.isOut);
+  /** 过滤 + 渲染一组条目（空查询=全给 ✓） */
+  const chipsOf = (items: VarItem[]) => items.filter((it) => varMatch(varQuery, [it.path, it.desc])).map(chip);
+  /** 上游每行：节点信息 + 字段（先算命中，再决定是否收起/显示哪些字段 ✓） */
+  const upstreamView = upstream.map((u) => {
+    const un = defNodes.find((n) => n.id === u);
+    const spec = outSpecOf(un?.type ?? '');
+    const um = findMeta(un?.type ?? '');
+    const f = fieldsFor(u, un?.type ?? '',
+      un?.type === 'set_var' ? Object.keys((un.params?.vars as Record<string, unknown>) ?? {}).map((k) => ({ path: k, desc: '本节点写入的全局变量（键来自节点参数）' })) : []);
+    const nodeHit = varMatch(varQuery, [u, um?.label, un?.type]);
+    // 字段可检索片段里带上**节点 id 拼出的完整路径**（用户更可能直接打 fetch.out.count 这种）
+    const fields = varQuery && !nodeHit
+      ? f.list.filter((x) => varMatch(varQuery, [x.path, x.desc, x.sample, `${u}.out.${x.path}`]))
+      : f.list;
+    const rs = runOuts?.[u]?.status;
+    const srcNote = f.live ? '（字段取自上次运行的真实输出）'
+      : (rs && rs !== 'success' ? `（上次运行是 ${rs}，字段按类型推断）` : '');
+    return { u, um, un, spec, f, fields, nodeHit, srcNote, show: !varQuery || nodeHit || fields.length > 0 };
+  }).filter((v) => v.show);
+  const varHitCount = upstreamView.length + chipsOf(globalItems(false)).length
+    + chipsOf(selfFields.list.map((x) => ({ path: `{{${node.id}.out.${x.path}}}`, desc: `${x.desc || '自定义字段'}${x.sample ? `；样例：${x.sample}` : ''}`, key: `self-${x.path}`, isOut: true }))).length
+    + chipsOf(globalItems(true)).length;
 
   // #1 单节点试跑
   const [testRunning, setTestRunning] = useState(false);
@@ -2821,57 +2941,98 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
       createElement('label', { className: 'dsh-wf-panel-label' }, '节点类型'),
       createElement('input', { className: 'dsh-wf-input', value: node.type, readOnly: true }),
     ),
-    // ===== 变量引用（2026-10-03 用户需求：上游能传过来的所有变量 + 本节点能给下游的所有变量，
-    //       都点击复制，且要说明每个变量是干什么的；两处都要包含全局变量）=====
+    // ===== ★ 2026-10-09 用户要求：「变量面板不是弹窗，最好改成弹窗格式，现在还是在编辑面板里面，导致编辑面板还是乱」
+    //   → 把「上游 / 本节点输出 / 全局变量」三块 + 搜索框**整体搬进独立弹窗**（沿用项目弹窗约定：
+    //     overlay + `.dag-flow-picker` + 右上 ✕ + 顶部锚定 14vh ✓；Portal 到 body，避免面板 backdrop-filter 困住 fixed ✗）。
+    //   编辑面板只剩一个入口按钮 → 面板不再被变量列表撑长 ✓。
+    //   （历史口径仍有效：口语化四路匹配 / 上游按来源节点分组默认收起 / 每个变量都说明用途 / 点 chip 复制 ✓）
     createElement('div', { className: 'dsh-wf-panel-row' },
-      createElement('label', { className: 'dsh-wf-panel-label' }, `🔗 上游变量（${upstream.length} 个上游节点 · 点击复制）`),
+      createElement('label', { className: 'dsh-wf-panel-label' }, '🔗 变量引用'),
+      createElement('button', {
+        className: 'dsh-wf-btn',
+        title: '打开变量弹窗：口语化搜索（政策 / 日期 / rq / tzjy）+ 上游按来源节点分组 + 点击复制 {{}} 引用',
+        onClick: () => setVarDlgOpen(true),
+      }, '🔗 打开变量弹窗'),
+      // ★ 2026-10-09 条数从按钮文案挪到说明行：按钮文案过长会在窄面板里被挤成两行 ✗
+      //   （用户反馈「按钮长度和按钮内部文字长度没匹配」）→ 按钮只留固定短文案、数字放说明行 ✓
+      createElement('div', { className: 'dsh-wf-panel-hint' },
+        `上游 ${upstream.length} · 输出 ${selfFields.list.length} · 全局 ${globalVars.length + inputKeys.length} —— 变量都在弹窗里，可按「政策 / 日期 / rq / tzjy」口语化搜 ✓`),
+    ),
+    varDlgOpen && createPortal(
+      createElement('div', {
+        className: 'dag-flow-picker-overlay',
+        onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) setVarDlgOpen(false); },
+      },
+        createElement('div', { className: 'dag-flow-picker dsh-wf-var-dlg' },
+          createElement('div', { className: 'dag-flow-picker-title', style: { fontSize: 16 } },
+            `🔗 变量引用 · ${node.label ? `${node.label} · ` : ''}${node.id}`,
+            createElement('button', { className: 'dag-flow-picker-close', title: '关闭', onClick: () => setVarDlgOpen(false) }, '✕'),
+          ),
+          createElement('div', { className: 'dag-flow-picker-body dsh-wf-var-dlg-body' },
+    // 变量引用（2026-10-03 用户需求：上游能传过来的所有变量 + 本节点能给下游的所有变量，
+    //   都点击复制，且要说明每个变量是干什么的；两处都要包含全局变量）
+    //   ★ 2026-10-09 用户拍板方案 C：不平铺（上游分组默认收起）+ 口语化搜索（节点名/字段说明/路径/拼音）✓
+    createElement('div', { className: 'dsh-wf-panel-row' },
+      createElement('label', { className: 'dsh-wf-panel-label' }, '🔎 变量搜索（节点名 / 字段说明 / 拼音首字母）'),
+      createElement('input', {
+        className: 'dsh-wf-var-search',
+        value: varQ,
+        placeholder: '口语化搜：政策 · 日期 · rq · tzjy · ai_policy.out …',
+        onChange: (e: React.ChangeEvent<HTMLInputElement>) => setVarQ(e.target.value),
+      }),
+      varQuery
+        ? createElement('div', { className: 'dsh-wf-panel-hint' },
+            varHitCount > 0 ? `命中 ${varHitCount} 项（已自动展开；清空搜索即回到分组收起）` : '没有匹配的变量——换个词试试（支持拼音首字母，如 rq=日期）')
+        : createElement('div', { className: 'dsh-wf-panel-hint' }, '输入关键词即可跨「上游 / 输出 / 全局」检索；不搜时上游按来源节点收起，面板更清爽 ✓'),
+    ),
+    createElement('div', { className: 'dsh-wf-panel-row' },
+      createElement('label', { className: 'dsh-wf-panel-label' },
+        `🔗 上游变量（${upstream.length} 个上游节点${varQuery ? ` · 命中 ${upstreamView.length} 个` : ''} · 点击复制）`),
       upstream.length === 0
         ? createElement('div', { className: 'dsh-wf-panel-hint' }, '无上游节点——本节点是流程起点；下面的全局变量仍然可用。')
         : createElement('div', { className: 'dsh-wf-var-groups' },
-            ...upstream.map((u) => {
-              const un = defNodes.find((n) => n.id === u);
-              const spec = outSpecOf(un?.type ?? '');
-              const um = findMeta(un?.type ?? '');
-              const f = fieldsFor(u, un?.type ?? '',
-                un?.type === 'set_var' ? Object.keys((un.params?.vars as Record<string, unknown>) ?? {}).map((k) => ({ path: k, desc: '本节点写入的全局变量（键来自节点参数）' })) : []);
-              const rs = runOuts?.[u]?.status;
-              const srcNote = f.live ? '（字段取自上次运行的真实输出）'
-                : (rs && rs !== 'success' ? `（上次运行是 ${rs}，字段按类型推断）` : '');
+            ...upstreamView.map(({ u, um, spec, f, fields, srcNote }) => {
+              // 搜索时自动全展开；平时记住用户点开的那些 ✓
+              const open = varQuery ? true : varOpen[u] === true;
               return createElement('div', { key: 'up-' + u, className: 'dsh-wf-var-group' },
-                createElement('div', { className: 'dsh-wf-var-node' },
-                  `${um?.label ?? un?.type ?? '?'} · ${u}${spec.note ? ` —— ${spec.note}` : ''}${srcNote}`),
-                createElement('div', { className: 'dsh-wf-var-list' },
-                  refChip(`{{${u}.out}}`, `「${u}」的整份输出`, `up-${u}-all`, false),
-                  ...f.list.map((x) => refChip(`{{${u}.out.${x.path}}}`, `${x.desc || '自定义字段'}${x.sample ? `；样例：${x.sample}` : ''}`, `up-${u}-${x.path}`, false)),
-                  refChip(`{{results.${u}}}`, '该节点的执行状态/耗时（不是它的业务输出）', `up-${u}-res`, false),
-                ),
-                f.live
+                createElement('div', {
+                  className: `dsh-wf-var-node is-toggle${open ? '' : ' is-closed'}`,
+                  title: open ? '点击收起该节点字段' : '点击展开该节点字段',
+                  onClick: () => setVarOpen((m) => ({ ...m, [u]: !(m[u] === true) })),
+                }, `${open ? '▾' : '▸'} ${um?.label ?? un?.type ?? '?'} · ${u} · ${fields.length} 个字段${spec.note ? ` —— ${spec.note}` : ''}${srcNote}`),
+                open
+                  ? createElement('div', { className: 'dsh-wf-var-list' },
+                      refChip(`{{${u}.out}}`, `「${u}」的整份输出`, `up-${u}-all`, false),
+                      ...fields.map((x) => refChip(`{{${u}.out.${x.path}}}`, `${x.desc || '自定义字段'}${x.sample ? `；样例：${x.sample}` : ''}`, `up-${u}-${x.path}`, false)),
+                      refChip(`{{results.${u}}}`, '该节点的执行状态/耗时（不是它的业务输出）', `up-${u}-res`, false),
+                    )
+                  : null,
+                open && f.live
                   ? createElement('div', { className: 'dsh-wf-var-legend' },
                       '实测字段：' + f.list.map((x) => `${x.path}=${x.sample}${x.desc ? `（${x.desc}）` : ''}`).join(' · ')
                       + (f.skipped ? ` · 另有 ${f.skipped} 个键名含点/空格，无法用 {{}} 引用` : ''))
-                  : (f.list.length
-                      ? createElement('div', { className: 'dsh-wf-var-legend' },
-                          '字段说明：' + f.list.map((x) => `${x.path}=${x.desc}`).join(' · '))
-                      : null),
+                  : open && f.list.length
+                    ? createElement('div', { className: 'dsh-wf-var-legend' },
+                        '字段说明：' + f.list.map((x) => `${x.path}=${x.desc}`).join(' · '))
+                    : null,
               );
             }),
             // 全局变量在上游变量里也要有（它们不来自上游节点，但在本节点参数里一样能引用）
-            createElement('div', { className: 'dsh-wf-var-group' },
-              createElement('div', { className: 'dsh-wf-var-node' }, '全局变量（不来自上游，任意位置都能引用）'),
-              createElement('div', { className: 'dsh-wf-var-list' }, ...globalChips('up-gv')),
-            ),
+            (() => {
+              const gs = chipsOf(globalItems(false));
+              if (!gs.length) return null;
+              return createElement('div', { className: 'dsh-wf-var-group' },
+                createElement('div', { className: 'dsh-wf-var-node' }, '全局变量（不来自上游，任意位置都能引用）'),
+                createElement('div', { className: 'dsh-wf-var-list' }, ...gs),
+              );
+            })(),
           ),
     ),
     // 全局变量（工作流任意位置都能用：vars 来自「设置变量」节点，inputs 来自工作流参数）
     createElement('div', { className: 'dsh-wf-panel-row' },
       createElement('label', { className: 'dsh-wf-panel-label' },
         `🌐 全局变量（vars ${globalVars.length} · inputs ${inputKeys.length} · 点击复制）`),
-      createElement('div', { className: 'dsh-wf-var-list' },
-        ...globalVars.map((k) => refChip(`{{vars.${k}}}`, `「${k}」——由设置变量节点 ${varOwner[k]} 写入，流程内随处可见`, `gv-${k}`, false)),
-        ...inputKeys.map((k) => refChip(`{{inputs.${k}}}`, `工作流参数「${k}」——运行本工作流时由外部/面板填入`, `gi-${k}`, false)),
-        refChip('{{vars.loopItem}}', '仅在被 loop 当循环体调用的子工作流里可用：当轮的项或轮次序号', 'gv-loopItem', false),
-        refChip('{{vars.loopIndex}}', '仅在被 loop 当循环体调用的子工作流里可用：当前轮序号（从 0 开始）', 'gv-loopIndex', false),
-      ),
+      createElement('div', { className: 'dsh-wf-var-list' }, ...chipsOf(globalItems(false))),
       (!globalVars.length && !inputKeys.length)
         ? createElement('div', { className: 'dsh-wf-panel-hint' }, '还没有全局变量：加一个「设置变量」节点会写 vars，或在头部 ✍️ 工作流参数里加 inputs。')
         : null,
@@ -2899,9 +3060,20 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
       createElement('div', { className: 'dsh-wf-var-legend' },
         '下游节点这样用：写在参数里用 {{}} 模板（如 {{' + node.id + '.out.field}}）；写在 if/switch/loop 的表达式里则不带 {{}}（如 ' + node.id + '.out.field）。'),
       // 全局变量在本节点输出里也要有（它们不只属于本节点，下游一样能引用）——用户明确要求两处都包含
-      createElement('div', { className: 'dsh-wf-var-legend' }, '全局变量（下游同样能直接引用）：'),
-      createElement('div', { className: 'dsh-wf-var-list' }, ...globalChips('self-gv')),
+      //   ★ 2026-10-09：同样走 chipsOf（支持变量搜索过滤 ✓）
+      ...(() => {
+        const gs = chipsOf(globalItems(true));
+        return gs.length
+          ? [createElement('div', { className: 'dsh-wf-var-legend' }, '全局变量（下游同样能直接引用）：'),
+             createElement('div', { className: 'dsh-wf-var-list' }, ...gs)]
+          : [];
+      })(),
     ),
+          ),   // ← 关 .dag-flow-picker-body
+        ),     // ← 关 .dag-flow-picker.dsh-wf-var-dlg
+      ),       // ← 关 .dag-flow-picker-overlay
+      document.body,
+    ),         // ← 关 createPortal（变量弹窗）
     // 复制反馈浮窗（Portal 到 body：面板的 backdrop-filter 会把 fixed 元素困在面板内，且面板滚动/裁剪都不该影响它）
     copied && createPortal(
       createElement('div', { className: 'dsh-wf-copy-toast', key: 'copy-toast-' + copied.n },

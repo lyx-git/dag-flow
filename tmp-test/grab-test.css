@@ -286,7 +286,7 @@
   border-radius: var(--dsh-wf-radius-sm, 6px);
   color: var(--dsh-wf-muted);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color 0.15s ease, background-color 0.15s ease;
   line-height: 1.2;
 }
 .dsh-wf-tab:hover {
@@ -327,7 +327,7 @@
   font-family: inherit;
   font-size: 12px;
   font-weight: 620;
-  line-height: 1;
+  line-height: 1.25;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025), 0 2px 7px rgba(0, 0, 0, 0.12);
   cursor: pointer;
   transition:
@@ -335,7 +335,11 @@
     background 0.14s ease,
     border-color 0.14s ease,
     box-shadow 0.14s ease;
-  white-space: nowrap;
+  width: fit-content;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
   user-select: none;
 }
 .dsh-wf-btn:hover:not(:disabled) {
@@ -1446,6 +1450,42 @@
   color: var(--wf-muted, #8b9bb3);
   margin-bottom: 4px;
 }
+.dsh-wf-var-node.is-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+.dsh-wf-var-node.is-toggle:hover {
+  color: var(--wf-text, #e6edf7);
+}
+.dsh-wf-var-node.is-closed {
+  margin-bottom: 0;
+}
+.dsh-wf-var-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  background: var(--wf-bg, #08101e);
+  border: 1px solid var(--wf-border, #22304a);
+  border-radius: 7px;
+  color: var(--wf-text, #e6edf7);
+  padding: 6px 9px;
+  font-size: 11.5px;
+  font-family: inherit;
+}
+.dsh-wf-var-search:focus {
+  outline: none;
+  border-color: var(--wf-accent, #4c8dff);
+}
+.dag-flow-picker.dsh-wf-var-dlg {
+  width: 760px;
+}
+.dsh-wf-var-dlg-body {
+  max-height: 68vh;
+  overflow: auto;
+}
+.dsh-wf-var-dlg-body > .dsh-wf-panel-row:first-child .dsh-wf-var-search {
+  margin-top: 0;
+}
 .dsh-wf-var-legend {
   margin-top: 5px;
   font-size: 10.5px;
@@ -2280,6 +2320,55 @@
   border-color: var(--wf-accent, #6f8fff);
   color: #cfe0ff;
   background: color-mix(in srgb, var(--wf-accent, #4c8dff) 16%, transparent);
+}
+@keyframes dsh-wf-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes dsh-wf-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.dag-flow-picker-overlay {
+  animation: dsh-wf-fade 140ms ease-out;
+}
+.dag-flow-picker {
+  animation: dsh-wf-fade 140ms ease-out;
+}
+.dsh-wf-export-menu {
+  animation: dsh-wf-fade 120ms ease-out;
+}
+.dsh-wf-toast {
+  animation: dsh-wf-pop 160ms cubic-bezier(.2, .8, .2, 1);
+}
+.dsh-wf-right {
+  animation: dsh-wf-fade 140ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dag-flow-picker,
+  .dag-flow-picker-overlay,
+  .dsh-wf-export-menu,
+  .dsh-wf-toast,
+  .dsh-wf-right {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 /* node_modules/@flowgram.ai/free-layout-editor/index.css */

@@ -24622,6 +24622,81 @@
     }
   }
 
+  // src/client/util/varSearch.ts
+  var INITIALS = ["a", "b", "c", "d", "e", "f", "g", "h", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "w", "x", "y", "z"];
+  var ANCHORS = {
+    a: "\u963F",
+    b: "\u516B",
+    c: "\u64E6",
+    d: "\u642D",
+    e: "\u86FE",
+    f: "\u53D1",
+    g: "\u5676",
+    h: "\u54C8",
+    j: "\u51FB",
+    k: "\u5580",
+    l: "\u5783",
+    m: "\u5988",
+    n: "\u62FF",
+    o: "\u54E6",
+    p: "\u6015",
+    q: "\u671F",
+    r: "\u7136",
+    s: "\u6492",
+    t: "\u584C",
+    w: "\u6316",
+    x: "\u6614",
+    y: "\u538B",
+    z: "\u531D"
+  };
+  var collator = (() => {
+    try {
+      return new Intl.Collator(["zh-Hans-u-co-pinyin", "zh"]);
+    } catch {
+      return null;
+    }
+  })();
+  var PY_CACHE = /* @__PURE__ */ new Map();
+  function initialOf(ch) {
+    if (!collator) return "";
+    if (!/[\u4e00-\u9fff]/.test(ch)) return "";
+    let lo = 0, hi = INITIALS.length - 1, found = "";
+    while (lo <= hi) {
+      const mid = lo + hi >> 1;
+      if (collator.compare(ch, ANCHORS[INITIALS[mid]]) >= 0) {
+        found = INITIALS[mid];
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    return found;
+  }
+  function pinyinInitials(text) {
+    if (!text) return "";
+    const hit = PY_CACHE.get(text);
+    if (hit !== void 0) return hit;
+    let out = "";
+    for (const ch of text) out += initialOf(ch);
+    PY_CACHE.set(text, out);
+    return out;
+  }
+  function varHaystack(parts) {
+    const raw = [];
+    const py = [];
+    for (const p4 of parts) {
+      if (!p4) continue;
+      raw.push(p4);
+      const y3 = pinyinInitials(p4);
+      if (y3) py.push(y3);
+    }
+    return `${raw.join(" ").toLowerCase()} ${py.join(" ")}`;
+  }
+  function varMatch(query, parts) {
+    const tokens = query.trim().toLowerCase().split(/[\s.{}[\]"'`/\\]+/).filter(Boolean);
+    if (!tokens.length) return true;
+    const hay = varHaystack(parts);
+    return tokens.every((t5) => hay.includes(t5));
+  }
+
   // src/executor/topo.ts
   function topoSort(def) {
     const nodes = def.nodes;
@@ -74955,6 +75030,33 @@ Please add \`${key}Action\` when creating your handler.`
       return String(v5);
     }
   }
+  var logSearchCache = /* @__PURE__ */ new WeakMap();
+  function logSearchText(e2) {
+    if (e2 && typeof e2 === "object") {
+      const hit = logSearchCache.get(e2);
+      if (hit !== void 0) return hit;
+      let s3 = "";
+      try {
+        s3 = JSON.stringify(e2).toLowerCase();
+      } catch {
+        s3 = "";
+      }
+      logSearchCache.set(e2, s3);
+      return s3;
+    }
+    return String(e2 ?? "").toLowerCase();
+  }
+  var fieldsCacheByOuts = /* @__PURE__ */ new WeakMap();
+  function fieldsCacheOf(runOuts) {
+    if (!runOuts || typeof runOuts !== "object") return /* @__PURE__ */ new Map();
+    const key = runOuts;
+    let m4 = fieldsCacheByOuts.get(key);
+    if (!m4) {
+      m4 = /* @__PURE__ */ new Map();
+      fieldsCacheByOuts.set(key, m4);
+    }
+    return m4;
+  }
   function fmtRefs(refs) {
     if (!refs) return "";
     const parts = [
@@ -75789,32 +75891,39 @@ ${fmtLogValue(e2.out)}`);
     const [logScope, setLogScope] = (0, import_react101.useState)("all");
     const [logExpanded, setLogExpanded] = (0, import_react101.useState)({});
     const logLiveRef = (0, import_react101.useRef)(false);
-    const fetchRunLog = (0, import_react101.useCallback)(async () => {
-      setLogBusy(true);
+    const logSigRef = (0, import_react101.useRef)("");
+    const fetchRunLog = (0, import_react101.useCallback)(async (opts) => {
+      if (!opts?.silent) setLogBusy(true);
       try {
         const r5 = await fetch(`/api/dag-flow/run/log?name=${encodeURIComponent(def.name)}`);
         const j4 = await r5.json().catch(() => null);
         if (!r5.ok) {
           logLiveRef.current = false;
+          logSigRef.current = "";
           setLogEntries([]);
           setLogMeta({ error: j4?.error ?? `HTTP ${r5.status}`, at: Date.now() });
           return;
         }
-        logLiveRef.current = !!j4?.live;
-        setLogEntries(Array.isArray(j4?.entries) ? j4.entries : []);
-        setLogMeta({ runId: j4?.runId, live: !!j4?.live, runStatus: j4?.runStatus, at: Date.now() });
+        const entries = Array.isArray(j4?.entries) ? j4.entries : [];
+        const live = !!j4?.live;
+        const sig = `${live}|${j4?.runStatus ?? ""}|${entries.map((e2) => `${e2?.id}:${e2?.status}:${e2?.durationMs ?? ""}`).join(",")}`;
+        logLiveRef.current = live;
+        if (sig === logSigRef.current) return;
+        logSigRef.current = sig;
+        setLogEntries(entries);
+        setLogMeta({ runId: j4?.runId, live, runStatus: j4?.runStatus, at: Date.now() });
       } catch (e2) {
         logLiveRef.current = false;
         setLogMeta({ error: e2.message, at: Date.now() });
       } finally {
-        setLogBusy(false);
+        if (!opts?.silent) setLogBusy(false);
       }
     }, [def.name]);
     (0, import_react101.useEffect)(() => {
       if (!logOpen) return void 0;
       void fetchRunLog();
       const timer = window.setInterval(() => {
-        if (logLiveRef.current) void fetchRunLog();
+        if (logLiveRef.current) void fetchRunLog({ silent: true });
       }, 1200);
       return () => window.clearInterval(timer);
     }, [logOpen, fetchRunLog]);
@@ -75842,14 +75951,12 @@ ${fmtLogValue(e2.out)}`);
       if (logScope === "problem") list = list.filter((e2) => e2?.status === "failed" || e2?.status === "skipped");
       const q3 = logFilter.trim().toLowerCase();
       if (!q3) return list;
-      return list.filter((e2) => {
-        try {
-          return JSON.stringify(e2 ?? {}).toLowerCase().includes(q3);
-        } catch {
-          return false;
-        }
-      });
+      return list.filter((e2) => logSearchText(e2).includes(q3));
     }, [logEntries, logFilter, logScope]);
+    const logProblemCount = (0, import_react101.useMemo)(
+      () => logEntries.filter((e2) => e2?.status === "failed" || e2?.status === "skipped").length,
+      [logEntries]
+    );
     const [selfcheckBlock, setSelfcheckBlock] = (0, import_react101.useState)(null);
     const [selfcheckState, setSelfcheckState] = (0, import_react101.useState)(null);
     const askRunScheduleNow = (0, import_react101.useCallback)((it3) => {
@@ -76597,6 +76704,8 @@ ${fmtLogValue(e2.out)}`);
       importMsg && (0, import_react102.createElement)(
         "div",
         {
+          className: "dsh-wf-toast",
+          // ★ 2026-10-09：加类名以便 CSS 做"缩放浮现"入场（见 styles.css 交互动画段）
           title: importMsg.onClick ? "\u70B9\u51FB\u67E5\u770B\u8BE6\u60C5" : "\u70B9\u51FB\u5173\u95ED",
           style: {
             position: "fixed",
@@ -76903,18 +77012,21 @@ ${fmtLogValue(e2.out)}`);
             (0, import_react102.createElement)(
               "div",
               { className: "dag-flow-picker-hint", style: { fontSize: 11, opacity: 0.72 } },
-              logMeta?.error ? `\u65E5\u5FD7\u8BFB\u53D6\u5931\u8D25\uFF1A${logMeta.error}\uFF08\u5148\u8FD0\u884C\u4E00\u6B21\u5DE5\u4F5C\u6D41\uFF0C\u6216\u70B9\u300C\u{1F504} \u5237\u65B0\u300D\u91CD\u8BD5\uFF09` : `\u5DE5\u4F5C\u6D41\u300C${def.name}\u300D${logMeta?.runId ? ` \xB7 ${logMeta.runId}` : ""} \xB7 \u72B6\u6001 ${logStatusLabel(logMeta?.runStatus)} \xB7 ${logEntries.length} \u4E2A\u8282\u70B9${logMeta?.live ? " \xB7 \u8FD0\u884C\u4E2D\uFF0C\u81EA\u52A8\u5237\u65B0" : ""}`
+              logMeta?.error ? `\u65E5\u5FD7\u8BFB\u53D6\u5931\u8D25\uFF1A${logMeta.error}\uFF08\u5148\u8FD0\u884C\u4E00\u6B21\u5DE5\u4F5C\u6D41\uFF0C\u6216\u70B9\u300C\u{1F504} \u5237\u65B0\u300D\u91CD\u8BD5\uFF09` : `\u5DE5\u4F5C\u6D41\u300C${def.name}\u300D${logMeta?.runId ? ` \xB7 ${logMeta.runId}` : ""} \xB7 \u72B6\u6001 ${logStatusLabel(logMeta?.runStatus)} \xB7 ${logEntries.length} \u4E2A\u8282\u70B9${logMeta?.live ? " \xB7 \u8FD0\u884C\u4E2D\uFF0C\u81EA\u52A8\u5237\u65B0" : ""}` + (logScope === "problem" ? ` \xB7 \u5DF2\u8FC7\u6EE4\uFF1A\u53EA\u770B\u5931\u8D25/\u8DF3\u8FC7\uFF08\u663E\u793A ${logView.length} \u6761\uFF0C\u9690\u85CF ${Math.max(0, logEntries.length - logView.length)} \u6761\uFF09` : "")
             ),
             (0, import_react102.createElement)(
               "div",
               { className: "dsh-wf-log-toolbar" },
               (0, import_react102.createElement)("button", { className: "dsh-wf-btn", title: "\u91CD\u65B0\u62C9\u53D6\u65E5\u5FD7", onClick: () => void fetchRunLog() }, logBusy ? "\u23F3 \u5237\u65B0\u4E2D" : "\u{1F504} \u5237\u65B0"),
               // ★ 只看失败/跳过（2026-10-04 便利性：大图排查时不必在几十条里翻）
+              //   ★ 2026-10-09 用户反馈"选择或取消按钮状态没变化" → 三处强化可见性：
+              //   ① 图标随状态切换（⚠ ↔ ✓）；② 文案带**命中条数**；③ 用 is-on 激活态 + aria-pressed
               (0, import_react102.createElement)("button", {
-                className: `dsh-wf-btn${logScope === "problem" ? " primary" : ""}`,
-                title: "\u53EA\u770B\u5931\u8D25\u4E0E\u8DF3\u8FC7\u7684\u8282\u70B9\uFF08\u5927\u56FE\u6392\u67E5\u7528\uFF09",
+                className: `dsh-wf-btn${logScope === "problem" ? " is-on" : ""}`,
+                "aria-pressed": logScope === "problem",
+                title: logScope === "problem" ? "\u5DF2\u5F00\u542F\uFF1A\u53EA\u770B\u5931\u8D25\u4E0E\u8DF3\u8FC7\u7684\u8282\u70B9\uFF08\u518D\u70B9\u4E00\u4E0B\u6062\u590D\u5168\u90E8\uFF09" : "\u53EA\u770B\u5931\u8D25\u4E0E\u8DF3\u8FC7\u7684\u8282\u70B9\uFF08\u5927\u56FE\u6392\u67E5\u7528\uFF09",
                 onClick: () => setLogScope((v5) => v5 === "problem" ? "all" : "problem")
-              }, "\u26A0 \u53EA\u770B\u5931\u8D25/\u8DF3\u8FC7"),
+              }, `${logScope === "problem" ? "\u2713" : "\u26A0"} \u53EA\u770B\u5931\u8D25/\u8DF3\u8FC7\uFF08${logProblemCount}\uFF09`),
               (0, import_react102.createElement)("input", {
                 className: "dsh-wf-log-search",
                 value: logFilter,
@@ -77275,7 +77387,7 @@ ${fmtLogValue(e2.out)}`);
       }
       return { globalVars: Object.keys(owner), varOwner: owner };
     }, [defNodes]);
-    const fieldsFor = (nid, type, staticExtra = []) => {
+    const fieldsForRaw = (nid, type, staticExtra = []) => {
       const spec = outSpecOf(type);
       const out = runOuts?.[nid]?.out;
       const live = fieldsFromValue(out);
@@ -77293,6 +77405,15 @@ ${fmtLogValue(e2.out)}`);
       }
       return { list: [...staticExtra, ...(spec.fields ?? []).map((f4) => ({ path: f4.path, desc: f4.desc }))], live: false, skipped: 0 };
     };
+    const fieldsCache = fieldsCacheOf(runOuts);
+    const fieldsFor = (nid, type, staticExtra = []) => {
+      const key = `${nid}\0${type}\0${staticExtra.map((x4) => `${x4.path}=${x4.desc}`).join(",")}`;
+      const hit = fieldsCache.get(key);
+      if (hit) return hit;
+      const v5 = fieldsForRaw(nid, type, staticExtra);
+      fieldsCache.set(key, v5);
+      return v5;
+    };
     const selfFields = fieldsFor(node2.id, node2.type);
     const refChip = (text, desc, key, isOut = false) => (0, import_react102.createElement)("span", {
       key,
@@ -77301,12 +77422,34 @@ ${fmtLogValue(e2.out)}`);
 \u4F5C\u7528\uFF1A${desc}`,
       onClick: () => void copyRef(text)
     }, text);
-    const globalChips = (kp) => [
-      ...globalVars.map((k5) => refChip(`{{vars.${k5}}}`, `\u300C${k5}\u300D\u2014\u2014\u7531\u8BBE\u7F6E\u53D8\u91CF\u8282\u70B9 ${varOwner[k5]} \u5199\u5165\uFF0C\u6D41\u7A0B\u5185\u968F\u5904\u53EF\u89C1`, `${kp}-v-${k5}`, kp.startsWith("self"))),
-      ...inputKeys.map((k5) => refChip(`{{inputs.${k5}}}`, `\u5DE5\u4F5C\u6D41\u53C2\u6570\u300C${k5}\u300D\u2014\u2014\u8FD0\u884C\u672C\u5DE5\u4F5C\u6D41\u65F6\u7531\u5916\u90E8/\u53C2\u6570\u9762\u677F\u586B\u5165`, `${kp}-i-${k5}`, kp.startsWith("self"))),
-      refChip("{{vars.loopItem}}", "\u4EC5\u5F53\u672C\u5DE5\u4F5C\u6D41\u88AB loop \u5F53\u5FAA\u73AF\u4F53\u8C03\u7528\u65F6\u53EF\u7528\uFF1A\u5F53\u8F6E\u7684\u9879\u6216\u8F6E\u6B21\u5E8F\u53F7", `${kp}-loopItem`, kp.startsWith("self")),
-      refChip("{{vars.loopIndex}}", "\u4EC5\u5F53\u672C\u5DE5\u4F5C\u6D41\u88AB loop \u5F53\u5FAA\u73AF\u4F53\u8C03\u7528\u65F6\u53EF\u7528\uFF1A\u5F53\u524D\u8F6E\u5E8F\u53F7\uFF08\u4ECE 0 \u5F00\u59CB\uFF09", `${kp}-loopIndex`, kp.startsWith("self"))
+    const [varQ, setVarQ] = (0, import_react101.useState)("");
+    const [varOpen, setVarOpen] = (0, import_react101.useState)({});
+    const [varDlgOpen, setVarDlgOpen] = (0, import_react101.useState)(false);
+    const varQuery = varQ.trim();
+    const globalItems = (isOut) => [
+      ...globalVars.map((k5) => ({ path: `{{vars.${k5}}}`, desc: `\u300C${k5}\u300D\u2014\u2014\u7531\u8BBE\u7F6E\u53D8\u91CF\u8282\u70B9 ${varOwner[k5]} \u5199\u5165\uFF0C\u6D41\u7A0B\u5185\u968F\u5904\u53EF\u89C1`, key: `${isOut ? "self" : "up"}-v-${k5}`, isOut })),
+      ...inputKeys.map((k5) => ({ path: `{{inputs.${k5}}}`, desc: `\u5DE5\u4F5C\u6D41\u53C2\u6570\u300C${k5}\u300D\u2014\u2014\u8FD0\u884C\u672C\u5DE5\u4F5C\u6D41\u65F6\u7531\u5916\u90E8/\u53C2\u6570\u9762\u677F\u586B\u5165`, key: `${isOut ? "self" : "up"}-i-${k5}`, isOut })),
+      { path: "{{vars.loopItem}}", desc: "\u4EC5\u5F53\u672C\u5DE5\u4F5C\u6D41\u88AB loop \u5F53\u5FAA\u73AF\u4F53\u8C03\u7528\u65F6\u53EF\u7528\uFF1A\u5F53\u8F6E\u7684\u9879\u6216\u8F6E\u6B21\u5E8F\u53F7", key: `${isOut ? "self" : "up"}-loopItem`, isOut },
+      { path: "{{vars.loopIndex}}", desc: "\u4EC5\u5F53\u672C\u5DE5\u4F5C\u6D41\u88AB loop \u5F53\u5FAA\u73AF\u4F53\u8C03\u7528\u65F6\u53EF\u7528\uFF1A\u5F53\u524D\u8F6E\u5E8F\u53F7\uFF08\u4ECE 0 \u5F00\u59CB\uFF09", key: `${isOut ? "self" : "up"}-loopIndex`, isOut }
     ];
+    const chip = (it3) => refChip(it3.path, it3.desc, it3.key, it3.isOut);
+    const chipsOf = (items) => items.filter((it3) => varMatch(varQuery, [it3.path, it3.desc])).map(chip);
+    const upstreamView = upstream.map((u4) => {
+      const un2 = defNodes.find((n2) => n2.id === u4);
+      const spec = outSpecOf(un2?.type ?? "");
+      const um = findMeta(un2?.type ?? "");
+      const f4 = fieldsFor(
+        u4,
+        un2?.type ?? "",
+        un2?.type === "set_var" ? Object.keys(un2.params?.vars ?? {}).map((k5) => ({ path: k5, desc: "\u672C\u8282\u70B9\u5199\u5165\u7684\u5168\u5C40\u53D8\u91CF\uFF08\u952E\u6765\u81EA\u8282\u70B9\u53C2\u6570\uFF09" })) : []
+      );
+      const nodeHit = varMatch(varQuery, [u4, um?.label, un2?.type]);
+      const fields = varQuery && !nodeHit ? f4.list.filter((x4) => varMatch(varQuery, [x4.path, x4.desc, x4.sample, `${u4}.out.${x4.path}`])) : f4.list;
+      const rs = runOuts?.[u4]?.status;
+      const srcNote = f4.live ? "\uFF08\u5B57\u6BB5\u53D6\u81EA\u4E0A\u6B21\u8FD0\u884C\u7684\u771F\u5B9E\u8F93\u51FA\uFF09" : rs && rs !== "success" ? `\uFF08\u4E0A\u6B21\u8FD0\u884C\u662F ${rs}\uFF0C\u5B57\u6BB5\u6309\u7C7B\u578B\u63A8\u65AD\uFF09` : "";
+      return { u: u4, um, un: un2, spec, f: f4, fields, nodeHit, srcNote, show: !varQuery || nodeHit || fields.length > 0 };
+    }).filter((v5) => v5.show);
+    const varHitCount = upstreamView.length + chipsOf(globalItems(false)).length + chipsOf(selfFields.list.map((x4) => ({ path: `{{${node2.id}.out.${x4.path}}}`, desc: `${x4.desc || "\u81EA\u5B9A\u4E49\u5B57\u6BB5"}${x4.sample ? `\uFF1B\u6837\u4F8B\uFF1A${x4.sample}` : ""}`, key: `self-${x4.path}`, isOut: true }))).length + chipsOf(globalItems(true)).length;
     const [testRunning, setTestRunning] = (0, import_react101.useState)(false);
     const [testInputs, setTestInputs] = (0, import_react101.useState)("{}");
     const [testResult, setTestResult] = (0, import_react101.useState)(null);
@@ -77606,114 +77749,179 @@ ${fmtLogValue(e2.out)}`);
         (0, import_react102.createElement)("label", { className: "dsh-wf-panel-label" }, "\u8282\u70B9\u7C7B\u578B"),
         (0, import_react102.createElement)("input", { className: "dsh-wf-input", value: node2.type, readOnly: true })
       ),
-      // ===== 变量引用（2026-10-03 用户需求：上游能传过来的所有变量 + 本节点能给下游的所有变量，
-      //       都点击复制，且要说明每个变量是干什么的；两处都要包含全局变量）=====
+      // ===== ★ 2026-10-09 用户要求：「变量面板不是弹窗，最好改成弹窗格式，现在还是在编辑面板里面，导致编辑面板还是乱」
+      //   → 把「上游 / 本节点输出 / 全局变量」三块 + 搜索框**整体搬进独立弹窗**（沿用项目弹窗约定：
+      //     overlay + `.dag-flow-picker` + 右上 ✕ + 顶部锚定 14vh ✓；Portal 到 body，避免面板 backdrop-filter 困住 fixed ✗）。
+      //   编辑面板只剩一个入口按钮 → 面板不再被变量列表撑长 ✓。
+      //   （历史口径仍有效：口语化四路匹配 / 上游按来源节点分组默认收起 / 每个变量都说明用途 / 点 chip 复制 ✓）
       (0, import_react102.createElement)(
         "div",
         { className: "dsh-wf-panel-row" },
-        (0, import_react102.createElement)("label", { className: "dsh-wf-panel-label" }, `\u{1F517} \u4E0A\u6E38\u53D8\u91CF\uFF08${upstream.length} \u4E2A\u4E0A\u6E38\u8282\u70B9 \xB7 \u70B9\u51FB\u590D\u5236\uFF09`),
-        upstream.length === 0 ? (0, import_react102.createElement)("div", { className: "dsh-wf-panel-hint" }, "\u65E0\u4E0A\u6E38\u8282\u70B9\u2014\u2014\u672C\u8282\u70B9\u662F\u6D41\u7A0B\u8D77\u70B9\uFF1B\u4E0B\u9762\u7684\u5168\u5C40\u53D8\u91CF\u4ECD\u7136\u53EF\u7528\u3002") : (0, import_react102.createElement)(
+        (0, import_react102.createElement)("label", { className: "dsh-wf-panel-label" }, "\u{1F517} \u53D8\u91CF\u5F15\u7528"),
+        (0, import_react102.createElement)("button", {
+          className: "dsh-wf-btn",
+          title: "\u6253\u5F00\u53D8\u91CF\u5F39\u7A97\uFF1A\u53E3\u8BED\u5316\u641C\u7D22\uFF08\u653F\u7B56 / \u65E5\u671F / rq / tzjy\uFF09+ \u4E0A\u6E38\u6309\u6765\u6E90\u8282\u70B9\u5206\u7EC4 + \u70B9\u51FB\u590D\u5236 {{}} \u5F15\u7528",
+          onClick: () => setVarDlgOpen(true)
+        }, "\u{1F517} \u6253\u5F00\u53D8\u91CF\u5F39\u7A97"),
+        // ★ 2026-10-09 条数从按钮文案挪到说明行：按钮文案过长会在窄面板里被挤成两行 ✗
+        //   （用户反馈「按钮长度和按钮内部文字长度没匹配」）→ 按钮只留固定短文案、数字放说明行 ✓
+        (0, import_react102.createElement)(
           "div",
-          { className: "dsh-wf-var-groups" },
-          ...upstream.map((u4) => {
-            const un = defNodes.find((n2) => n2.id === u4);
-            const spec = outSpecOf(un?.type ?? "");
-            const um = findMeta(un?.type ?? "");
-            const f4 = fieldsFor(
-              u4,
-              un?.type ?? "",
-              un?.type === "set_var" ? Object.keys(un.params?.vars ?? {}).map((k5) => ({ path: k5, desc: "\u672C\u8282\u70B9\u5199\u5165\u7684\u5168\u5C40\u53D8\u91CF\uFF08\u952E\u6765\u81EA\u8282\u70B9\u53C2\u6570\uFF09" })) : []
-            );
-            const rs = runOuts?.[u4]?.status;
-            const srcNote = f4.live ? "\uFF08\u5B57\u6BB5\u53D6\u81EA\u4E0A\u6B21\u8FD0\u884C\u7684\u771F\u5B9E\u8F93\u51FA\uFF09" : rs && rs !== "success" ? `\uFF08\u4E0A\u6B21\u8FD0\u884C\u662F ${rs}\uFF0C\u5B57\u6BB5\u6309\u7C7B\u578B\u63A8\u65AD\uFF09` : "";
-            return (0, import_react102.createElement)(
-              "div",
-              { key: "up-" + u4, className: "dsh-wf-var-group" },
-              (0, import_react102.createElement)(
-                "div",
-                { className: "dsh-wf-var-node" },
-                `${um?.label ?? un?.type ?? "?"} \xB7 ${u4}${spec.note ? ` \u2014\u2014 ${spec.note}` : ""}${srcNote}`
-              ),
-              (0, import_react102.createElement)(
-                "div",
-                { className: "dsh-wf-var-list" },
-                refChip(`{{${u4}.out}}`, `\u300C${u4}\u300D\u7684\u6574\u4EFD\u8F93\u51FA`, `up-${u4}-all`, false),
-                ...f4.list.map((x4) => refChip(`{{${u4}.out.${x4.path}}}`, `${x4.desc || "\u81EA\u5B9A\u4E49\u5B57\u6BB5"}${x4.sample ? `\uFF1B\u6837\u4F8B\uFF1A${x4.sample}` : ""}`, `up-${u4}-${x4.path}`, false)),
-                refChip(`{{results.${u4}}}`, "\u8BE5\u8282\u70B9\u7684\u6267\u884C\u72B6\u6001/\u8017\u65F6\uFF08\u4E0D\u662F\u5B83\u7684\u4E1A\u52A1\u8F93\u51FA\uFF09", `up-${u4}-res`, false)
-              ),
-              f4.live ? (0, import_react102.createElement)(
-                "div",
-                { className: "dsh-wf-var-legend" },
-                "\u5B9E\u6D4B\u5B57\u6BB5\uFF1A" + f4.list.map((x4) => `${x4.path}=${x4.sample}${x4.desc ? `\uFF08${x4.desc}\uFF09` : ""}`).join(" \xB7 ") + (f4.skipped ? ` \xB7 \u53E6\u6709 ${f4.skipped} \u4E2A\u952E\u540D\u542B\u70B9/\u7A7A\u683C\uFF0C\u65E0\u6CD5\u7528 {{}} \u5F15\u7528` : "")
-              ) : f4.list.length ? (0, import_react102.createElement)(
-                "div",
-                { className: "dsh-wf-var-legend" },
-                "\u5B57\u6BB5\u8BF4\u660E\uFF1A" + f4.list.map((x4) => `${x4.path}=${x4.desc}`).join(" \xB7 ")
-              ) : null
-            );
-          }),
-          // 全局变量在上游变量里也要有（它们不来自上游节点，但在本节点参数里一样能引用）
-          (0, import_react102.createElement)(
-            "div",
-            { className: "dsh-wf-var-group" },
-            (0, import_react102.createElement)("div", { className: "dsh-wf-var-node" }, "\u5168\u5C40\u53D8\u91CF\uFF08\u4E0D\u6765\u81EA\u4E0A\u6E38\uFF0C\u4EFB\u610F\u4F4D\u7F6E\u90FD\u80FD\u5F15\u7528\uFF09"),
-            (0, import_react102.createElement)("div", { className: "dsh-wf-var-list" }, ...globalChips("up-gv"))
-          )
+          { className: "dsh-wf-panel-hint" },
+          `\u4E0A\u6E38 ${upstream.length} \xB7 \u8F93\u51FA ${selfFields.list.length} \xB7 \u5168\u5C40 ${globalVars.length + inputKeys.length} \u2014\u2014 \u53D8\u91CF\u90FD\u5728\u5F39\u7A97\u91CC\uFF0C\u53EF\u6309\u300C\u653F\u7B56 / \u65E5\u671F / rq / tzjy\u300D\u53E3\u8BED\u5316\u641C \u2713`
         )
       ),
-      // 全局变量（工作流任意位置都能用：vars 来自「设置变量」节点，inputs 来自工作流参数）
-      (0, import_react102.createElement)(
-        "div",
-        { className: "dsh-wf-panel-row" },
-        (0, import_react102.createElement)(
-          "label",
-          { className: "dsh-wf-panel-label" },
-          `\u{1F310} \u5168\u5C40\u53D8\u91CF\uFF08vars ${globalVars.length} \xB7 inputs ${inputKeys.length} \xB7 \u70B9\u51FB\u590D\u5236\uFF09`
-        ),
+      varDlgOpen && (0, import_react_dom9.createPortal)(
         (0, import_react102.createElement)(
           "div",
-          { className: "dsh-wf-var-list" },
-          ...globalVars.map((k5) => refChip(`{{vars.${k5}}}`, `\u300C${k5}\u300D\u2014\u2014\u7531\u8BBE\u7F6E\u53D8\u91CF\u8282\u70B9 ${varOwner[k5]} \u5199\u5165\uFF0C\u6D41\u7A0B\u5185\u968F\u5904\u53EF\u89C1`, `gv-${k5}`, false)),
-          ...inputKeys.map((k5) => refChip(`{{inputs.${k5}}}`, `\u5DE5\u4F5C\u6D41\u53C2\u6570\u300C${k5}\u300D\u2014\u2014\u8FD0\u884C\u672C\u5DE5\u4F5C\u6D41\u65F6\u7531\u5916\u90E8/\u9762\u677F\u586B\u5165`, `gi-${k5}`, false)),
-          refChip("{{vars.loopItem}}", "\u4EC5\u5728\u88AB loop \u5F53\u5FAA\u73AF\u4F53\u8C03\u7528\u7684\u5B50\u5DE5\u4F5C\u6D41\u91CC\u53EF\u7528\uFF1A\u5F53\u8F6E\u7684\u9879\u6216\u8F6E\u6B21\u5E8F\u53F7", "gv-loopItem", false),
-          refChip("{{vars.loopIndex}}", "\u4EC5\u5728\u88AB loop \u5F53\u5FAA\u73AF\u4F53\u8C03\u7528\u7684\u5B50\u5DE5\u4F5C\u6D41\u91CC\u53EF\u7528\uFF1A\u5F53\u524D\u8F6E\u5E8F\u53F7\uFF08\u4ECE 0 \u5F00\u59CB\uFF09", "gv-loopIndex", false)
+          {
+            className: "dag-flow-picker-overlay",
+            onClick: (e2) => {
+              if (e2.target === e2.currentTarget) setVarDlgOpen(false);
+            }
+          },
+          (0, import_react102.createElement)(
+            "div",
+            { className: "dag-flow-picker dsh-wf-var-dlg" },
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dag-flow-picker-title", style: { fontSize: 16 } },
+              `\u{1F517} \u53D8\u91CF\u5F15\u7528 \xB7 ${node2.label ? `${node2.label} \xB7 ` : ""}${node2.id}`,
+              (0, import_react102.createElement)("button", { className: "dag-flow-picker-close", title: "\u5173\u95ED", onClick: () => setVarDlgOpen(false) }, "\u2715")
+            ),
+            (0, import_react102.createElement)(
+              "div",
+              { className: "dag-flow-picker-body dsh-wf-var-dlg-body" },
+              // 变量引用（2026-10-03 用户需求：上游能传过来的所有变量 + 本节点能给下游的所有变量，
+              //   都点击复制，且要说明每个变量是干什么的；两处都要包含全局变量）
+              //   ★ 2026-10-09 用户拍板方案 C：不平铺（上游分组默认收起）+ 口语化搜索（节点名/字段说明/路径/拼音）✓
+              (0, import_react102.createElement)(
+                "div",
+                { className: "dsh-wf-panel-row" },
+                (0, import_react102.createElement)("label", { className: "dsh-wf-panel-label" }, "\u{1F50E} \u53D8\u91CF\u641C\u7D22\uFF08\u8282\u70B9\u540D / \u5B57\u6BB5\u8BF4\u660E / \u62FC\u97F3\u9996\u5B57\u6BCD\uFF09"),
+                (0, import_react102.createElement)("input", {
+                  className: "dsh-wf-var-search",
+                  value: varQ,
+                  placeholder: "\u53E3\u8BED\u5316\u641C\uFF1A\u653F\u7B56 \xB7 \u65E5\u671F \xB7 rq \xB7 tzjy \xB7 ai_policy.out \u2026",
+                  onChange: (e2) => setVarQ(e2.target.value)
+                }),
+                varQuery ? (0, import_react102.createElement)(
+                  "div",
+                  { className: "dsh-wf-panel-hint" },
+                  varHitCount > 0 ? `\u547D\u4E2D ${varHitCount} \u9879\uFF08\u5DF2\u81EA\u52A8\u5C55\u5F00\uFF1B\u6E05\u7A7A\u641C\u7D22\u5373\u56DE\u5230\u5206\u7EC4\u6536\u8D77\uFF09` : "\u6CA1\u6709\u5339\u914D\u7684\u53D8\u91CF\u2014\u2014\u6362\u4E2A\u8BCD\u8BD5\u8BD5\uFF08\u652F\u6301\u62FC\u97F3\u9996\u5B57\u6BCD\uFF0C\u5982 rq=\u65E5\u671F\uFF09"
+                ) : (0, import_react102.createElement)("div", { className: "dsh-wf-panel-hint" }, "\u8F93\u5165\u5173\u952E\u8BCD\u5373\u53EF\u8DE8\u300C\u4E0A\u6E38 / \u8F93\u51FA / \u5168\u5C40\u300D\u68C0\u7D22\uFF1B\u4E0D\u641C\u65F6\u4E0A\u6E38\u6309\u6765\u6E90\u8282\u70B9\u6536\u8D77\uFF0C\u9762\u677F\u66F4\u6E05\u723D \u2713")
+              ),
+              (0, import_react102.createElement)(
+                "div",
+                { className: "dsh-wf-panel-row" },
+                (0, import_react102.createElement)(
+                  "label",
+                  { className: "dsh-wf-panel-label" },
+                  `\u{1F517} \u4E0A\u6E38\u53D8\u91CF\uFF08${upstream.length} \u4E2A\u4E0A\u6E38\u8282\u70B9${varQuery ? ` \xB7 \u547D\u4E2D ${upstreamView.length} \u4E2A` : ""} \xB7 \u70B9\u51FB\u590D\u5236\uFF09`
+                ),
+                upstream.length === 0 ? (0, import_react102.createElement)("div", { className: "dsh-wf-panel-hint" }, "\u65E0\u4E0A\u6E38\u8282\u70B9\u2014\u2014\u672C\u8282\u70B9\u662F\u6D41\u7A0B\u8D77\u70B9\uFF1B\u4E0B\u9762\u7684\u5168\u5C40\u53D8\u91CF\u4ECD\u7136\u53EF\u7528\u3002") : (0, import_react102.createElement)(
+                  "div",
+                  { className: "dsh-wf-var-groups" },
+                  ...upstreamView.map(({ u: u4, um, spec, f: f4, fields, srcNote }) => {
+                    const open = varQuery ? true : varOpen[u4] === true;
+                    return (0, import_react102.createElement)(
+                      "div",
+                      { key: "up-" + u4, className: "dsh-wf-var-group" },
+                      (0, import_react102.createElement)("div", {
+                        className: `dsh-wf-var-node is-toggle${open ? "" : " is-closed"}`,
+                        title: open ? "\u70B9\u51FB\u6536\u8D77\u8BE5\u8282\u70B9\u5B57\u6BB5" : "\u70B9\u51FB\u5C55\u5F00\u8BE5\u8282\u70B9\u5B57\u6BB5",
+                        onClick: () => setVarOpen((m4) => ({ ...m4, [u4]: !(m4[u4] === true) }))
+                      }, `${open ? "\u25BE" : "\u25B8"} ${um?.label ?? un?.type ?? "?"} \xB7 ${u4} \xB7 ${fields.length} \u4E2A\u5B57\u6BB5${spec.note ? ` \u2014\u2014 ${spec.note}` : ""}${srcNote}`),
+                      open ? (0, import_react102.createElement)(
+                        "div",
+                        { className: "dsh-wf-var-list" },
+                        refChip(`{{${u4}.out}}`, `\u300C${u4}\u300D\u7684\u6574\u4EFD\u8F93\u51FA`, `up-${u4}-all`, false),
+                        ...fields.map((x4) => refChip(`{{${u4}.out.${x4.path}}}`, `${x4.desc || "\u81EA\u5B9A\u4E49\u5B57\u6BB5"}${x4.sample ? `\uFF1B\u6837\u4F8B\uFF1A${x4.sample}` : ""}`, `up-${u4}-${x4.path}`, false)),
+                        refChip(`{{results.${u4}}}`, "\u8BE5\u8282\u70B9\u7684\u6267\u884C\u72B6\u6001/\u8017\u65F6\uFF08\u4E0D\u662F\u5B83\u7684\u4E1A\u52A1\u8F93\u51FA\uFF09", `up-${u4}-res`, false)
+                      ) : null,
+                      open && f4.live ? (0, import_react102.createElement)(
+                        "div",
+                        { className: "dsh-wf-var-legend" },
+                        "\u5B9E\u6D4B\u5B57\u6BB5\uFF1A" + f4.list.map((x4) => `${x4.path}=${x4.sample}${x4.desc ? `\uFF08${x4.desc}\uFF09` : ""}`).join(" \xB7 ") + (f4.skipped ? ` \xB7 \u53E6\u6709 ${f4.skipped} \u4E2A\u952E\u540D\u542B\u70B9/\u7A7A\u683C\uFF0C\u65E0\u6CD5\u7528 {{}} \u5F15\u7528` : "")
+                      ) : open && f4.list.length ? (0, import_react102.createElement)(
+                        "div",
+                        { className: "dsh-wf-var-legend" },
+                        "\u5B57\u6BB5\u8BF4\u660E\uFF1A" + f4.list.map((x4) => `${x4.path}=${x4.desc}`).join(" \xB7 ")
+                      ) : null
+                    );
+                  }),
+                  // 全局变量在上游变量里也要有（它们不来自上游节点，但在本节点参数里一样能引用）
+                  (() => {
+                    const gs = chipsOf(globalItems(false));
+                    if (!gs.length) return null;
+                    return (0, import_react102.createElement)(
+                      "div",
+                      { className: "dsh-wf-var-group" },
+                      (0, import_react102.createElement)("div", { className: "dsh-wf-var-node" }, "\u5168\u5C40\u53D8\u91CF\uFF08\u4E0D\u6765\u81EA\u4E0A\u6E38\uFF0C\u4EFB\u610F\u4F4D\u7F6E\u90FD\u80FD\u5F15\u7528\uFF09"),
+                      (0, import_react102.createElement)("div", { className: "dsh-wf-var-list" }, ...gs)
+                    );
+                  })()
+                )
+              ),
+              // 全局变量（工作流任意位置都能用：vars 来自「设置变量」节点，inputs 来自工作流参数）
+              (0, import_react102.createElement)(
+                "div",
+                { className: "dsh-wf-panel-row" },
+                (0, import_react102.createElement)(
+                  "label",
+                  { className: "dsh-wf-panel-label" },
+                  `\u{1F310} \u5168\u5C40\u53D8\u91CF\uFF08vars ${globalVars.length} \xB7 inputs ${inputKeys.length} \xB7 \u70B9\u51FB\u590D\u5236\uFF09`
+                ),
+                (0, import_react102.createElement)("div", { className: "dsh-wf-var-list" }, ...chipsOf(globalItems(false))),
+                !globalVars.length && !inputKeys.length ? (0, import_react102.createElement)("div", { className: "dsh-wf-panel-hint" }, "\u8FD8\u6CA1\u6709\u5168\u5C40\u53D8\u91CF\uFF1A\u52A0\u4E00\u4E2A\u300C\u8BBE\u7F6E\u53D8\u91CF\u300D\u8282\u70B9\u4F1A\u5199 vars\uFF0C\u6216\u5728\u5934\u90E8 \u270D\uFE0F \u5DE5\u4F5C\u6D41\u53C2\u6570\u91CC\u52A0 inputs\u3002") : null
+              ),
+              // 本节点输出（下游引用）
+              (0, import_react102.createElement)(
+                "div",
+                { className: "dsh-wf-panel-row" },
+                (0, import_react102.createElement)("label", { className: "dsh-wf-panel-label" }, "\u{1F4E4} \u672C\u8282\u70B9\u8F93\u51FA\uFF08\u4E0B\u6E38\u53EF\u76F4\u63A5\u5F15\u7528 \xB7 \u70B9\u51FB\u590D\u5236\uFF09"),
+                (0, import_react102.createElement)(
+                  "div",
+                  { className: "dsh-wf-var-list" },
+                  refChip(`{{${node2.id}.out}}`, `\u672C\u8282\u70B9\u7684\u6574\u4EFD\u8F93\u51FA${selfSpec.note ? `\uFF08${selfSpec.note}\uFF09` : ""}`, "self-all", true),
+                  ...selfFields.list.map((x4) => refChip(`{{${node2.id}.out.${x4.path}}}`, `${x4.desc || "\u81EA\u5B9A\u4E49\u5B57\u6BB5"}${x4.sample ? `\uFF1B\u6837\u4F8B\uFF1A${x4.sample}` : ""}`, `self-${x4.path}`, true)),
+                  refChip(`{{results.${node2.id}}}`, "\u672C\u8282\u70B9\u7684\u6267\u884C\u72B6\u6001/\u8017\u65F6\uFF08\u4E0D\u662F\u4E1A\u52A1\u8F93\u51FA\uFF09", "self-res", true),
+                  ...node2.type === "set_var" ? Object.keys(node2.params?.vars ?? {}).map((k5) => refChip(`{{vars.${k5}}}`, `\u672C\u8282\u70B9\u5199\u5165\u7684\u5168\u5C40\u53D8\u91CF\u300C${k5}\u300D`, `self-var-${k5}`, true)) : []
+                ),
+                // 标量/动态型输出：把「这份输出到底是什么」写成可见说明（用户要「说明每个变量作用」）
+                selfSpec.note ? (0, import_react102.createElement)("div", { className: "dsh-wf-var-legend" }, `\u672C\u8282\u70B9\u8F93\u51FA\u662F\u4EC0\u4E48\uFF1A${selfSpec.note}`) : null,
+                // 本次运行过 → 字段按真实输出给（含用户自定义键），并写明「实测字段=样例值」
+                selfFields.live ? (0, import_react102.createElement)(
+                  "div",
+                  { className: "dsh-wf-var-legend" },
+                  "\u5B9E\u6D4B\u5B57\u6BB5\uFF08\u53D6\u81EA\u4E0A\u6B21\u8FD0\u884C\uFF0C\u5B57\u6BB5\u540D\u4E0E\u6837\u4F8B\u90FD\u662F\u771F\u7684\uFF09\uFF1A" + selfFields.list.map((x4) => `${x4.path}=${x4.sample}${x4.desc ? `\uFF08${x4.desc}\uFF09` : ""}`).join(" \xB7 ") + (selfFields.skipped ? ` \xB7 \u53E6\u6709 ${selfFields.skipped} \u4E2A\u952E\u540D\u542B\u70B9/\u7A7A\u683C\uFF0C\u65E0\u6CD5\u7528 {{}} \u5F15\u7528` : "")
+                ) : selfFields.list.length ? (0, import_react102.createElement)(
+                  "div",
+                  { className: "dsh-wf-var-legend" },
+                  "\u5B57\u6BB5\u8BF4\u660E\uFF1A" + selfFields.list.map((x4) => `${x4.path}=${x4.desc}`).join(" \xB7 ")
+                ) : null,
+                (0, import_react102.createElement)(
+                  "div",
+                  { className: "dsh-wf-var-legend" },
+                  "\u4E0B\u6E38\u8282\u70B9\u8FD9\u6837\u7528\uFF1A\u5199\u5728\u53C2\u6570\u91CC\u7528 {{}} \u6A21\u677F\uFF08\u5982 {{" + node2.id + ".out.field}}\uFF09\uFF1B\u5199\u5728 if/switch/loop \u7684\u8868\u8FBE\u5F0F\u91CC\u5219\u4E0D\u5E26 {{}}\uFF08\u5982 " + node2.id + ".out.field\uFF09\u3002"
+                ),
+                ...(() => {
+                  const gs = chipsOf(globalItems(true));
+                  return gs.length ? [
+                    (0, import_react102.createElement)("div", { className: "dsh-wf-var-legend" }, "\u5168\u5C40\u53D8\u91CF\uFF08\u4E0B\u6E38\u540C\u6837\u80FD\u76F4\u63A5\u5F15\u7528\uFF09\uFF1A"),
+                    (0, import_react102.createElement)("div", { className: "dsh-wf-var-list" }, ...gs)
+                  ] : [];
+                })()
+              )
+            )
+            // ← 关 .dag-flow-picker-body
+          )
+          // ← 关 .dag-flow-picker.dsh-wf-var-dlg
         ),
-        !globalVars.length && !inputKeys.length ? (0, import_react102.createElement)("div", { className: "dsh-wf-panel-hint" }, "\u8FD8\u6CA1\u6709\u5168\u5C40\u53D8\u91CF\uFF1A\u52A0\u4E00\u4E2A\u300C\u8BBE\u7F6E\u53D8\u91CF\u300D\u8282\u70B9\u4F1A\u5199 vars\uFF0C\u6216\u5728\u5934\u90E8 \u270D\uFE0F \u5DE5\u4F5C\u6D41\u53C2\u6570\u91CC\u52A0 inputs\u3002") : null
+        // ← 关 .dag-flow-picker-overlay
+        document.body
       ),
-      // 本节点输出（下游引用）
-      (0, import_react102.createElement)(
-        "div",
-        { className: "dsh-wf-panel-row" },
-        (0, import_react102.createElement)("label", { className: "dsh-wf-panel-label" }, "\u{1F4E4} \u672C\u8282\u70B9\u8F93\u51FA\uFF08\u4E0B\u6E38\u53EF\u76F4\u63A5\u5F15\u7528 \xB7 \u70B9\u51FB\u590D\u5236\uFF09"),
-        (0, import_react102.createElement)(
-          "div",
-          { className: "dsh-wf-var-list" },
-          refChip(`{{${node2.id}.out}}`, `\u672C\u8282\u70B9\u7684\u6574\u4EFD\u8F93\u51FA${selfSpec.note ? `\uFF08${selfSpec.note}\uFF09` : ""}`, "self-all", true),
-          ...selfFields.list.map((x4) => refChip(`{{${node2.id}.out.${x4.path}}}`, `${x4.desc || "\u81EA\u5B9A\u4E49\u5B57\u6BB5"}${x4.sample ? `\uFF1B\u6837\u4F8B\uFF1A${x4.sample}` : ""}`, `self-${x4.path}`, true)),
-          refChip(`{{results.${node2.id}}}`, "\u672C\u8282\u70B9\u7684\u6267\u884C\u72B6\u6001/\u8017\u65F6\uFF08\u4E0D\u662F\u4E1A\u52A1\u8F93\u51FA\uFF09", "self-res", true),
-          ...node2.type === "set_var" ? Object.keys(node2.params?.vars ?? {}).map((k5) => refChip(`{{vars.${k5}}}`, `\u672C\u8282\u70B9\u5199\u5165\u7684\u5168\u5C40\u53D8\u91CF\u300C${k5}\u300D`, `self-var-${k5}`, true)) : []
-        ),
-        // 标量/动态型输出：把「这份输出到底是什么」写成可见说明（用户要「说明每个变量作用」）
-        selfSpec.note ? (0, import_react102.createElement)("div", { className: "dsh-wf-var-legend" }, `\u672C\u8282\u70B9\u8F93\u51FA\u662F\u4EC0\u4E48\uFF1A${selfSpec.note}`) : null,
-        // 本次运行过 → 字段按真实输出给（含用户自定义键），并写明「实测字段=样例值」
-        selfFields.live ? (0, import_react102.createElement)(
-          "div",
-          { className: "dsh-wf-var-legend" },
-          "\u5B9E\u6D4B\u5B57\u6BB5\uFF08\u53D6\u81EA\u4E0A\u6B21\u8FD0\u884C\uFF0C\u5B57\u6BB5\u540D\u4E0E\u6837\u4F8B\u90FD\u662F\u771F\u7684\uFF09\uFF1A" + selfFields.list.map((x4) => `${x4.path}=${x4.sample}${x4.desc ? `\uFF08${x4.desc}\uFF09` : ""}`).join(" \xB7 ") + (selfFields.skipped ? ` \xB7 \u53E6\u6709 ${selfFields.skipped} \u4E2A\u952E\u540D\u542B\u70B9/\u7A7A\u683C\uFF0C\u65E0\u6CD5\u7528 {{}} \u5F15\u7528` : "")
-        ) : selfFields.list.length ? (0, import_react102.createElement)(
-          "div",
-          { className: "dsh-wf-var-legend" },
-          "\u5B57\u6BB5\u8BF4\u660E\uFF1A" + selfFields.list.map((x4) => `${x4.path}=${x4.desc}`).join(" \xB7 ")
-        ) : null,
-        (0, import_react102.createElement)(
-          "div",
-          { className: "dsh-wf-var-legend" },
-          "\u4E0B\u6E38\u8282\u70B9\u8FD9\u6837\u7528\uFF1A\u5199\u5728\u53C2\u6570\u91CC\u7528 {{}} \u6A21\u677F\uFF08\u5982 {{" + node2.id + ".out.field}}\uFF09\uFF1B\u5199\u5728 if/switch/loop \u7684\u8868\u8FBE\u5F0F\u91CC\u5219\u4E0D\u5E26 {{}}\uFF08\u5982 " + node2.id + ".out.field\uFF09\u3002"
-        ),
-        // 全局变量在本节点输出里也要有（它们不只属于本节点，下游一样能引用）——用户明确要求两处都包含
-        (0, import_react102.createElement)("div", { className: "dsh-wf-var-legend" }, "\u5168\u5C40\u53D8\u91CF\uFF08\u4E0B\u6E38\u540C\u6837\u80FD\u76F4\u63A5\u5F15\u7528\uFF09\uFF1A"),
-        (0, import_react102.createElement)("div", { className: "dsh-wf-var-list" }, ...globalChips("self-gv"))
-      ),
+      // ← 关 createPortal（变量弹窗）
       // 复制反馈浮窗（Portal 到 body：面板的 backdrop-filter 会把 fixed 元素困在面板内，且面板滚动/裁剪都不该影响它）
       copied && (0, import_react_dom9.createPortal)(
         (0, import_react102.createElement)(

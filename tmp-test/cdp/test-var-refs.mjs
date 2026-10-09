@@ -37,9 +37,72 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
   })()`);
 
   // ===== 选中 py（有 2 个上游：seed / fetch）=====
+  //   ★ 2026-10-09 用户要求：变量面板改成**独立弹窗**（编辑面板只留入口按钮）
+  //     → 所有变量断言前先"打开变量弹窗" ✓（弹窗 Portal 到 body，选择器不变 ✓）
+  const openVarDlg = async () => {
+    await evaluate(cdp, `(() => {
+      const b = [...document.querySelectorAll('button')].find((x) => x.textContent.includes('打开变量弹窗'));
+      if (b) b.click();
+      return !!b;
+    })()`);
+    await waitFor(cdp, `!!document.querySelector('.dsh-wf-var-group')`, { timeout: 8000 });
+    await sleep(200);
+  };
   await evaluate(cdp, clickCardByText(' · py'));
-  await waitFor(cdp, `!!document.querySelector('.dsh-wf-var-group')`, { timeout: 8000 });
   await sleep(200);
+  // 「编辑面板不再被变量列表撑长」是用户提这个需求的初衷 → 先断言面板里已经没有变量列表 ✓
+  const lean = await evaluate(cdp, `(() => {
+    const btn = [...document.querySelectorAll('button')].find((x) => x.textContent.includes('打开变量弹窗'));
+    return { hasBtn: !!btn, dlgOpen: !!document.querySelector('.dag-flow-picker-overlay') };
+  })()`);
+  ok(lean.hasBtn === true, '⓪0 ★编辑面板里有「打开变量弹窗」入口按钮');
+  ok(lean.dlgOpen === false, '⓪0b ★未点按钮时没有弹窗（面板也不再被变量列表撑长）');
+  await openVarDlg();
+  const dlgInfo = await evaluate(cdp, `(() => {
+    const ov = document.querySelector('.dag-flow-picker-overlay');
+    const dlg = document.querySelector('.dag-flow-picker.dsh-wf-var-dlg');
+    return {
+      isPortalToBody: ov ? ov.parentElement === document.body : false,
+      title: document.querySelector('.dag-flow-picker-title')?.textContent ?? '',
+      width: dlg ? Math.round(dlg.getBoundingClientRect().width) : 0,
+      hasClose: !!document.querySelector('.dag-flow-picker-close'),
+    };
+  })()`);
+  ok(dlgInfo.isPortalToBody === true, '⓪0c ★弹窗 Portal 到 body（避免面板 backdrop-filter 困住 fixed ✗）');
+  ok(dlgInfo.title.includes('变量引用') && dlgInfo.title.includes('py'), '⓪0d 弹窗标题带节点标识（实际：' + dlgInfo.title + '）');
+  ok(dlgInfo.width >= 755 && dlgInfo.width !== 680, '⓪0e ★弹窗宽度走自己的类（没被运行时注入的 680 压掉）实际 ' + dlgInfo.width + '（760 + 左右边框）');
+  ok(dlgInfo.hasClose === true, '⓪0f 右上 ✕ 关闭（项目弹窗约定）');
+
+  // ★ 2026-10-09 方案 C：上游分组**默认收起**（面板不再平铺 ✓）——先断言这个新默认，
+  //   再逐个点开（后续 §① 的字段级断言依赖展开态 ✓）
+  const collapsed = await evaluate(cdp, `(() => {
+    const toggles = [...document.querySelectorAll('.dsh-wf-var-node.is-toggle')];
+    return {
+      n: toggles.length,
+      allClosed: toggles.every((t) => t.classList.contains('is-closed')),
+      carets: toggles.map((t) => t.textContent.trim().slice(0, 1)),
+      chipsInside: toggles.reduce((s, t) => s + t.parentElement.querySelectorAll('.dsh-wf-var-chip').length, 0),
+    };
+  })()`);
+  ok(collapsed.n >= 2 && collapsed.allClosed, `⓪ ★上游分组默认**收起**（${collapsed.n} 组全部 is-closed）`);
+  ok(collapsed.carets.every((c) => c === '▸'), `⓪a 收起时用 ▸ 指示（实际 ${JSON.stringify(collapsed.carets)}）`);
+  ok(collapsed.chipsInside === 0, `⓪b ★收起时组内不铺芯片（这正是"避免平铺"的效果，实测 ${collapsed.chipsInside} 个）`);
+  // 点开后应变成 ▾ 且芯片出现
+  await evaluate(cdp, `(() => {
+    [...document.querySelectorAll('.dsh-wf-var-node.is-toggle')].forEach((t) => t.click());
+    return true;
+  })()`);
+  await sleep(200);
+  const expanded = await evaluate(cdp, `(() => {
+    const toggles = [...document.querySelectorAll('.dsh-wf-var-node.is-toggle')];
+    return {
+      allOpen: toggles.every((t) => !t.classList.contains('is-closed')),
+      carets: toggles.map((t) => t.textContent.trim().slice(0, 1)),
+      chips: toggles.reduce((s, t) => s + t.parentElement.querySelectorAll('.dsh-wf-var-chip').length, 0),
+    };
+  })()`);
+  ok(expanded.allOpen && expanded.carets.every((c) => c === '▾'), `⓪c ★点一下展开（▾，实际 ${JSON.stringify(expanded.carets)}）`);
+  ok(expanded.chips > 0, `⓪d 展开后组内出现字段芯片（${expanded.chips} 个）`);
 
   const groups = await evaluate(cdp, `(() => {
     const rows = [...document.querySelectorAll('.dsh-wf-panel-row')];
@@ -77,6 +140,66 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
   ok(groups.upChips.includes('{{fetch.out.results.0.url}}') && groups.upChips.includes('{{fetch.out.count}}'),
     '① 上游 web_search 给出字段级 chip（results.0.url / count）实际：' + JSON.stringify(groups.upChips) + '）');
   ok(groups.upChips.includes('{{results.fetch}}'), '① 同时给出执行状态引用 {{results.fetch}}');
+
+  // ===== ★ 2026-10-09 方案 C：口语化搜索（节点名 / 字段说明 / 路径 / 拼音首字母）=====
+  const setVarQ = (v) => evaluate(cdp, `(() => {
+    const inp = document.querySelector('.dsh-wf-var-search');
+    const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(inp), 'value').set;
+    set.call(inp, ${JSON.stringify(v)});
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  const varState = () => evaluate(cdp, `(() => {
+    const toggles = [...document.querySelectorAll('.dsh-wf-var-node.is-toggle')];
+    return {
+      headers: toggles.map((t) => t.textContent.trim()),
+      openCount: toggles.filter((t) => !t.classList.contains('is-closed')).length,
+      upLabel: [...document.querySelectorAll('.dsh-wf-panel-label')].find((l) => l.textContent.includes('上游变量'))?.textContent ?? '',
+      hint: [...document.querySelectorAll('.dsh-wf-panel-hint')].map((h) => h.textContent).join(' | '),
+    };
+  })()`);
+
+  await setVarQ('搜索');
+  await sleep(220);
+  let st = await varState();
+  ok(st.headers.length === 1 && st.headers[0].includes('fetch'), '★S1 中文按**节点显示名**过滤（只剩「网页搜索」组，实际 ' + JSON.stringify(st.headers) + '）');
+  ok(st.openCount === 1, '★S2 ★命中时自动展开（不用手点，实际展开 ' + st.openCount + ' 组）');
+
+  await setVarQ('wyss');
+  await sleep(220);
+  st = await varState();
+  ok(st.headers.length === 1 && st.headers[0].includes('fetch'), '★S3 ★拼音首字母也能搜（wyss=网页搜索 → 实际 ' + JSON.stringify(st.headers) + '）');
+
+  await setVarQ('rq');
+  await sleep(220);
+  st = await varState();
+  ok(/命中 0 项/.test(st.hint) || st.headers.length === 0, '★S4 搜不到的拼音给明确空态（实际提示：' + st.hint.slice(0, 40) + '）');
+
+  await setVarQ('fetch.out.count');
+  await sleep(220);
+  st = await varState();
+  ok(st.headers.length === 1 && st.headers[0].includes('fetch'), '★S5 按**变量路径**也能搜（fetch.out.count）');
+  const countChip = await evaluate(cdp, `[...document.querySelectorAll('.dsh-wf-var-chip')].some((c) => c.textContent.includes('{{fetch.out.count}}'))`);
+  ok(countChip === true, '★S6 路径命中时该字段 chip 可见');
+
+  // ★S7 清空搜索要回到"用户记住的展开状态"（默认全收起 ✓；搜索期间的自动展开是临时的 ✓）
+  //   注意：搜索生效期间分组是**强制展开**的（点不动 ✗）→ 必须先清空查询，再折叠 ✓
+  await setVarQ('');
+  await sleep(220);
+  await evaluate(cdp, `(() => { [...document.querySelectorAll('.dsh-wf-var-node.is-toggle')].forEach((t) => { if (!t.classList.contains('is-closed')) t.click(); }); return true; })()`);
+  await sleep(180);
+  ok((await varState()).openCount === 0, '★S7a 手动收起后 0 组展开');
+  await setVarQ('搜索');
+  await sleep(220);
+  ok((await varState()).openCount === 1, '★S7b 搜索时临时自动展开命中组（1 组）');
+  await setVarQ('');
+  await sleep(220);
+  st = await varState();
+  ok(st.openCount === 0 && st.headers.length >= 2, '★S7c ★清空搜索 → 回到"记住的收起状态"（实际展开 ' + st.openCount + ' 组，' + st.headers.length + ' 组可见）');
+
+  // 后续断言依赖"组已展开"，这里再点开一次
+  await evaluate(cdp, `(() => { [...document.querySelectorAll('.dsh-wf-var-node.is-toggle')].forEach((t) => t.click()); return true; })()`);
+  await sleep(200);
 
   // ② 说明每个变量作用（chip title + 字段说明行）
   ok(groups.firstUpTitle.includes('作用：'), '② chip 的 tooltip 说明这个变量是干什么的（实际：' + groups.firstUpTitle.split('\n').join(' | ') + '）');
@@ -139,6 +262,7 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
 
   // ⑥ 换选 fetch（web_search）→ 本节点输出变成字段级
   await evaluate(cdp, clickCardByText(' · fetch'));
+  await openVarDlg();   // ★ 换选节点会让检查器重挂载 → 变量弹窗随之关闭 ✗ → 重新打开 ✓（该函数幂等 ✓）
   await waitFor(cdp, `[...document.querySelectorAll('.dsh-wf-panel-row')].some((r) => (r.querySelector('.dsh-wf-panel-label')?.textContent || '').includes('本节点输出') && r.textContent.includes('{{fetch.out.count}}'))`, { timeout: 8000 });
   const self2 = await evaluate(cdp, `(() => {
     const row = [...document.querySelectorAll('.dsh-wf-panel-row')].find((r) => (r.querySelector('.dsh-wf-panel-label')?.textContent || '').includes('本节点输出'));
@@ -172,7 +296,15 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
   await confirmSelfcheck(cdp);   // ★ 越过运行前自检的人工确认
   await waitFor(cdp, `(document.body.textContent || '').includes('运行成功')`, { timeout: 8000 });
   await evaluate(cdp, clickCardByText(' · py'));
+  await openVarDlg();   // ★ 变量已搬进弹窗；重选节点后要确保弹窗开着（选择态变化会让检查器重挂载、弹窗随之关闭 ✗）
   await waitFor(cdp, `[...document.querySelectorAll('.dsh-wf-var-node')].some((n) => n.textContent.includes('取自上次运行的真实输出'))`, { timeout: 8000 });
+  // ★ 方案 C 下上游分组**默认收起**；而且这一句"重新选中节点"会让检查器重挂载、展开态回到默认收起 ✗
+  //   → 要读字段级 chip 之前先全部展开 ✓
+  await evaluate(cdp, `(() => {
+    [...document.querySelectorAll('.dsh-wf-var-node.is-toggle')].forEach((t) => { if (t.classList.contains('is-closed')) t.click(); });
+    return true;
+  })()`);
+  await sleep(200);
   const live = await evaluate(cdp, `(() => {
     const groups = [...document.querySelectorAll('.dsh-wf-var-group')];
     const g = groups.find((x) => (x.querySelector('.dsh-wf-var-node')?.textContent || '').includes(' · fetch'));
@@ -195,6 +327,7 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
 
   // 选中跑过的 fetch 自己 → 本节点输出同样是实测字段
   await evaluate(cdp, clickCardByText(' · fetch'));
+  await openVarDlg();   // ★ 同 §⑥：换选会关闭变量弹窗 → 重开 ✓
   await waitFor(cdp, `[...document.querySelectorAll('.dsh-wf-panel-row')].some((r) => (r.querySelector('.dsh-wf-panel-label')?.textContent || '').includes('本节点输出') && r.textContent.includes('实测字段'))`, { timeout: 8000 });
   const selfLive = await evaluate(cdp, `(() => {
     const row = [...document.querySelectorAll('.dsh-wf-panel-row')].find((r) => (r.querySelector('.dsh-wf-panel-label')?.textContent || '').includes('本节点输出'));

@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>dag-flow 变量面板 · 收纳与搜索方案原型（三选一）</title>
+<style>
+  :root{
+    --wf-bg:#08101e; --wf-panel:#101a2b; --wf-panel2:#162135; --wf-panel3:#172640;
+    --wf-border:#22304a; --wf-border2:#29405f; --wf-text:#e6edf7; --wf-text2:#dce7f8;
+    --wf-muted:#8b9bb3; --wf-accent:#4c8dff; --wf-success:#34d399; --wf-warn:#fbbf24;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--wf-bg);color:var(--wf-text);padding:16px 18px 60px;
+    font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  h1{font-size:15px;margin:0 0 4px;font-weight:650}
+  .sub{color:var(--wf-muted);font-size:12px;margin-bottom:12px;line-height:1.7}
+  .tabs{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+  .tab{border:1px solid var(--wf-border2);background:var(--wf-panel2);color:var(--wf-text2);
+    border-radius:8px;padding:6px 11px;font-size:12px;cursor:pointer;font-family:inherit}
+  .tab.on{border-color:var(--wf-accent);background:color-mix(in srgb,var(--wf-accent) 16%,transparent);color:#cfe0ff;font-weight:600}
+  .wrap{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+  .panel{width:380px;background:var(--wf-panel);border:1px solid var(--wf-border);border-radius:12px;padding:10px 12px;
+    position:relative}
+  .panelhead{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .panelhead b{font-size:13px}
+  .spin{margin-left:auto;font-size:11px;color:var(--wf-muted)}
+  .search{width:100%;background:var(--wf-bg);border:1px solid var(--wf-border2);border-radius:8px;
+    color:var(--wf-text);padding:7px 10px;font-size:12px;font-family:inherit;margin:6px 0 8px}
+  .search:focus{outline:none;border-color:var(--wf-accent)}
+  .sec{border-top:1px solid var(--wf-border);padding:7px 0 3px}
+  .sec:first-of-type{border-top:0}
+  .sec-h{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px;font-weight:600;color:var(--wf-text2)}
+  .sec-h .caret{width:12px;color:var(--wf-muted);transition:transform .15s ease}
+  .sec.closed .caret{transform:rotate(-90deg)}
+  .sec-h .n{margin-left:auto;font-size:11px;color:var(--wf-muted);font-weight:400}
+  .sec-b{margin-top:6px}
+  .sec.closed .sec-b{display:none}
+  .grp{border:1px solid var(--wf-border);border-radius:8px;margin:5px 0;overflow:hidden}
+  .grp-h{display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--wf-panel2);cursor:pointer;font-size:11.5px}
+  .grp-h .caret{width:12px;color:var(--wf-muted)}
+  .grp.closed .grp-h .caret{transform:rotate(-90deg)}
+  .grp-h .n{margin-left:auto;color:var(--wf-muted)}
+  .grp.closed .grp-b{display:none}
+  .grp-b{padding:5px 7px 7px}
+  .chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--wf-border2);background:var(--wf-panel2);
+    border-radius:7px;padding:3px 8px;margin:3px 4px 0 0;font-size:11px;color:var(--wf-text2);cursor:pointer;
+    font-family:ui-monospace,Consolas,monospace}
+  .chip:hover{border-color:var(--wf-accent);color:#cfe0ff}
+  .chip.is-out{border-color:color-mix(in srgb,var(--wf-success) 50%,transparent);color:#9be7c4}
+  .chip.is-global{border-color:color-mix(in srgb,var(--wf-warn) 50%,transparent);color:#fcd34d}
+  .chip em{font-style:normal;color:var(--wf-muted);font-family:inherit}
+  .hit{background:color-mix(in srgb,var(--wf-accent) 34%,transparent);border-radius:3px}
+  .src{font-size:10px;color:var(--wf-muted);margin-left:2px}
+  .sum{border:1px dashed var(--wf-border2);border-radius:8px;padding:7px 9px;font-size:11px;color:var(--wf-muted);margin:6px 0}
+  .sum b{color:var(--wf-text2)}
+  .empty{color:var(--wf-muted);font-size:11px;padding:8px 2px}
+  .hint{font-size:11px;color:var(--wf-muted);line-height:1.7;margin-top:8px}
+  .badge{font-size:10px;border:1px solid var(--wf-border2);border-radius:999px;padding:1px 6px;color:var(--wf-muted);margin-left:4px}
+  .toast{position:fixed;top:14vh;left:50%;transform:translateX(-50%);background:var(--wf-panel);
+    border:1px solid var(--wf-success);color:var(--wf-success);border-radius:8px;padding:6px 13px;font-size:12px;z-index:9}
+  code{background:#0b1424;border:1px solid var(--wf-border);border-radius:4px;padding:1px 4px;font-size:11px}
+</style>
+</head>
+<body>
+
+<h1>变量面板：收纳 + 口语化搜索 · 三方案原型</h1>
+<div class="sub">
+  数据取自你真实工作流的量级（<b>上游 24 个 / 本节点输出 4 个 / 全局 5 个</b> ✓，就是"平铺很乱"的那个场景）。
+  三个方案都能实时**打字搜**（试试：<code>日期</code>、<code>政策</code>、<code>rq</code>、<code>投资建议</code>）。
+</div>
+
+<div class="tabs">
+  <button class="tab on" data-m="A">A · 折叠分组 + 搜索（最小改动）</button>
+  <button class="tab" data-m="B">B · 搜索优先（默认收起，搜才铺开）</button>
+  <button class="tab" data-m="C">C · 按来源节点分组 + 搜索 ★我推荐</button>
+</div>
+
+<div class="wrap">
+  <div class="panel" id="panel">
+    <div class="panelhead"><b>🔗 变量</b><span class="spin" id="stat"></span></div>
+    <input class="search" id="q" placeholder="搜变量：节点名 / 字段说明 / 拼音首字母…">
+    <div id="body"></div>
+    <div class="hint" id="modeHint"></div>
+  </div>
+
+  <div class="panel" style="width:360px;background:transparent;border-style:dashed">
+    <div style="font-size:12px;font-weight:600;margin-bottom:6px">方案说明</div>
+    <div class="hint" id="desc"></div>
+  </div>
+</div>
+
+<div class="hint" style="margin-top:14px;max-width:900px">
+  <b>三种"口语化搜索"都支持</b>：① 节点显示名（`政策` → 分析·政策 的全部字段）② 字段中文说明（`日期` → 取日期的 out）
+  ③ 变量路径（`ai_policy.out`）④ <b>拼音首字母</b>（`rq` → 日期 / `tzjy` → 投资建议）。命中处高亮 ✓。
+  点 chip 复制（和现在一样 ✓）。
+</div>
+
+<script>
+// —— 真实量级的数据（对齐金融政策日报：8 个分析师 → ai_final；上游 24 个）——
+const NODES = [
+  { id:'py_date', label:'取日期', fields:[{p:'out', d:'今天的日期（YYYY-MM-DD）', s:'2026-10-09'}] },
+  { id:'fetch_cctv', label:'央视新闻正文', fields:[{p:'out', d:'抓到的新闻正文全文', s:'（742 字）'},{p:'url', d:'页面地址', s:'http://…'}] },
+  { id:'ai_policy', label:'分析·政策', fields:[{p:'out', d:'政策维度分析结论', s:'降准预期升温…'},{p:'out.sources', d:'引用的来源列表', s:'3 条'}] },
+  { id:'ai_fund', label:'分析·资金', fields:[{p:'out', d:'资金面分析结论', s:'北向净流入…'}] },
+  { id:'ai_stock', label:'分析·股市', fields:[{p:'out', d:'股市维度分析结论', s:'沪指高开…'}] },
+  { id:'ai_fx', label:'分析·汇率', fields:[{p:'out', d:'汇率维度分析结论', s:'人民币中间价…'}] },
+  { id:'ai_bank', label:'分析·银行', fields:[{p:'out', d:'银行维度分析结论', s:'净息差承压…'}] },
+  { id:'ai_intl', label:'分析·国际', fields:[{p:'out', d:'国际维度分析结论', s:'美联储纪要…'}] },
+];
+const SELF = { id:'ai_final', label:'终稿·投资建议报告', fields:[
+  {p:'out', d:'最终报告全文（≤200 字结论 + 分维度要点表 + 投资建议）', s:'（约 3200 字）'},
+  {p:'out.conclusion', d:'一句话结论', s:'政策底已现…'},
+  {p:'out.advice', d:'投资建议', s:'（表格）'},
+  {p:'out.gaps', d:'数据缺口', s:'（2 条）'},
+]};
+const GLOBALS = [
+  {p:'inputs.收件邮箱', d:'报告发送到的邮箱', s:'lyx_emails@163.com'},
+  {p:'inputs.报告语言', d:'报告输出语言', s:'中文'},
+  {p:'vars.loopItem', d:'循环当前项（loop 节点内可用）', s:'—'},
+  {p:'vars.loopIndex', d:'循环序号（从 0 开始）', s:'—'},
+  {p:'inputs.是否发送邮件', d:'跑完是否发邮件', s:'true'},
+];
+
+// —— 口语化检索：显示名 / 字段说明 / 路径 / 拼音首字母 ——
+const PINYIN = { 取日期:'rq', 央视新闻正文:'ysxwzw', 分析政策:'fxzc', 分析资金:'fxzj', 分析股市:'fxgs',
+  分析汇率:'fxhl', 分析银行:'fxyh', 分析国际:'fxgj', 终稿投资建议报告:'zgtzjyybg',
+  今天:'jt', 日期:'rq', 新闻:'xw', 正文:'zw', 政策:'zc', 资金:'zj', 股市:'gs', 汇率:'hl', 银行:'yh',
+  国际:'gj', 结论:'jl', 投资:'tz', 建议:'jy', 报告:'bg', 邮箱:'yx', 语言:'yy', 缺口:'qk', 来源:'ly' };
+function pyOf(s) {
+  // 极简：按已知词表拼首字母；未登记的按字符返回 ''
+  let out = '';
+  for (const [k, v] of Object.entries(PINYIN)) if (s.includes(k)) out += v;
+  return out;
+}
+function hay(item) {
+  // item: {path, desc, sample, nodeLabel, kind}
+  const parts = [item.path, item.desc, item.sample ?? '', item.nodeLabel ?? '', pyOf(item.nodeLabel ?? ''), pyOf(item.desc)];
+  return parts.join(' ').toLowerCase();
+}
+function mark(text, q) {
+  if (!q) return escapeHtml(text);
+  const hay = text.toLowerCase(), qq = q.toLowerCase();
+  const i = hay.indexOf(qq);
+  if (i < 0) return escapeHtml(text);
+  return escapeHtml(text.slice(0, i)) + '<span class="hit">' + escapeHtml(text.slice(i, i + qq.length)) + '</span>' + escapeHtml(text.slice(i + qq.length));
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+
+// 组装三组变量
+const upstream = [];
+for (const n of NODES) for (const f of n.fields) upstream.push({ kind:'up', path:`{{${n.id}.${f.p}}}`, desc:f.d, sample:f.s, nodeId:n.id, nodeLabel:n.label });
+const outputs = SELF.fields.map((f) => ({ kind:'out', path:`{{${SELF.id}.${f.p}}}`, desc:f.d, sample:f.s, nodeLabel:SELF.label }));
+const globals = GLOBALS.map((g) => ({ kind:'glob', path:`{{${g.p}}}`, desc:g.d, sample:g.s, nodeLabel:'工作流参数' }));
+
+let MODE = 'A';
+let q = '';
+// 折叠状态：A 用 section 级；C 用 group 级
+const closedSec = { up:false, out:false, glob:false };
+const closedGrp = {};
+
+const $ = (id) => document.getElementById(id);
+
+function chipsOf(list, withSource) {
+  return list.map((it) => {
+    const cls = it.kind === 'out' ? 'chip is-out' : it.kind === 'glob' ? 'chip is-global' : 'chip';
+    const label = mark(it.path, q);
+    const src = withSource && it.nodeLabel ? `<span class="src">${mark(it.nodeLabel, q)}</span>` : '';
+    return `<span class="${cls}" data-copy="${escapeHtml(it.path)}" title="${escapeHtml(it.desc)}｜例：${escapeHtml(it.sample ?? '')}">${label}${src}</span>`;
+  }).join('');
+}
+
+function secHtml(key, title, list, withSource) {
+  const closed = MODE === 'A' && closedSec[key];
+  const body = list.length ? `<div class="sec-b">${chipsOf(list, withSource)}</div>` : '<div class="sec-b empty">没有匹配的变量</div>';
+  return `<div class="sec${closed ? ' closed' : ''}" data-sec="${key}">
+    <div class="sec-h"><span class="caret">▾</span>${title}<span class="n">${list.length} 个</span></div>${body}</div>`;
+}
+
+function groupHtml() {
+  // C：上游按来源节点分组折叠
+  const byNode = new Map();
+  for (const it of matchUp) { if (!byNode.has(it.nodeId)) byNode.set(it.nodeId, { label: it.nodeLabel, list: [] }); byNode.get(it.nodeId).list.push(it); }
+  return [...byNode.entries()].map(([nid, g]) => {
+    const closed = !q && closedGrp[nid] !== false;   // 默认收起（搜索时全展开）
+    return `<div class="grp${closed ? ' closed' : ''}" data-grp="${nid}">
+      <div class="grp-h"><span class="caret">▾</span>${mark(g.label, q)}<span class="n">${g.list.length} 个字段</span></div>
+      <div class="grp-b">${chipsOf(g.list, false)}</div></div>`;
+  }).join('');
+}
+
+let matchUp = [], matchOut = [], matchGlob = [];
+function render() {
+  matchUp = upstream.filter((it) => !q || hay(it).includes(q.toLowerCase()));
+  matchOut = outputs.filter((it) => !q || hay(it).includes(q.toLowerCase()));
+  matchGlob = globals.filter((it) => !q || hay(it).includes(q.toLowerCase()));
+  const tot = upstream.length + outputs.length + globals.length;
+  $('stat').textContent = q
+    ? `命中 ${matchUp.length + matchOut.length + matchGlob.length} / ${tot}`
+    : `${tot} 个变量`;
+
+  if (MODE === 'A') {
+    $('body').innerHTML =
+      secHtml('glob', '🌐 全局变量', matchGlob, false) +
+      secHtml('up', '🔗 上游变量', matchUp, true) +
+      secHtml('out', '📤 输出变量', matchOut, false);
+  } else if (MODE === 'B') {
+    if (!q) {
+      $('body').innerHTML = `<div class="sum">默认收起，避免平铺：<b>全局 ${globals.length}</b> · <b>上游 ${upstream.length}</b>（来自 ${NODES.length} 个节点）· <b>本节点输出 ${outputs.length}</b>
+        <div style="margin-top:6px">在上面输入框搜一下就会展开命中项 ✓</div></div>`
+        + `<div class="sec"><div class="sec-h" data-quick="1"><span class="caret">▾</span>常用（本节点输出 + 全局）<span class="n">${outputs.length + globals.length} 个</span></div>
+           <div class="sec-b">${chipsOf(outputs, false)}${chipsOf(globals, false)}</div></div>`;
+    } else {
+      $('body').innerHTML = secHtml('glob', '🌐 全局变量（命中）', matchGlob, false)
+        + secHtml('up', '🔗 上游变量（命中）', matchUp, true)
+        + secHtml('out', '📤 输出变量（命中）', matchOut, false);
+    }
+  } else {
+    $('body').innerHTML = q
+      ? secHtml('glob', '🌐 全局变量（命中）', matchGlob, false) + secHtml('up', '🔗 上游变量（命中）', matchUp, false) + secHtml('out', '📤 输出变量（命中）', matchOut, false)
+      : secHtml('glob', '🌐 全局变量', matchGlob, false) +
+        `<div class="sec"><div class="sec-h"><span class="caret">▾</span>🔗 上游变量（按来源节点）<span class="n">${matchUp.length} 个 / ${NODES.length} 个节点</span></div>
+          <div class="sec-b">${groupHtml()}</div></div>` +
+        secHtml('out', '📤 输出变量', matchOut, false);
+  }
+  $('modeHint').textContent = MODE === 'A'
+    ? 'A：三组默认展开（和现在一样），但每组可折叠 + 搜索跨组过滤。改动最小 ✓'
+    : MODE === 'B'
+      ? 'B：不搜索时只给摘要 + 常用项；一搜就把命中项铺开。最"干净"，但常用变量要多一次搜索 ✗'
+      : 'C：上游按来源节点分组、默认收起（8 行而不是 24 个 chip ✓），搜索时自动全展开并扁平显示命中 ✓';
+  document.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => {
+    const t = document.createElement('div'); t.className = 'toast'; t.textContent = '✓ 已复制 ' + c.dataset.copy;
+    document.body.appendChild(t); setTimeout(() => t.remove(), 1400);
+  }));
+  document.querySelectorAll('.sec[data-sec]').forEach((s) => s.addEventListener('click', (e) => {
+    if (!e.target.closest('.sec-h')) return;
+    const k = s.dataset.sec; closedSec[k] = !closedSec[k]; render();
+  }));
+  document.querySelectorAll('.grp').forEach((g) => g.addEventListener('click', (e) => {
+    if (!e.target.closest('.grp-h')) return;
+    const k = g.dataset.grp; closedGrp[k] = !closedGrp[k]; render();
+  }));
+}
+
+$('q').addEventListener('input', (e) => { q = e.target.value.trim(); render(); });
+document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach((x) => x.classList.remove('on'));
+  t.classList.add('on'); MODE = t.dataset.m; render(); showDesc();
+}));
+
+function showDesc() {
+  $('desc').innerHTML = {
+    A: '<b>A · 折叠分组 + 搜索</b><br>保持现在"全局/上游/输出"三段结构，只加 ①每段可折叠 ②顶部搜索框（跨三段过滤）。<br><br>优点：改动最小、老习惯不变。<br>缺点：上游 24 个时，展开那一段仍然是一大坨 ✗（只是能收起）。',
+    B: '<b>B · 搜索优先（默认收起）</b><br>不搜索时只显示一行摘要 + "常用（本节点输出 + 全局）"，一切靠搜。<br><br>优点：面板最干净 ✓<br>缺点：想随手点一个上游，得先打字 ✗；对"边看边挑"不友好。',
+    C: '<b>C · 按来源节点分组 + 搜索 ★我推荐</b><br>上游变量**按来源节点分组**（📁 分析·政策 → 3 个字段），默认收起 → 24 个 chip 变成 **8 行** ✓；搜索时自动全展开、跨组扁平显示命中项 ✓。<br><br>优点：既解决"平铺很乱"，又保住"随手点"；分组本身也是信息（能看出数据来自哪个节点 ✓）。<br>代价：比 A 多一层交互（约 1 轮，纯客户端 ✓）。',
+  }[MODE];
+}
+render(); showDesc();
+</script>
+</body>
+</html>

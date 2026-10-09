@@ -264,7 +264,9 @@
   border-radius: var(--dsh-wf-radius-sm, 6px);
   color: var(--dsh-wf-muted);
   cursor: pointer;
-  transition: all 0.15s;
+  /* ★ 2026-10-09 收窄：原来是 `transition: all 0.15s` ✗ —— 本项目被"过渡 + background 简写"坑出过
+     选中态闪白（fg.css 里也记着这条），这里只过渡颜色类属性 ✓ */
+  transition: color 0.15s ease, background-color 0.15s ease;
   line-height: 1.2;
 }
 .dsh-wf-tab:hover { color: var(--dsh-wf-fg); }
@@ -303,11 +305,21 @@
   font-family: inherit;
   font-size: 12px;
   font-weight: 620;
-  line-height: 1;
+  line-height: 1.25;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025), 0 2px 7px rgba(0, 0, 0, 0.12);
   cursor: pointer;
   transition: transform 0.14s ease, background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
-  white-space: nowrap;
+  /* ★ 2026-10-09 用户反馈：「按钮长度和按钮内部文字长度没匹配，导致按钮长度调整的时候，按钮内部文字长度
+     不会自动调整，需要优化」→ 实测（默认面板 323px 时）：按钮被 flex 容器**拉满到 263px**，而文字只有
+     74px（「▶ 试跑本节点」）；再把面板缩到 223px 时，长文案按钮**文字 237px 溢出被裁** ✗。
+     修法三条：①`width: fit-content` 让按钮**长度跟随文字**（要占满整行的按钮自己在 inline style 里写
+     `width:'100%'`，内联优先级更高 ✓）；②`max-width: 100%` 容器更窄时不越界；③`white-space: normal` +
+     `overflow-wrap: anywhere` 空间不足时**换行**（原来 nowrap 只会被裁 ✗）。 */
+  width: fit-content;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
   user-select: none;
 }
 .dsh-wf-btn:hover:not(:disabled) {
@@ -1186,6 +1198,24 @@
   font-family: ui-monospace, Consolas, monospace;
   font-size: 10.5px; color: var(--wf-muted, #8b9bb3); margin-bottom: 4px;
 }
+/* ★ 2026-10-09 方案 C：上游分组标题可点（收起/展开），未展开时用 ▸、展开用 ▾ */
+.dsh-wf-var-node.is-toggle { cursor: pointer; user-select: none; }
+.dsh-wf-var-node.is-toggle:hover { color: var(--wf-text, #e6edf7); }
+.dsh-wf-var-node.is-closed { margin-bottom: 0; }
+/* 变量搜索框（口语化搜索：节点名 / 字段说明 / 路径 / 拼音首字母） */
+.dsh-wf-var-search {
+  width: 100%; box-sizing: border-box; margin-top: 4px;
+  background: var(--wf-bg, #08101e); border: 1px solid var(--wf-border, #22304a);
+  border-radius: 7px; color: var(--wf-text, #e6edf7);
+  padding: 6px 9px; font-size: 11.5px; font-family: inherit;
+}
+.dsh-wf-var-search:focus { outline: none; border-color: var(--wf-accent, #4c8dff); }
+/* ★ 2026-10-09 变量面板改成**独立弹窗**（用户：「变量面板不是弹窗，最好改成弹窗格式，现在还是在编辑面板
+   里面，导致编辑面板还是乱」）——宽度必须写成 `.dag-flow-picker.<自己的类>`（两段，权重 0,2,0），
+   否则会被运行时注入的 `.dag-flow-picker{width:680px}` 同权重压掉 ✗（本项目踩过"四条全失效"）。 */
+.dag-flow-picker.dsh-wf-var-dlg { width: 760px; }
+.dsh-wf-var-dlg-body { max-height: 68vh; overflow: auto; }
+.dsh-wf-var-dlg-body > .dsh-wf-panel-row:first-child .dsh-wf-var-search { margin-top: 0; }
 /* 字段说明行（2026-10-03：每个变量是干什么的，写在 chips 下面一行） */
 .dsh-wf-var-legend {
   margin-top: 5px;
@@ -1556,4 +1586,42 @@
   border-color: var(--wf-accent, #6f8fff);
   color: #cfe0ff;
   background: color-mix(in srgb, var(--wf-accent, #4c8dff) 16%, transparent);
+}
+
+/* ============================================================================
+   ★ 2026-10-09 交互动画（用户拍板：② 缩放浮现 · 160ms · 位移 0）
+   为什么这么做 / 边界（原型 proto-motion-v2.html 里逐条验过）：
+   · 只动 opacity / transform（不触发布局重排 ✓，本项目被 `transition: all` + background 简写坑出过"闪白" ✗）
+   · **不做位移**：用户反馈"为什么做位移、感觉有点奇怪" → 位移是可选装饰，缩放浮现已足够有"浮现感" ✓
+   · **不做退场动画**：关掉即消失，避免"关一半又弹回来"的观感 ✗
+   · 画布本体（节点/连线/缩放）**不碰**：FlowGram 自己管，插手会和它的重渲染打架 ✗
+   · 节点参数面板"内容切换"的淡入暂不做（要动 800 行检查器内部结构，收益小风险高 ✗）；右侧面板
+     **整体**出现仍有淡入 ✓
+   时长口径：弹窗/菜单/浮窗 160ms；纯淡入类（面板、遮罩）140ms。
+   ============================================================================ */
+@keyframes dsh-wf-pop { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes dsh-wf-fade { from { opacity: 0; } to { opacity: 1; } }
+/* 弹窗：遮罩 + 面板都**纯淡入**（不用缩放 ✗）——★ 2026-10-09 实测教训：
+   scale 会让 `getBoundingClientRect()` 在动画期间量到缩放后的尺寸（620 → 595 ✗），而本项目有多处
+   **真实逻辑**要读弹窗矩形（落点对齐 14vh、尺寸记忆、八向拖拽把手、CDP 的宽度断言）→ 对弹窗做缩放是隐患 ✗。
+   纯淡入没有任何几何副作用 ✓，观感差别很小 ✓。 */
+.dag-flow-picker-overlay { animation: dsh-wf-fade 140ms ease-out; }
+.dag-flow-picker { animation: dsh-wf-fade 140ms ease-out; }
+/* 导出菜单同理：它紧贴按钮下方，缩放会让"锚定在按钮正下方"的几何断言/视觉轻微偏移 ✗ → 纯淡入 ✓ */
+.dsh-wf-export-menu { animation: dsh-wf-fade 120ms ease-out; }
+/* 顶部浮窗：**保留缩放浮现**（小元素、没人在量它的矩形 ✓，缩放读起来更有"浮现感" ✓） */
+.dsh-wf-toast { animation: dsh-wf-pop 160ms cubic-bezier(.2, .8, .2, 1); }
+/* 右侧参数面板整体出现/消失（内容切换不重放，见上面说明） */
+.dsh-wf-right { animation: dsh-wf-fade 140ms ease-out; }
+
+/* 系统开了"减少动态效果"就全关（无障碍 ✓） */
+@media (prefers-reduced-motion: reduce) {
+  .dag-flow-picker, .dag-flow-picker-overlay, .dsh-wf-export-menu, .dsh-wf-toast, .dsh-wf-right {
+    animation: none !important;
+  }
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

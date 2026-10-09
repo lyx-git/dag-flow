@@ -48,6 +48,10 @@ const TESTS = [
   ['cancel-run', () => import('./test-cancel-run.mjs')],
   // ★ 2026-10-09 导出图片：⬇ 菜单含 JSON/图片两项，PNG 魔数校验（用户「导出 json 已经有导出按钮了，导出图片可以集成到一起」）
   ['export-image', () => import('./test-export-image.mjs')],
+  // ★ 2026-10-09 交互动画：缩放浮现 160ms / 遮罩淡入 140ms / 无位移 / prefers-reduced-motion 降级
+  ['motion', () => import('./test-motion.mjs')],
+  // ★ 2026-10-09 按钮尺寸适配：面板缩窄时按钮外框/文字必须跟着适配（用户「按钮长度和内部文字长度没匹配」）
+  ['button-fit', () => import('./test-button-fit.mjs')],
 ];
 
 // —— fixture 服务器 ——

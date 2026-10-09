@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>dag-flow 交互动画 · 优化版原型（可选动效 + 滑杆调参）</title>
+<style>
+  :root{
+    --wf-bg:#08101e; --wf-panel:#101a2b; --wf-panel2:#162135; --wf-panel3:#172640;
+    --wf-border:#22304a; --wf-border2:#29405f; --wf-text:#e6edf7; --wf-text2:#dce7f8;
+    --wf-muted:#8b9bb3; --wf-accent:#4c8dff; --wf-success:#34d399; --wf-danger:#f87171;
+    /* ★★ 全部动效参数都由下面的滑杆/下拉控制（这就是你要选的东西） */
+    --dur:160ms;      /* 时长 */
+    --dy:0px;         /* 位移距离（默认 0＝完全不做位移，按你的反馈改的） */
+    --from-scale:0.96;/* 缩放起点（fx-scale 用） */
+    --from-blur:6px;  /* 模糊起点（fx-blur 用） */
+    --ease:cubic-bezier(.2,.8,.2,1);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--wf-bg);color:var(--wf-text);padding:18px 20px 60px;
+    font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  h1{font-size:16px;margin:0 0 4px;font-weight:650}
+  .sub{color:var(--wf-muted);font-size:12px;margin-bottom:14px;line-height:1.75}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--wf-panel);
+    border:1px solid var(--wf-border);border-radius:10px;padding:9px 11px;margin-bottom:12px}
+  .btn{border:1px solid var(--wf-border2);background:var(--wf-panel2);color:var(--wf-text2);
+    border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;font-family:inherit;
+    transition:transform .14s ease,background .14s ease,border-color .14s ease}
+  .btn:hover{background:var(--wf-panel3);border-color:#3a4f7a;transform:translateY(-1px)}
+  .btn:active{transform:translateY(0)}
+  .btn.primary{background:linear-gradient(180deg,#4c8dff,#3a6fe0);border-color:#7896f5;color:#fff;font-weight:600}
+  .spacer{flex:1}
+  .panelbox{border:1px solid var(--wf-border);background:var(--wf-panel);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:7px 0;font-size:12px;color:var(--wf-text2)}
+  .row b{font-weight:600;color:var(--wf-text)}
+  input[type=range]{width:210px;accent-color:#4c8dff}
+  select{background:var(--wf-panel2);color:var(--wf-text2);border:1px solid var(--wf-border2);border-radius:7px;padding:5px 8px;font-size:12px;font-family:inherit}
+  .val{color:var(--wf-accent);font-variant-numeric:tabular-nums;min-width:64px}
+  .hint{font-size:11px;color:var(--wf-muted);line-height:1.7}
+
+  /* ===== 四种动效（互斥，由 body 上的 fx-* 类切换）===== */
+  @keyframes fxFade { from{opacity:0} to{opacity:1} }
+  @keyframes fxScale{ from{opacity:0;transform:scale(var(--from-scale))} to{opacity:1;transform:none} }
+  @keyframes fxRise { from{opacity:0;transform:translateY(var(--dy))} to{opacity:1;transform:none} }
+  @keyframes fxBlur { from{opacity:0;filter:blur(var(--from-blur))} to{opacity:1;filter:blur(0)} }
+  @keyframes fxDrop { from{opacity:0;transform:translateY(calc(-1 * var(--dy)))} to{opacity:1;transform:none} }
+
+  body.fx-fade  .dlg,body.fx-fade  .overlay,body.fx-fade  .menu,body.fx-fade  .toast,body.fx-fade  .pane{animation:fxFade  var(--dur) var(--ease)}
+  body.fx-scale .dlg,body.fx-scale .overlay,body.fx-scale .menu,body.fx-scale .toast,body.fx-scale .pane{animation:fxScale var(--dur) var(--ease)}
+  body.fx-rise  .dlg,body.fx-rise  .overlay,body.fx-rise  .menu,body.fx-rise  .pane{animation:fxRise var(--dur) var(--ease)}
+  body.fx-rise  .toast{animation:fxDrop var(--dur) var(--ease)}          /* 浮窗在顶部：从上方落下才对味 */
+  body.fx-blur  .dlg,body.fx-blur  .overlay,body.fx-blur  .menu,body.fx-blur  .toast,body.fx-blur  .pane{animation:fxBlur var(--dur) var(--ease)}
+
+  .overlay{position:fixed;inset:0;background:rgba(4,9,20,.5);backdrop-filter:blur(2px);
+    display:flex;align-items:flex-start;justify-content:center;padding-top:14vh;z-index:50}
+  .dlg{width:620px;max-width:92vw;background:var(--wf-panel);border:1px solid var(--wf-border2);
+    border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+  .dlg-head{display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid var(--wf-border)}
+  .dlg-title{font-size:15px;font-weight:650}
+  .dlg-x{margin-left:auto;background:transparent;border:0;color:var(--wf-muted);font-size:16px;cursor:pointer}
+  .dlg-body{padding:12px 14px;font-size:12px;color:var(--wf-text2);line-height:1.8}
+  .dlg-foot{padding:10px 14px 14px;display:flex;gap:8px;justify-content:flex-end}
+  .menu{position:fixed;z-index:60;min-width:200px;padding:6px;background:var(--wf-panel);
+    border:1px solid var(--wf-border2);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.45)}
+  .menu-item{display:block;width:100%;text-align:left;padding:8px 10px;margin:2px 0;border-radius:7px;
+    border:1px solid transparent;background:transparent;color:var(--wf-text2);font-size:12px;cursor:pointer;font-family:inherit}
+  .menu-item:hover{background:color-mix(in srgb,var(--wf-accent) 14%,transparent);border-color:color-mix(in srgb,var(--wf-accent) 45%,transparent)}
+  .toast{position:fixed;top:14vh;left:50%;transform:translateX(-50%);z-index:70;background:var(--wf-panel);
+    border:1px solid var(--wf-success);color:var(--wf-success);border-radius:8px;padding:7px 14px;font-size:12px}
+  .right{border:1px solid var(--wf-border);background:var(--wf-panel);border-radius:12px;width:340px;padding:10px 12px}
+  .pane{display:none}.pane.on{display:block}
+  .field{border:1px dashed var(--wf-border2);border-radius:8px;padding:8px 10px;margin:8px 0;font-size:11px;color:var(--wf-muted)}
+  code{background:#0b1424;border:1px solid var(--wf-border);border-radius:4px;padding:1px 5px;font-size:11px}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body class="fx-scale">
+
+  <h1>dag-flow 交互动画 · 优化版原型</h1>
+  <div class="sub">
+    按你的反馈：<b>默认不做位移</b> ✓ —— 现在可以自由切换四种动效、并用滑杆调时长/位移/缩放起点，
+    调到你顺眼为止，然后把数值告诉我，我照这个落进插件。
+  </div>
+
+  <div class="panelbox">
+    <div class="row">
+      <b>动效</b>
+      <select id="fx" onchange="setFx()">
+        <option value="fx-fade">① 纯淡入（只有透明度，最稳、最不像"动画"）</option>
+        <option value="fx-scale" selected>② 缩放浮现（透明度 + 从 96% 放大，无位移）★我推荐</option>
+        <option value="fx-blur">③ 模糊聚焦（透明度 + 从 6px 模糊变清晰，柔和）</option>
+        <option value="fx-rise">④ 淡入 + 微位移（你要对比"位移为什么奇怪"就看这个）</option>
+      </select>
+      <span class="hint">④ 只在你把它调成 0 位移时才与 ① 相同 —— 对比着看就知道差别在哪</span>
+    </div>
+    <div class="row">
+      <b>时长</b><input type="range" id="dur" min="80" max="320" step="10" value="160" oninput="setCss()">
+      <span class="val" id="durV">160ms</span>
+      <b>位移</b><input type="range" id="dy" min="0" max="16" step="1" value="0" oninput="setCss()">
+      <span class="val" id="dyV">0px</span>
+      <span class="hint">（位移只影响 ④；我建议 <b>0~4px</b>，超过 8px 就会像"弹出来"）</span>
+    </div>
+    <div class="row">
+      <b>缩放起点</b><input type="range" id="sc" min="90" max="100" step="1" value="96" oninput="setCss()">
+      <span class="val" id="scV">96%</span>
+      <b>模糊起点</b><input type="range" id="bl" min="2" max="14" step="1" value="6" oninput="setCss()">
+      <span class="val" id="blV">6px</span>
+    </div>
+  </div>
+
+  <div class="bar">
+    <button class="btn primary" onclick="openDialog()">打开弹窗</button>
+    <button class="btn" id="exportBtn" onclick="openMenu()">⬇ 导出菜单</button>
+    <button class="btn" onclick="showToast()">弹顶部浮窗</button>
+    <button class="btn" onclick="switchPane()">切换右侧面板</button>
+    <div class="spacer"></div>
+    <span class="hint" id="cur">当前：② 缩放浮现 · 160ms · 位移 0px</span>
+  </div>
+
+  <div class="right">
+    <div style="font-size:12px;font-weight:600;margin-bottom:6px;">右侧参数面板（点"切换面板"看动效）</div>
+    <div class="pane on" id="pane1">
+      <div class="field">节点：分析·政策（subagent）</div>
+      <div class="field">上游变量 5 个 · 本节点输出 3 个</div>
+    </div>
+    <div class="pane" id="pane2">
+      <div class="field">节点：终稿·投资建议报告（subagent）</div>
+      <div class="field">上游变量 24 个 · 本节点输出 4 个</div>
+    </div>
+  </div>
+
+  <div class="panelbox" style="margin-top:14px">
+    <div class="row"><b>为什么"位移"常被用、又为什么容易觉得奇怪</b></div>
+    <div class="hint">
+      位移的作用是告诉眼睛<b>"它是从哪儿来的"</b>（弹窗从下方浮起、顶部浮窗从上方落下）——所以方向必须和元素位置一致，
+      否则就会"怪"：例如顶部浮窗若从下方升起、或菜单从底部滑上来，都会别扭。另外位移距离过大（&gt;8px）或时长过长（&gt;200ms）
+      会像"弹出来"而不是"浮现"。⇒ 结论：**弹窗/菜单用缩放或纯淡入完全够用，位移是可选装饰** ✓ 你的直觉没错。
+    </div>
+  </div>
+
+<script>
+  const body = document.body;
+  const $ = (id) => document.getElementById(id);
+  const NAMES = { 'fx-fade':'① 纯淡入', 'fx-scale':'② 缩放浮现', 'fx-blur':'③ 模糊聚焦', 'fx-rise':'④ 淡入+微位移' };
+
+  function setCss() {
+    const dur = $('dur').value, dy = $('dy').value, sc = $('sc').value, bl = $('bl').value;
+    body.style.setProperty('--dur', dur + 'ms');
+    body.style.setProperty('--dy', dy + 'px');
+    body.style.setProperty('--from-scale', (sc / 100).toFixed(3));
+    body.style.setProperty('--from-blur', bl + 'px');
+    $('durV').textContent = dur + 'ms';
+    $('dyV').textContent = dy + 'px';
+    $('scV').textContent = sc + '%';
+    $('blV').textContent = bl + 'px';
+    $('cur').textContent = '当前：' + NAMES[$('fx').value] + ' · ' + dur + 'ms · 位移 ' + dy + 'px';
+  }
+  function setFx() { setCss(); }
+
+  let dlg = null, menu = null, toastEl = null;
+  function arm() {   // 重放动画：换掉类名并强制回流
+    const fx = $('fx').value;
+    document.querySelectorAll('body').forEach(() => {});
+    body.classList.remove('fx-fade','fx-scale','fx-blur','fx-rise');
+    void body.offsetWidth;
+    body.classList.add(fx);
+  }
+
+  function openDialog() {
+    if (dlg) dlg.remove();
+    dlg = document.createElement('div');
+    dlg.className = 'overlay';
+    dlg.innerHTML = '<div class="dlg">'
+      + '<div class="dlg-head"><span class="dlg-title">✓ 自检通过</span><button class="dlg-x" onclick="closeDialog()">✕</button></div>'
+      + '<div class="dlg-body">31 个节点 / 37 条连线，没有阻断性问题。<div class="hint">点「开始运行」就真正执行，运行期间可以在头部取消。</div></div>'
+      + '<div class="dlg-foot"><button class="btn primary" onclick="closeDialog()">▶ 开始运行</button></div></div>';
+    document.body.appendChild(dlg);
+    arm();
+  }
+  function closeDialog() { if (dlg) { dlg.remove(); dlg = null; } }
+
+  function openMenu() {
+    if (menu) { menu.remove(); menu = null; return; }
+    const b = $('exportBtn').getBoundingClientRect();
+    menu = document.createElement('div');
+    menu.className = 'menu';
+    menu.style.left = b.left + 'px';
+    menu.style.top = (b.bottom + 6) + 'px';
+    menu.innerHTML = '<button class="menu-item">📄 导出 JSON</button>'
+      + '<button class="menu-item">🖼 导出图片（PNG）</button>'
+      + '<button class="menu-item">🧩 导出矢量图（SVG）</button>';
+    document.body.appendChild(menu);
+    arm();
+    menu.addEventListener('click', () => { if (menu) { menu.remove(); menu = null; } });
+    setTimeout(() => document.addEventListener('click', function h() {
+      if (menu) { menu.remove(); menu = null; }
+      document.removeEventListener('click', h);
+    }, 0));
+  }
+
+  function showToast() {
+    if (toastEl) toastEl.remove();
+    toastEl = document.createElement('div');
+    toastEl.className = 'toast';
+    toastEl.textContent = '✓ 运行成功';
+    document.body.appendChild(toastEl);
+    arm();
+    setTimeout(() => { if (toastEl) { toastEl.remove(); toastEl = null; } }, 2600);
+  }
+
+  let pane = 1;
+  function switchPane() {
+    pane = pane === 1 ? 2 : 1;
+    $('pane1').classList.toggle('on', pane === 1);
+    $('pane2').classList.toggle('on', pane === 2);
+    arm();
+  }
+  setCss();
+</script>
+</body>
+</html>

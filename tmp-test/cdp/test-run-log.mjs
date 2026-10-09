@@ -135,6 +135,42 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, sleep, name, base })
   ok(scope.length >= 1 && scope.every((s) => s.includes('失败') || s.includes('跳过')),
     `⑮ ★「只看失败/跳过」只留问题节点（${beforeScope} 条 → ${scope.length} 条：${JSON.stringify(scope)}）`);
 
+  // ★ 2026-10-09 用户反馈「选择或取消，按钮状态没变化，最好有个按钮状态变化，好让用户一眼就能判断」：
+  //   开启时 图标变 ✓、带 is-on 激活类、aria-pressed=true、提示行写明"显示 N 条 / 隐藏 M 条"；再点一下恢复 ✗→✓
+  const togOn = await evaluate(cdp, `(() => {
+    const b = [...document.querySelectorAll('.dsh-wf-log-toolbar button')].find((x) => x.textContent.includes('只看失败'));
+    return {
+      text: b.textContent, on: b.classList.contains('is-on'), pressed: b.getAttribute('aria-pressed'),
+      title: b.title, hint: document.querySelector('.dsh-wf-logdlg .dag-flow-picker-hint').textContent,
+    };
+  })()`);
+  ok(/^✓/.test(togOn.text.trim()), `⑮a ★开启时按钮图标变 ✓（实际 ${JSON.stringify(togOn.text.trim())}）`);
+  ok(togOn.on === true, '⑮b ★开启时有激活态类 is-on（看得出的选中态）');
+  ok(togOn.pressed === 'true', '⑮c aria-pressed=true（无障碍 + 语义正确）');
+  ok(/命中|（\d+）|\(\d+\)/.test(togOn.text), `⑮d 按钮文案带命中条数（实际 ${JSON.stringify(togOn.text.trim())}）`);
+  ok(/已过滤/.test(togOn.hint) && /隐藏/.test(togOn.hint), `⑮e ★提示行写明"已过滤 + 隐藏 N 条"（实际 ${JSON.stringify(togOn.hint.slice(-60))}）`);
+  // 再点一下 → 恢复：图标回 ⚠、去掉激活态、aria-pressed=false、提示行不再说"已过滤"
+  await evaluate(cdp, `(() => { [...document.querySelectorAll('.dsh-wf-log-toolbar button')].find((b) => b.textContent.includes('只看失败')).click(); return true; })()`);
+  await sleep(300);
+  const togOff = await evaluate(cdp, `(() => {
+    const b = [...document.querySelectorAll('.dsh-wf-log-toolbar button')].find((x) => x.textContent.includes('只看失败'));
+    return {
+      text: b.textContent, on: b.classList.contains('is-on'), pressed: b.getAttribute('aria-pressed'),
+      n: document.querySelectorAll('.dsh-wf-log-item').length,
+      hint: document.querySelector('.dsh-wf-logdlg .dag-flow-picker-hint').textContent,
+    };
+  })()`);
+  ok(/^⚠/.test(togOff.text.trim()), `⑮f ★取消后图标变回 ⚠（实际 ${JSON.stringify(togOff.text.trim())}）`);
+  ok(togOff.on === false && togOff.pressed === 'false', '⑮g ★取消后激活态消失（用户能一眼看出已取消）');
+  ok(togOff.n === beforeScope, `⑮h 取消后恢复全部条目（${togOff.n} / ${beforeScope}）`);
+  ok(!/已过滤/.test(togOff.hint), '⑮i 取消后提示行不再显示"已过滤"');
+  // ★ 恢复成"只看失败/跳过=开启"——后面的 G/H 段按"第一条是失败项"取数（原本 F 段点开后一直没关过），
+  //   这里验完"取消态"必须点回来，才不会打乱后续断言 ✗→✓
+  await evaluate(cdp, `(() => { [...document.querySelectorAll('.dsh-wf-log-toolbar button')].find((b) => b.textContent.includes('只看失败')).click(); return true; })()`);
+  await sleep(300);
+  ok(await evaluate(cdp, `[...document.querySelectorAll('.dsh-wf-log-toolbar button')].find((b) => b.textContent.includes('只看失败')).classList.contains('is-on')`),
+    '⑮j 已恢复"只看失败/跳过"开启态（后续段落依赖它）');
+
   // ===== G. 失败项默认展开 + AI 调用详情 =====
   const dbg = await evaluate(cdp, `(() => {
     const it = document.querySelector('.dsh-wf-log-item');
