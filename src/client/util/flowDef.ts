@@ -105,41 +105,7 @@ export function toRF(def: WorkflowDef): { nodes: RFNode[]; edges: RFEdge[] } {
 
 /** RF nodes/edges → WorkflowDef（保留原始 def 的其它字段） */
 export function fromRF(def: WorkflowDef, rfNodes: RFNode[], rfEdges: RFEdge[]): WorkflowDef {
-  const typeOf = (id: string): string => rfNodes.find((n) => n.id === id)?.type ?? '';
-  // 按源节点聚合出边：handle → target
-  const perSource = new Map<string, { handle: string | null; target: string }[]>();
-  for (const e of rfEdges) {
-    let handle = normHandle(e.sourceHandle);
-    // ★ switch 单点端口（2026-10-03 用户拍板 B）：switch 的出口端口在视觉上合成一个点，
-    //   其中 'out' 代表「这条线还没选分支键」（先画线、再在线上点选）→ 与「未设分支」同义（'' 键，
-    //   不会被任何 case 命中，也不会像 null 那样退化成"顺序执行"）。
-    if (handle === 'out' && typeOf(e.source) === 'switch') handle = '';
-    const list = perSource.get(e.source) ?? [];
-    list.push({ handle, target: e.target });
-    perSource.set(e.source, list);
-  }
-
-  const next: Record<string, NextRef> = {};
-  for (const [source, list] of perSource) {
-    const handles = list.map((x) => x.handle);
-    const allPlain = handles.every((h) => h == null);
-    const isIf = typeOf(source) === 'if' || handles.every((h) => h === 'true' || h === 'false');
-    if (allPlain) {
-      // 顺序/并行 next
-      const targets = list.map((x) => x.target);
-      next[source] = targets.length === 1 ? targets[0] : targets;
-    } else if (isIf && handles.every((h) => h === 'true' || h === 'false') && handles.length <= 2) {
-      // if：{true,false}
-      const t = list.find((x) => x.handle === 'true')?.target;
-      const f = list.find((x) => x.handle === 'false')?.target;
-      next[source] = { true: t ?? '', false: f ?? '' };
-    } else {
-      // switch 泛化 case 映射
-      const map: Record<string, string> = {};
-      for (const x of list) map[x.handle ?? ''] = x.target;
-      next[source] = map;
-    }
-  }
+  // ★ 2026-10-08：不再计算 node.next（写盘统一到 edges）——原来那段 perSource 聚合已删除。
 
   const nodes: ClientNode[] = rfNodes.map((rn) => {
     const tn = def.nodes.find((n) => n.id === rn.id);
@@ -149,15 +115,13 @@ export function fromRF(def: WorkflowDef, rfNodes: RFNode[], rfEdges: RFEdge[]): 
     delete (dataCopy as { label?: string }).label;
     Object.assign(paramsCopy, dataCopy);
 
-    const nodeNext: NextRef | undefined = next[rn.id];
-
     // ★ 2026-10-04 轮 5 修 bug：旧实现**逐个字段白名单**重建节点 → `tolerate`（以及将来任何新字段）
-    //   会在一次画布编辑后就静默丢失（用户在面板上勾了「忽略失败」，拖一下节点就没了，
-    //   下次保存直接把它从工作流里抹掉）。改成**以模板节点为基础覆盖**：只显式处理
-    //   id/type/params/next/onError/label 这几项，其余字段原样保留。
+    //   会在一次画布编辑后就静默丢失。改成**以模板节点为基础覆盖**：只显式处理
+    //   id/type/params/onError/label 这几项，其余字段原样保留。
+    // ★ 2026-10-08 用户拍板：**写盘只写 edges、不再写 next**（读入仍兼容 next-only 文件）——
+    //   引擎（normalize.ts）与画布（toRF）都以 edges 为准，两个字段并存只会带来"改了没生效"的坑。
     const out: ClientNode = { ...(tn ?? { id: rn.id, type: rn.type }), id: rn.id, type: rn.type, params: paramsCopy };
     delete (out as { next?: unknown }).next;
-    if (nodeNext !== undefined) out.next = nodeNext;
     const onErrorVal = rn.onError ?? tn?.onError;
     if (onErrorVal) out.onError = onErrorVal; else delete (out as { onError?: unknown }).onError;
     const labelVal = (rn.data as { label?: string }).label ?? tn?.label;
@@ -190,4 +154,61 @@ export function fromRF(def: WorkflowDef, rfNodes: RFNode[], rfEdges: RFEdge[]): 
 /** 生成新节点 id（node_<timestamp>_<rand>，保证唯一） */
 export function newNodeId(): string {
   return `node_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/**
+ * ★ 2026-10-08 用户拍板：**写盘统一到 `edges`**——把 def 规范成"只写 edges、不带 next"。
+ *
+ * 规则（与引擎 `normalizeDef`、画布 `toRF` 同一优先级，绝不改变执行语义）：
+ *   · 有 `edges` → **原样保留 edges**（引擎/画布都只看它），只把每个节点的 `next` 删掉；
+ *   · 没有 `edges` → 先按 `next` 推出等价 edges（复用与引擎逐条对齐的映射），再删 `next`；
+ *   · 两者都没有 → 不动（由 DAG 按"全部节点入度 0"处理）。
+ * 读入侧**继续兼容** next-only 文件（normalize/toRF 未改），所以老文件、手写文件、AI 生成都不受影响。
+ *
+ * @returns `{ def, changed }`——`changed` 为 true 表示确实发生了归一化（调用方可以据此提示用户）。
+ */
+export function canonicalizeDef(def: WorkflowDef): { def: WorkflowDef; changed: boolean } {
+  const hasNext = def.nodes.some((n) => (n as { next?: unknown }).next !== undefined);
+  if (!hasNext) return { def, changed: false };
+
+  const edges = def.edges && def.edges.length > 0 ? def.edges : nextToEdges(def.nodes);
+  const nodes = def.nodes.map((n) => {
+    if ((n as { next?: unknown }).next === undefined) return n;
+    const copy = { ...n } as ClientNode & { next?: unknown };
+    delete copy.next;
+    return copy;
+  });
+  const out: WorkflowDef = { ...def, nodes };
+  if (edges.length > 0) out.edges = edges as ClientEdge[];
+  else delete (out as { edges?: unknown }).edges;
+  return { def: out, changed: true };
+}
+
+/**
+ * 由 node.next 推导出全部 edges（**与宿主 `src/executor/normalize.ts` 的映射逐条对齐**：
+ * 字符串=单后继 / 数组=扇出 / 对象=分支键；switch 的非对象 next 视为恒激活）。
+ * 客户端这份是给 `canonicalizeDef` 用的（不能 import 宿主的 executor 代码）。
+ */
+export function nextToEdges(nodes: ClientNode[]): ClientEdge[] {
+  const out: ClientEdge[] = [];
+  for (const n of nodes) {
+    const nx = (n as { next?: unknown }).next;
+    if (nx === undefined || nx === null) continue;
+    const star = n.type === 'switch' ? '*' : undefined;
+    const push = (to: unknown): void => {
+      if (!to || typeof to !== 'string') return;
+      const e: ClientEdge = { from: n.id, to };
+      if (star) e.when = star as ClientEdge['when'];
+      out.push(e);
+    };
+    if (typeof nx === 'string') push(nx);
+    else if (Array.isArray(nx)) for (const t of nx) push(t);
+    else if (typeof nx === 'object') {
+      for (const [key, target] of Object.entries(nx as Record<string, unknown>)) {
+        if (!target || typeof target !== 'string') continue;
+        out.push({ from: n.id, to: target, when: key as ClientEdge['when'] });
+      }
+    }
+  }
+  return out;
 }

@@ -359,9 +359,9 @@ console.log('== N. 轮 4：建议类（全部只提醒，不拦运行）==');
   ok(!codes(r).includes('BIG_LOOP'), 'N12. 小循环（3 次）→ 不打扰');
 }
 
-console.log('== O. 死路（非 end 无出边）：warn 不拦，且区分"收尾"与"有人在取它的输出" ==');
+console.log('== O. 死路（非 end 无出边）warn + 引用即依赖（REF_NO_EDGE）error ==');
 {
-  // O1-O3：普通死路（支路到此结束）——不拦运行
+  // O1-O4：普通死路（支路到此结束）——不拦运行
   const r = selfcheck(mk(
     [{ id: 'start', type: 'start' }, lg('a'), lg('tail'), { id: 'end', type: 'end' }],
     [{ from: 'start', to: 'a' }, { from: 'a', to: 'end' }, { from: 'start', to: 'tail' }],
@@ -373,24 +373,86 @@ console.log('== O. 死路（非 end 无出边）：warn 不拦，且区分"收�
   ok(!r.items.some((i) => i.code === 'DEAD_END' && i.nodeId === 'a'), 'O4. 有出边的节点不报（a→end 存在）');
 }
 {
-  // O5-O7：★真正要提醒的情形——有人取它的输出但没连线（无执行顺序保证）
+  // O5-O8b：★引用即依赖（2026-10-08 用户拍板）——取它的输出却没连线 → **error**（自检不能通过）
   const r = selfcheck(mk(
     [{ id: 'start', type: 'start' }, lg('producer'), { id: 'consumer', type: 'log', params: { level: 'info', message: '{{producer.out}}' } }, { id: 'end', type: 'end' }],
     [{ from: 'start', to: 'producer' }, { from: 'start', to: 'consumer' }, { from: 'consumer', to: 'end' }],
   ));
-  const it = r.items.find((i) => i.code === 'DEAD_END' && i.nodeId === 'producer');
-  ok(!!it, 'O5. 被引用但无出边 → 报 DEAD_END');
-  ok(it?.message.includes('在取它的输出') && it?.message.includes('顺序'), 'O6. ★消息点明真实风险（取它的输出 / 没有先后顺序保证）');
-  ok(it?.fix.includes('拖一条线'), 'O7. 解决办法给具体动作（拖一条线连过去）');
-  ok(r.ok, 'O8. 仍不拦运行（warn）');
+  const it = r.items.find((i) => i.code === 'REF_NO_EDGE');
+  ok(!!it && it.nodeId === 'consumer', 'O5. 引用无连线 → 报 REF_NO_EDGE（落在引用者身上）');
+  ok(it?.level === 'error' && !r.ok, 'O6. ★是 error、拦运行（用户要求「自检不能通过」）');
+  ok(it?.message.includes('没有连线') && it?.message.includes('上游') && it?.message.includes('顺序'), 'O7. 消息点明"没有连线 / 不是上游 / 顺序没有保证"');
+  ok(it?.fix.includes('拖一条线'), 'O8. 解决办法给具体动作（拖一条线连过去）');
+  ok(codes(r).includes('DEAD_END') === false || r.items.some((i) => i.code === 'DEAD_END' && i.nodeId === 'producer'),
+    'O8b. 两条落在不同节点上：REF_NO_EDGE 在引用者 consumer，DEAD_END 只可能在 producer（不重复报同一条依赖）');
 }
 {
-  // O9：全部接好 → 一条都不报（降噪）
+  // O9-O10：可达性口径——中间隔着节点也算有依赖（否则 end 引用远处上游会被误报）
+  const r = selfcheck(mk(
+    [{ id: 'start', type: 'start' }, lg('a'), lg('b'), { id: 'end', type: 'end', params: { outputs: { d: '{{a.out}}' } } }],
+    [{ from: 'start', to: 'a' }, { from: 'a', to: 'b' }, { from: 'b', to: 'end' }],
+  ));
+  ok(!codes(r).includes('REF_NO_EDGE'), 'O9. ★隔着节点引用（end 引用 a，路径 a→b→end）→ 不报（可达性口径）');
+  ok(r.ok, 'O10. 干净工作流仍 ok');
+}
+{
+  // O11：直接边当然也算
+  const r = selfcheck(mk(
+    [{ id: 'start', type: 'start' }, lg('a'), { id: 'b', type: 'log', params: { level: 'info', message: '{{a.out}}' } }, { id: 'end', type: 'end' }],
+    [{ from: 'start', to: 'a' }, { from: 'a', to: 'b' }, { from: 'b', to: 'end' }],
+  ));
+  ok(!codes(r).includes('REF_NO_EDGE') && r.ok, 'O11. 有直接边 → 不报');
+}
+{
+  // O12：全部接好 → 死路也不报（降噪）
   const r = selfcheck(mk(
     [{ id: 'start', type: 'start' }, lg('a'), lg('b'), { id: 'end', type: 'end' }],
     [{ from: 'start', to: 'a' }, { from: 'a', to: 'b' }, { from: 'b', to: 'end' }],
   ));
-  ok(!codes(r).includes('DEAD_END'), 'O9. 全接好的工作流不报 DEAD_END（降噪）');
+  ok(!codes(r).includes('DEAD_END'), 'O12. 全接好的工作流不报 DEAD_END（降噪）');
+}
+
+console.log('== P. next 与 edges 不一致（2026-10-08 用户拍板：写盘统一到 edges，这里做过渡护栏）==');
+{
+  // P1-P3：edges 与 next 不一致（next 多出一条）→ warn，点明"以 edges 为准、不会生效"
+  const r = selfcheck(mk(
+    [
+      { id: 'start', type: 'start', next: 'a' },
+      { id: 'a', type: 'log', params: { level: 'info', message: 'x' }, next: 'b' },
+      { id: 'b', type: 'log', params: { level: 'info', message: 'y' } },
+      { id: 'end', type: 'end' },
+    ],
+    [{ from: 'start', to: 'a' }, { from: 'a', to: 'end' }],   // edges 里没有 a→b
+  ));
+  const it = r.items.find((i) => i.code === 'NEXT_EDGES_MISMATCH');
+  ok(!!it, 'P1. next 与 edges 不一致 → 报 NEXT_EDGES_MISMATCH');
+  ok(it?.level === 'warn', 'P2. ★是 warn（不拦运行——edges 才是真相，图仍能跑）');
+  ok(it?.message.includes('edges 为准') && it?.message.includes('不会生效'), 'P3. 消息点明"以 edges 为准、next 连线不会生效"');
+  ok(it?.fix.includes('edges'), 'P4. 解决办法指向统一到 edges');
+}
+{
+  // P5：只有 next（没有 edges）→ **不该报**（这是合法的老文件/手写/AI 生成形态）
+  const r = selfcheck(mk(
+    [
+      { id: 'start', type: 'start', next: 'a' },
+      { id: 'a', type: 'log', params: { level: 'info', message: 'x' }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+    [],
+  ));
+  ok(!codes(r).includes('NEXT_EDGES_MISMATCH'), 'P5. ★只有 next 没有 edges → 不报（next-only 是合法形态）');
+}
+{
+  // P6：两者都有且一致 → 不该报（降噪）
+  const r = selfcheck(mk(
+    [
+      { id: 'start', type: 'start', next: 'a' },
+      { id: 'a', type: 'log', params: { level: 'info', message: 'x' }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+    [{ from: 'start', to: 'a' }, { from: 'a', to: 'end' }],
+  ));
+  ok(!codes(r).includes('NEXT_EDGES_MISMATCH'), 'P6. 两者一致 → 不报（降噪）');
 }
 
 console.log(`\n=== selfcheck 工作流自检（轮 1+2+3+4）：${pass} passed, ${fail} failed ===`);

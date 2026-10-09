@@ -27,7 +27,7 @@ try {
   await waitFor(page.cdp, `document.querySelectorAll('.dsh-wf-fg-card').length >= 6`, { timeout: 20000 });
   // 先跑一次 → 面板字段改为「按真实运行输出反推」（含样例值）；再选 py（它的上游 fetch 是对象型输出）
   await evaluate(page.cdp, `(() => { document.querySelector('.dsh-wf-btn-success').click(); return true; })()`);
-  await waitFor(page.cdp, `!!document.querySelector('.dsh-wf-run-result')`, { timeout: 8000 });
+  await waitFor(page.cdp, `(document.body.textContent || '').includes('运行成功')`, { timeout: 8000 });
   await evaluate(page.cdp, clickCard(' · py'));
   await waitFor(page.cdp, `!!document.querySelector('.dsh-wf-var-group')`, { timeout: 8000 });
   await sleep(500);

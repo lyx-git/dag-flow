@@ -44,6 +44,10 @@ const TESTS = [
   ['run-log', () => import('./test-run-log.mjs')],
   // ★ 2026-10-04 轮 1 自检：运行前自动检查 → 报错提示 + 解决办法 + 人工确认（仍然运行）
   ['selfcheck-gate', () => import('./test-selfcheck-gate.mjs')],
+  // ★ 2026-10-08 取消运行：不许闪回「待运行」、落定「✗ 已取消」（用户报「先回到待运行、再跳回取消中」）
+  ['cancel-run', () => import('./test-cancel-run.mjs')],
+  // ★ 2026-10-09 导出图片：⬇ 菜单含 JSON/图片两项，PNG 魔数校验（用户「导出 json 已经有导出按钮了，导出图片可以集成到一起」）
+  ['export-image', () => import('./test-export-image.mjs')],
 ];
 
 // —— fixture 服务器 ——

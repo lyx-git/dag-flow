@@ -24427,33 +24427,6 @@
     return { nodes, edges };
   }
   function fromRF(def, rfNodes, rfEdges) {
-    const typeOf = (id3) => rfNodes.find((n2) => n2.id === id3)?.type ?? "";
-    const perSource = /* @__PURE__ */ new Map();
-    for (const e2 of rfEdges) {
-      let handle = normHandle(e2.sourceHandle);
-      if (handle === "out" && typeOf(e2.source) === "switch") handle = "";
-      const list = perSource.get(e2.source) ?? [];
-      list.push({ handle, target: e2.target });
-      perSource.set(e2.source, list);
-    }
-    const next2 = {};
-    for (const [source, list] of perSource) {
-      const handles = list.map((x4) => x4.handle);
-      const allPlain = handles.every((h5) => h5 == null);
-      const isIf = typeOf(source) === "if" || handles.every((h5) => h5 === "true" || h5 === "false");
-      if (allPlain) {
-        const targets = list.map((x4) => x4.target);
-        next2[source] = targets.length === 1 ? targets[0] : targets;
-      } else if (isIf && handles.every((h5) => h5 === "true" || h5 === "false") && handles.length <= 2) {
-        const t5 = list.find((x4) => x4.handle === "true")?.target;
-        const f4 = list.find((x4) => x4.handle === "false")?.target;
-        next2[source] = { true: t5 ?? "", false: f4 ?? "" };
-      } else {
-        const map2 = {};
-        for (const x4 of list) map2[x4.handle ?? ""] = x4.target;
-        next2[source] = map2;
-      }
-    }
     const nodes = rfNodes.map((rn) => {
       const tn2 = def.nodes.find((n2) => n2.id === rn.id);
       const paramsCopy = {};
@@ -24461,10 +24434,8 @@
       const dataCopy = { ...rn.data };
       delete dataCopy.label;
       Object.assign(paramsCopy, dataCopy);
-      const nodeNext = next2[rn.id];
       const out = { ...tn2 ?? { id: rn.id, type: rn.type }, id: rn.id, type: rn.type, params: paramsCopy };
       delete out.next;
-      if (nodeNext !== void 0) out.next = nodeNext;
       const onErrorVal = rn.onError ?? tn2?.onError;
       if (onErrorVal) out.onError = onErrorVal;
       else delete out.onError;
@@ -24488,6 +24459,167 @@
       ...edges.length > 0 ? { edges } : {},
       ...Object.keys(layout2).length > 0 ? { layout: layout2 } : {}
     };
+  }
+  function canonicalizeDef(def) {
+    const hasNext = def.nodes.some((n2) => n2.next !== void 0);
+    if (!hasNext) return { def, changed: false };
+    const edges = def.edges && def.edges.length > 0 ? def.edges : nextToEdges(def.nodes);
+    const nodes = def.nodes.map((n2) => {
+      if (n2.next === void 0) return n2;
+      const copy2 = { ...n2 };
+      delete copy2.next;
+      return copy2;
+    });
+    const out = { ...def, nodes };
+    if (edges.length > 0) out.edges = edges;
+    else delete out.edges;
+    return { def: out, changed: true };
+  }
+  function nextToEdges(nodes) {
+    const out = [];
+    for (const n2 of nodes) {
+      const nx = n2.next;
+      if (nx === void 0 || nx === null) continue;
+      const star = n2.type === "switch" ? "*" : void 0;
+      const push = (to) => {
+        if (!to || typeof to !== "string") return;
+        const e2 = { from: n2.id, to };
+        if (star) e2.when = star;
+        out.push(e2);
+      };
+      if (typeof nx === "string") push(nx);
+      else if (Array.isArray(nx)) for (const t5 of nx) push(t5);
+      else if (typeof nx === "object") {
+        for (const [key, target] of Object.entries(nx)) {
+          if (!target || typeof target !== "string") continue;
+          out.push({ from: n2.id, to: target, when: key });
+        }
+      }
+    }
+    return out;
+  }
+
+  // src/client/util/graphImage.ts
+  var NODE_W = 210;
+  var NODE_H = 78;
+  var PAD = 48;
+  var TITLE_H = 76;
+  var BG = "#0b1120";
+  var PANEL = "#101a2b";
+  var TEXT = "#e6edf7";
+  var MUTED = "#8b9bb3";
+  var BORDER = "#22304a";
+  function esc(s3) {
+    return s3.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  }
+  function clip(s3, max2) {
+    return s3.length > max2 ? `${s3.slice(0, max2 - 1)}\u2026` : s3;
+  }
+  function whenColor(when) {
+    if (when === "true") return "#10b981";
+    if (when === "false") return "#f43f5e";
+    if (when === "*") return "#fbbf24";
+    return "#4f8cff";
+  }
+  function buildGraphSvg(opts) {
+    const { title, nodes, edges, metaOf } = opts;
+    const subtitle = opts.subtitle ?? (/* @__PURE__ */ new Date()).toLocaleString("zh-CN", { hour12: false });
+    const xs = nodes.map((n2) => n2.x);
+    const ys = nodes.map((n2) => n2.y);
+    const minX = nodes.length ? Math.min(...xs) : 0;
+    const minY = nodes.length ? Math.min(...ys) : 0;
+    const maxX = nodes.length ? Math.max(...xs) + NODE_W : NODE_W;
+    const maxY = nodes.length ? Math.max(...ys) + NODE_H : NODE_H;
+    const width2 = Math.max(360, Math.round(maxX - minX + PAD * 2));
+    const height = Math.max(200, Math.round(maxY - minY + PAD * 2 + TITLE_H));
+    const ox = PAD - minX;
+    const oy = PAD + TITLE_H - minY;
+    const box = /* @__PURE__ */ new Map();
+    for (const n2 of nodes) box.set(n2.id, { cx: n2.x + ox + NODE_W / 2, cy: n2.y + oy + NODE_H / 2 });
+    const parts = [];
+    parts.push(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width2}" height="${height}" viewBox="0 0 ${width2} ${height}" font-family="system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif">`,
+      `<rect width="${width2}" height="${height}" fill="${BG}"/>`,
+      // 标题
+      `<text x="${PAD}" y="40" fill="${TEXT}" font-size="20" font-weight="600">${esc(clip(title || "\u5DE5\u4F5C\u6D41", 60))}</text>`,
+      `<text x="${PAD}" y="62" fill="${MUTED}" font-size="12">${esc(`${nodes.length} \u4E2A\u8282\u70B9 \xB7 ${edges.length} \u6761\u8FDE\u7EBF \xB7 ${subtitle}`)}</text>`,
+      `<line x1="0" y1="${TITLE_H}" x2="${width2}" y2="${TITLE_H}" stroke="${BORDER}" stroke-width="1"/>`
+    );
+    for (const e2 of edges) {
+      const a4 = box.get(e2.from);
+      const b4 = box.get(e2.to);
+      if (!a4 || !b4) continue;
+      const x1 = a4.cx + NODE_W / 2;
+      const y1 = a4.cy;
+      const x22 = b4.cx - NODE_W / 2;
+      const y22 = b4.cy;
+      const dx = Math.max(36, Math.abs(x22 - x1) * 0.45);
+      const color = e2.when ? whenColor(e2.when) : "#4a5f80";
+      parts.push(
+        `<path d="M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x22 - dx} ${y22}, ${x22} ${y22}" fill="none" stroke="${color}" stroke-width="1.6" opacity="0.85"/>`,
+        // 箭头（指向目标左侧）
+        `<path d="M ${x22} ${y22} l -9 -4.5 l 0 9 z" fill="${color}" opacity="0.9"/>`
+      );
+      if (e2.when) {
+        const mx = (x1 + x22) / 2;
+        const my = (y1 + y22) / 2;
+        const w4 = Math.max(24, e2.when.length * 7 + 12);
+        parts.push(
+          `<rect x="${mx - w4 / 2}" y="${my - 9}" width="${w4}" height="18" rx="9" fill="${BG}" stroke="${color}" stroke-width="1" opacity="0.95"/>`,
+          `<text x="${mx}" y="${my + 4}" fill="${color}" font-size="11" text-anchor="middle">${esc(clip(e2.when, 12))}</text>`
+        );
+      }
+    }
+    for (const n2 of nodes) {
+      const meta = metaOf(n2.type) ?? {};
+      const color = meta.color ?? "#64748b";
+      const x4 = n2.x + ox;
+      const y3 = n2.y + oy;
+      const name = n2.label || meta.label || n2.type;
+      parts.push(
+        `<g>`,
+        `<rect x="${x4}" y="${y3}" width="${NODE_W}" height="${NODE_H}" rx="12" fill="${PANEL}" stroke="${color}" stroke-width="1.5"/>`,
+        `<rect x="${x4}" y="${y3}" width="${NODE_W}" height="${NODE_H}" rx="12" fill="${color}" opacity="0.10"/>`,
+        // 图标方块
+        `<rect x="${x4 + 12}" y="${y3 + 14}" width="28" height="28" rx="8" fill="${color}" opacity="0.9"/>`,
+        `<text x="${x4 + 26}" y="${y3 + 34}" font-size="15" text-anchor="middle">${esc(meta.emoji ?? "\u2699\uFE0F")}</text>`,
+        // 显示名
+        `<text x="${x4 + 50}" y="${y3 + 32}" fill="${TEXT}" font-size="14" font-weight="600">${esc(clip(name, 14))}</text>`,
+        // id + 类型
+        `<text x="${x4 + 50}" y="${y3 + 50}" fill="${MUTED}" font-size="11">${esc(clip(n2.id, 20))}</text>`,
+        `<text x="${x4 + 12}" y="${y3 + 68}" fill="${MUTED}" font-size="10">${esc(meta.label ?? n2.type)}</text>`,
+        `</g>`
+      );
+    }
+    parts.push("</svg>");
+    return parts.join("\n");
+  }
+  async function svgToPngBlob(svg, scale = 2) {
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+    try {
+      const img = new Image();
+      img.decoding = "sync";
+      await new Promise((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("SVG \u6E32\u67D3\u5931\u8D25"));
+        img.src = url;
+      });
+      const w4 = img.naturalWidth || img.width;
+      const h5 = img.naturalHeight || img.height;
+      if (!w4 || !h5) throw new Error("SVG \u5C3A\u5BF8\u4E3A\u7A7A");
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(w4 * scale);
+      canvas.height = Math.round(h5 * scale);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("\u65E0\u6CD5\u521B\u5EFA canvas \u4E0A\u4E0B\u6587");
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0);
+      const blob = await new Promise((resolve) => canvas.toBlob((b4) => resolve(b4), "image/png"));
+      if (!blob) throw new Error("PNG \u751F\u6210\u5931\u8D25");
+      return blob;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   }
 
   // src/executor/topo.ts
@@ -72148,7 +72280,7 @@ Please add \`${key}Action\` when creating your handler.`
   // src/client/resultTip.ts
   var OUT_PREVIEW_MAX = 800;
   var ERR_PREVIEW_MAX = 400;
-  function clip(s3, max2) {
+  function clip2(s3, max2) {
     return s3.length > max2 ? `${s3.slice(0, max2)}\u2026` : s3;
   }
   function previewOut(out) {
@@ -72172,13 +72304,14 @@ Please add \`${key}Action\` when creating your handler.`
   function tipModel(item, opts) {
     if (!item) return null;
     const status = item.status;
+    if (status === "pending" || status === "running") return null;
     const tolerated = item.tolerated === true;
     const ms = item.durationMs != null ? ` \xB7 ${Math.round(item.durationMs)}ms` : "";
     const badge = status === "success" ? `\u2713 \u6210\u529F${ms}` : status === "skipped" ? "\u25CB \u8DF3\u8FC7\uFF08\u672A\u6267\u884C\uFF09" : tolerated ? `\u26A0 \u5931\u8D25\uFF08\u5DF2\u5BB9\u9519\uFF09${ms}` : `\u2715 \u5931\u8D25${ms}`;
     const badgeKind = status === "success" ? "ok" : status === "skipped" ? "muted" : tolerated ? "warn" : "err";
     const lines = [];
     if (item.error) {
-      lines.push({ kind: "err", text: `${item.error.code ?? "ERROR"}\uFF1A${clip(item.error.message ?? "", ERR_PREVIEW_MAX)}` });
+      lines.push({ kind: "err", text: `${item.error.code ?? "ERROR"}\uFF1A${clip2(item.error.message ?? "", ERR_PREVIEW_MAX)}` });
     }
     if (tolerated) {
       lines.push({ kind: "warn", text: "\u5DF2\u5BB9\u9519\uFF1A\u672C\u8282\u70B9\u5931\u8D25\u88AB\u653E\u884C\uFF0C\u540E\u7EED\u8282\u70B9\u7167\u5E38\u6267\u884C\uFF08\u8FD9\u6B21\u6CA1\u6709\u4E2D\u65AD\u5DE5\u4F5C\u6D41\uFF09" });
@@ -74306,10 +74439,10 @@ Please add \`${key}Action\` when creating your handler.`
       if (e2.target === overlay) close();
     });
     card.querySelector(".dag-flow-picker-close").addEventListener("click", close);
-    document.addEventListener("keydown", function esc(e2) {
+    document.addEventListener("keydown", function esc2(e2) {
       if (e2.key === "Escape") {
         close();
-        document.removeEventListener("keydown", esc);
+        document.removeEventListener("keydown", esc2);
       }
     });
     const body = card.querySelector(".dag-flow-picker-body");
@@ -74741,15 +74874,6 @@ Please add \`${key}Action\` when creating your handler.`
     return `\u26A0 \u51FA\u9519${dur}${lastRun.error ? "\uFF1A" + lastRun.error : ""}`;
   }
   var reqMark = () => (0, import_react102.createElement)("span", { className: "dsh-wf-req-mark", title: "\u5FC5\u586B" }, "*");
-  function summarizeRun(summary) {
-    const s3 = summary;
-    if (!s3) return "\u5B8C\u6210";
-    const parts = [];
-    if (typeof s3.totalDurationMs === "number") parts.push(`${Math.round(s3.totalDurationMs)}ms`);
-    if (s3.toleratedCount) parts.push(`${s3.toleratedCount} \u4E2A\u8282\u70B9\u5931\u8D25\u5DF2\u5BB9\u9519`);
-    if (s3.error?.message) parts.push(s3.error.message);
-    return parts.length ? parts.join(" \xB7 ") : s3.status ?? "\u5B8C\u6210";
-  }
   function verDisplayPath(dir, name) {
     const sep2 = dir.includes("\\") ? "\\" : "/";
     const base = dir.replace(/[\\/]+$/, "");
@@ -74796,22 +74920,22 @@ Please add \`${key}Action\` when creating your handler.`
     bash: ["if", "then", "elif", "else", "fi", "for", "while", "do", "done", "in", "echo", "export", "read", "exit", "return", "case", "esac", "function", "local", "date"]
   };
   function highlightCode(code, lang) {
-    const esc = (s3) => s3.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const esc2 = (s3) => s3.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const kw = CODE_KEYWORDS[lang] ?? [];
     const kwRe = kw.map((k5) => k5.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
     const re3 = new RegExp(`(#[^\\n]*)|("(?:[^"\\\\\\n]|\\\\.)*"|'(?:[^'\\\\\\n]|\\\\.)*')|\\b(${kwRe})\\b|(\\b\\d+(?:\\.\\d+)?\\b)`, "g");
     let out = "";
     let last3 = 0;
     for (const m4 of code.matchAll(re3)) {
-      out += esc(code.slice(last3, m4.index));
+      out += esc2(code.slice(last3, m4.index));
       const [full, comment2, str, kwTok, num] = m4;
-      if (comment2) out += `<span class="tok-c">${esc(full)}</span>`;
-      else if (str) out += `<span class="tok-s">${esc(full)}</span>`;
-      else if (kwTok) out += `<span class="tok-k">${esc(full)}</span>`;
-      else if (num) out += `<span class="tok-n">${esc(full)}</span>`;
+      if (comment2) out += `<span class="tok-c">${esc2(full)}</span>`;
+      else if (str) out += `<span class="tok-s">${esc2(full)}</span>`;
+      else if (kwTok) out += `<span class="tok-k">${esc2(full)}</span>`;
+      else if (num) out += `<span class="tok-n">${esc2(full)}</span>`;
       last3 = m4.index + full.length;
     }
-    out += esc(code.slice(last3));
+    out += esc2(code.slice(last3));
     return out + "\n";
   }
   var TABS = [
@@ -74905,8 +75029,10 @@ ${fmtLogValue(e2.out)}`);
       [def]
     );
     const handleDefChange = (0, import_react101.useCallback)((next2) => {
-      setDef(next2);
+      const { def: canon, changed } = canonicalizeDef(next2);
+      setDef(canon);
       setDirty(true);
+      if (changed) setImportMsg({ ok: true, text: "\u5DF2\u7EDF\u4E00\u4E3A edges \u8FDE\u7EBF\uFF08\u539F next \u5DF2\u5408\u5E76\u8FDB\u53BB\u5E76\u79FB\u9664\uFF09\u2014\u2014\u5F15\u64CE\u4E0E\u753B\u5E03\u90FD\u4EE5 edges \u4E3A\u51C6" });
     }, []);
     const handleSelectNode = (0, import_react101.useCallback)((id3) => {
       setSelectedNodeId(id3);
@@ -74986,6 +75112,9 @@ ${fmtLogValue(e2.out)}`);
     }, []);
     const [runResults, setRunResults] = (0, import_react101.useState)({});
     const [running, setRunning] = (0, import_react101.useState)(false);
+    const [cancelling, setCancelling] = (0, import_react101.useState)(false);
+    const cancellingRef = (0, import_react101.useRef)(false);
+    const [cancelTick, setCancelTick] = (0, import_react101.useState)(0);
     const runAbortRef = (0, import_react101.useRef)(null);
     const [manualWait, setManualWait] = (0, import_react101.useState)(null);
     const [manualDlgOpen, setManualDlgOpen] = (0, import_react101.useState)(false);
@@ -75055,7 +75184,8 @@ ${fmtLogValue(e2.out)}`);
     }, [def, handleDefChange, saveDefToDisk]);
     const applyRunSummary = (0, import_react101.useCallback)((data) => {
       setRunResult({ status: data?.ok ? "success" : "failed", summary: data?.summary });
-      if (!data?.ok) setRunDlgOpen(true);
+      if (data?.ok) setImportMsg({ ok: true, text: "\u8FD0\u884C\u6210\u529F" });
+      else setImportMsg({ ok: false, text: "\u8FD0\u884C\u5931\u8D25\u2014\u2014\u70B9\u8FD9\u91CC\u770B\u8BE6\u60C5", onClick: () => setRunDlgOpen(true) });
       const results = data?.summary?.results;
       if (results) {
         const map2 = {};
@@ -75192,8 +75322,7 @@ ${fmtLogValue(e2.out)}`);
         }
         applyRunSummary(data);
       } catch (e2) {
-        if (e2.name === "AbortError") setRunResult({ status: "error", error: "\u5DF2\u53D6\u6D88\u672C\u6B21\u8FD0\u884C" });
-        else {
+        if (e2.name !== "AbortError") {
           setRunResult({ status: "error", error: e2.message });
           setRunDlgOpen(true);
         }
@@ -75201,7 +75330,7 @@ ${fmtLogValue(e2.out)}`);
         stopPoll = true;
         if (pollTimer != null) window.clearTimeout(pollTimer);
         if (!keepRunning) {
-          setRunning(false);
+          if (!cancellingRef.current) setRunning(false);
           manualRunRef.current = false;
           runAbortRef.current = null;
         }
@@ -75229,19 +75358,20 @@ ${fmtLogValue(e2.out)}`);
         setManualBroken(`\u786E\u8BA4\u5931\u8D25\uFF1A${e2.message}`);
       } finally {
         setManualBusy(false);
-        setRunning(false);
+        if (!cancellingRef.current) setRunning(false);
         manualRunRef.current = false;
         runAbortRef.current = null;
       }
     }, [manualWait, manualNote, clearManualWait, applyRunSummary]);
     const cancelManualRun = (0, import_react101.useCallback)(() => {
+      cancellingRef.current = true;
+      setCancelling(true);
+      setCancelTick((n2) => n2 + 1);
       void fetch(`/api/dag-flow/run?name=${encodeURIComponent(def.name)}`, { method: "DELETE", credentials: "include" }).catch(() => {
       });
       runAbortRef.current?.abort();
       clearManualWait();
       manualRunRef.current = false;
-      setRunning(false);
-      setRunResult({ status: "error", error: "\u5DF2\u53D6\u6D88\u672C\u6B21\u8FD0\u884C" });
     }, [def.name, clearManualWait]);
     const refreshManualState = (0, import_react101.useCallback)(async (info) => {
       try {
@@ -75281,6 +75411,9 @@ ${fmtLogValue(e2.out)}`);
       if (info?.runId) void refreshManualState(info);
     }, []);
     const cancelRun = (0, import_react101.useCallback)(() => {
+      cancellingRef.current = true;
+      setCancelling(true);
+      setCancelTick((n2) => n2 + 1);
       runAbortRef.current?.abort();
       void fetch(`/api/dag-flow/run?name=${encodeURIComponent(def.name)}`, { method: "DELETE", credentials: "include" }).catch(() => {
       });
@@ -75396,6 +75529,13 @@ ${fmtLogValue(e2.out)}`);
       };
     }, [def, dirty, saveDefToDisk]);
     const [importMsg, setImportMsg] = (0, import_react101.useState)(null);
+    const [exportMenuOpen, setExportMenuOpen] = (0, import_react101.useState)(false);
+    const [exportMenuAt, setExportMenuAt] = (0, import_react101.useState)({ left: 0, top: 0 });
+    (0, import_react101.useEffect)(() => {
+      if (!importMsg?.ok) return;
+      const t5 = window.setTimeout(() => setImportMsg(null), 2600);
+      return () => window.clearTimeout(t5);
+    }, [importMsg]);
     const handleAutoLayout = (0, import_react101.useCallback)(() => {
       const next2 = applyAutoLayout(def);
       setDef(next2);
@@ -75426,6 +75566,7 @@ ${fmtLogValue(e2.out)}`);
       setDirty(true);
     }, []);
     const exportFile = (0, import_react101.useCallback)(() => {
+      setExportMenuOpen(false);
       try {
         const blob = new Blob([JSON.stringify(def, null, 2)], { type: "application/json" });
         const a4 = document.createElement("a");
@@ -75437,6 +75578,81 @@ ${fmtLogValue(e2.out)}`);
         setImportMsg({ ok: false, text: `\u5BFC\u51FA\u5931\u8D25\uFF1A${e2.message}` });
       }
     }, [def]);
+    const exportImage = (0, import_react101.useCallback)(async () => {
+      setExportMenuOpen(false);
+      try {
+        const nodes = rfNodes.map((n2) => {
+          const label = n2.data?.label;
+          return {
+            id: n2.id,
+            type: n2.type,
+            ...typeof label === "string" && label ? { label } : {},
+            x: n2.position?.x ?? 0,
+            y: n2.position?.y ?? 0
+          };
+        });
+        const edges = rfEdges.map((e2) => ({
+          from: e2.source,
+          to: e2.target,
+          ...e2.label ? { when: String(e2.label) } : {}
+        }));
+        const svg = buildGraphSvg({
+          title: def.name,
+          nodes,
+          edges,
+          metaOf: (t5) => {
+            const m4 = findMeta(t5);
+            return m4 ? { label: m4.label, emoji: m4.emoji, color: m4.color } : void 0;
+          }
+        });
+        const blob = await svgToPngBlob(svg, 2);
+        const a4 = document.createElement("a");
+        a4.href = URL.createObjectURL(blob);
+        a4.download = `${def.name || "workflow"}.png`;
+        a4.click();
+        URL.revokeObjectURL(a4.href);
+        setImportMsg({ ok: true, text: `\u5DF2\u5BFC\u51FA\u56FE\u7247\uFF08${nodes.length} \u8282\u70B9 \xB7 ${edges.length} \u8FDE\u7EBF\uFF09` });
+      } catch (e2) {
+        setImportMsg({ ok: false, text: `\u5BFC\u51FA\u56FE\u7247\u5931\u8D25\uFF1A${e2.message}` });
+      }
+    }, [def.name, rfNodes, rfEdges]);
+    const exportSvg = (0, import_react101.useCallback)(() => {
+      setExportMenuOpen(false);
+      try {
+        const nodes = rfNodes.map((n2) => {
+          const label = n2.data?.label;
+          return {
+            id: n2.id,
+            type: n2.type,
+            ...typeof label === "string" && label ? { label } : {},
+            x: n2.position?.x ?? 0,
+            y: n2.position?.y ?? 0
+          };
+        });
+        const edges = rfEdges.map((e2) => ({
+          from: e2.source,
+          to: e2.target,
+          ...e2.label ? { when: String(e2.label) } : {}
+        }));
+        const svg = buildGraphSvg({
+          title: def.name,
+          nodes,
+          edges,
+          metaOf: (t5) => {
+            const m4 = findMeta(t5);
+            return m4 ? { label: m4.label, emoji: m4.emoji, color: m4.color } : void 0;
+          }
+        });
+        const a4 = document.createElement("a");
+        a4.href = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+        a4.download = `${def.name || "workflow"}.svg`;
+        a4.click();
+        URL.revokeObjectURL(a4.href);
+        setImportMsg({ ok: true, text: `\u5DF2\u5BFC\u51FA\u77E2\u91CF\u56FE SVG\uFF08${nodes.length} \u8282\u70B9 \xB7 ${edges.length} \u8FDE\u7EBF\uFF09` });
+      } catch (e2) {
+        setImportMsg({ ok: false, text: `\u5BFC\u51FA SVG \u5931\u8D25\uFF1A${e2.message}` });
+      }
+    }, [def.name, rfNodes, rfEdges]);
     const importFile = (0, import_react101.useCallback)(async (file) => {
       try {
         const text = await file.text();
@@ -75672,6 +75888,12 @@ ${fmtLogValue(e2.out)}`);
         try {
           if (!manualRunRef.current) {
             const r5 = await fetch(`/api/dag-flow/run/status?name=${encodeURIComponent(def.name)}`);
+            if (!r5.ok && cancellingRef.current) {
+              cancellingRef.current = false;
+              setCancelling(false);
+              setRunning(false);
+              setImportMsg({ ok: true, text: "\u53D6\u6D88\u6210\u529F" });
+            }
             if (r5.ok) {
               const j4 = await r5.json();
               const sig = JSON.stringify([j4.status, j4.results ?? {}, j4.running ?? []]);
@@ -75680,12 +75902,29 @@ ${fmtLogValue(e2.out)}`);
                 setRunResults(progressToStatusMap(nodesRef.current, { results: j4.results, running: j4.running }));
               }
               const active = j4.status === "running" || j4.status === "awaiting";
-              setRunning(active);
-              if (!active && fast) {
-                fast = false;
-                if (schedOpen) void loadSchedules();
+              if (cancellingRef.current) {
+                if (!active) {
+                  cancellingRef.current = false;
+                  setCancelling(false);
+                  setRunning(false);
+                  setImportMsg({ ok: true, text: "\u53D6\u6D88\u6210\u529F" });
+                  manualRunRef.current = false;
+                  if (fast) {
+                    fast = false;
+                    if (schedOpen) void loadSchedules();
+                  }
+                } else {
+                  setRunning(true);
+                  fast = true;
+                }
+              } else {
+                setRunning(active);
+                if (!active && fast) {
+                  fast = false;
+                  if (schedOpen) void loadSchedules();
+                }
+                fast = active;
               }
-              fast = active;
             }
           }
         } catch {
@@ -75699,7 +75938,7 @@ ${fmtLogValue(e2.out)}`);
         stopped = true;
         if (timer) window.clearTimeout(timer);
       };
-    }, [def.name, schedOpen, loadSchedules]);
+    }, [def.name, schedOpen, loadSchedules, cancelTick]);
     (0, import_react101.useEffect)(() => {
       const labelOf = (id3) => {
         const t5 = (def.nodes ?? []).find((x4) => x4.id === id3);
@@ -75832,9 +76071,19 @@ ${fmtLogValue(e2.out)}`);
           )
         )),
         // ⬇⬆ 导入导出紧跟 JSON 标签（2026-10-02 用户指定头部排列）
+        //   ★ 2026-10-09：⬇ 从「直接导出 JSON」改成**导出菜单**（导出 JSON / 导出图片 PNG）——
+        //   用户原话「导出 json 已经有导出按钮了，导出图片可以集成到一起」。
         (0, import_react102.createElement)(
           "button",
-          { className: "dsh-wf-btn", onClick: exportFile, title: "\u5BFC\u51FA\u4E3A .json \u6587\u4EF6" },
+          {
+            className: `dsh-wf-btn${exportMenuOpen ? " is-on" : ""}`,
+            onClick: (e2) => {
+              const r5 = e2?.currentTarget?.getBoundingClientRect?.();
+              if (r5) setExportMenuAt({ left: r5.left, top: r5.bottom + 6 });
+              setExportMenuOpen((v5) => !v5);
+            },
+            title: "\u5BFC\u51FA\uFF08JSON / \u56FE\u7247 PNG\uFF09"
+          },
           "\u2B07"
         ),
         (0, import_react102.createElement)(
@@ -75877,7 +76126,7 @@ ${fmtLogValue(e2.out)}`);
             "span",
             { className: "dsh-wf-run-label" },
             (0, import_react102.createElement)("span", { className: "dsh-wf-run-ring" }),
-            "\u8FD0\u884C\u4E2D"
+            cancelling ? "\u53D6\u6D88\u4E2D\u2026" : "\u8FD0\u884C\u4E2D"
           ) : selfcheckState?.phase === "checking" ? (0, import_react102.createElement)(
             "span",
             { className: "dsh-wf-run-label" },
@@ -75886,10 +76135,17 @@ ${fmtLogValue(e2.out)}`);
           ) : "\u25B6"
         ),
         // ★ 取消按钮：运行中才出现，排在运行按钮**之后**，且红色
+        //   ★ 2026-10-08：取消是异步的（host 要等当前节点收尾）→ 取消中时按钮禁用、文案改「取消中…」，
+        //   避免用户连点；真正的落定由后台监视器在 host 确认结束后完成。
         running && (0, import_react102.createElement)(
           "button",
-          { className: "dsh-wf-btn is-danger", onClick: cancelRun, title: "\u53D6\u6D88\u672C\u6B21\u8FD0\u884C\uFF08\u901A\u77E5\u6267\u884C\u5668\u4E2D\u6B62\uFF09" },
-          "\u23F9 \u53D6\u6D88"
+          {
+            className: "dsh-wf-btn is-danger",
+            onClick: cancelRun,
+            disabled: cancelling,
+            title: cancelling ? "\u6B63\u5728\u53D6\u6D88\u2026\uFF08\u7B49\u5F53\u524D\u8282\u70B9\u6536\u5C3E\uFF09" : "\u53D6\u6D88\u672C\u6B21\u8FD0\u884C\uFF08\u901A\u77E5\u6267\u884C\u5668\u4E2D\u6B62\uFF09"
+          },
+          cancelling ? "\u23F3 \u53D6\u6D88\u4E2D\u2026" : "\u23F9 \u53D6\u6D88"
         ),
         (0, import_react102.createElement)(
           "button",
@@ -75946,21 +76202,10 @@ ${fmtLogValue(e2.out)}`);
             onClick: () => setManualDlgOpen(true)
           },
           "\u23F8 \u7B49\u5F85\u4EBA\u5DE5\u786E\u8BA4"
-        ),
-        // 运行结果回显（2026-10-02 用户需求：报错不在 logo 后行内展示——成功仍用 ✓ 小徽标，
-        // 失败只显示「✗ 运行失败」可点徽标，点击打开详情弹窗，不再截断挤占头部）
-        runResult && (0, import_react102.createElement)(
-          "span",
-          {
-            className: `dsh-wf-run-result ${runResult.status === "success" ? "is-ok" : runResult.status === "error" ? "is-err" : "is-fail"}`,
-            ...runResult.status !== "success" ? {
-              title: "\u70B9\u51FB\u67E5\u770B\u5931\u8D25\u8BE6\u60C5",
-              style: { cursor: "pointer", maxWidth: 120 },
-              onClick: () => setRunDlgOpen(true)
-            } : {}
-          },
-          runResult.status === "success" ? `\u2713 ${runResult.summary ? summarizeRun(runResult.summary) : "\u8FD0\u884C\u6210\u529F"}` : runResult.status === "error" && runResult.error === "\u5DF2\u53D6\u6D88\u672C\u6B21\u8FD0\u884C" ? "\u2717 \u5DF2\u53D6\u6D88" : "\u2717 \u8FD0\u884C\u5931\u8D25"
         )
+        // ★ 2026-10-08 用户拍板：**右侧结果条整个撤掉** ✗（原来是「✓ 运行成功」/「✗ 运行失败」的可点徽标）——
+        //   运行结果改由**顶部浮窗**提示（成功=自动消失；失败=常驻可点开详情），与「取消成功」同一形态。
+        //   历史：2026-10-02 曾把行内报错改成这个徽标；2026-10-08 再改为浮窗（用户口径）。
       ),
       // body：不同 tab 不同布局
       renderBody({
@@ -76294,14 +76539,68 @@ ${fmtLogValue(e2.out)}`);
           )
         )
       ),
-      // 保存/导出/导入的结果提示（此前 importMsg 只 set 不渲染——保存失败是静默的，现补上）
+      // ★ 2026-10-09 导出菜单（⬇ 按钮下方）：导出 JSON / 导出图片（PNG）。
+      //   用一层透明背板实现"点外面关闭"（比 document 监听更省事、也不会漏解绑）。
+      exportMenuOpen && (0, import_react102.createElement)(
+        "div",
+        { style: { position: "fixed", inset: 0, zIndex: 1e4 }, onClick: () => setExportMenuOpen(false) },
+        (0, import_react102.createElement)(
+          "div",
+          {
+            className: "dsh-wf-export-menu",
+            style: {
+              position: "fixed",
+              left: exportMenuAt.left,
+              top: exportMenuAt.top,
+              minWidth: 200,
+              padding: 6,
+              background: "var(--wf-panel, #101a2b)",
+              border: "1px solid var(--wf-border2, #29405f)",
+              borderRadius: 10,
+              boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
+              fontSize: 12
+            },
+            onClick: (e2) => e2.stopPropagation()
+          },
+          (0, import_react102.createElement)(
+            "button",
+            {
+              className: "dsh-wf-export-item",
+              onClick: exportFile,
+              title: "\u628A\u5DE5\u4F5C\u6D41\u5B9A\u4E49\u5B58\u6210 .json \u6587\u4EF6"
+            },
+            "\u{1F4C4} \u5BFC\u51FA JSON"
+          ),
+          (0, import_react102.createElement)(
+            "button",
+            {
+              className: "dsh-wf-export-item",
+              onClick: () => void exportImage(),
+              title: "\u628A\u753B\u5E03\u753B\u6210\u4E00\u5F20 PNG \u56FE\u7247\uFF08\u6309\u5F53\u524D\u5E03\u5C40\u77E2\u91CF\u7ED8\u5236\uFF0C2 \u500D\u5149\u6805\u5316\uFF09"
+            },
+            "\u{1F5BC} \u5BFC\u51FA\u56FE\u7247\uFF08PNG\uFF09"
+          ),
+          (0, import_react102.createElement)(
+            "button",
+            {
+              className: "dsh-wf-export-item",
+              onClick: exportSvg,
+              title: "\u5BFC\u51FA\u77E2\u91CF\u56FE SVG\uFF08\u540C PNG \u7684\u753B\u6CD5\uFF0C\u4F46\u53EF\u65E0\u9650\u7F29\u653E\u3001\u53EF\u7528\u8BBE\u8BA1\u5DE5\u5177\u518D\u7F16\u8F91\uFF09"
+            },
+            "\u{1F9E9} \u5BFC\u51FA\u77E2\u91CF\u56FE\uFF08SVG\uFF09"
+          )
+        )
+      ),
+      // 结果/操作提示浮窗（保存/导出/导入/运行结果/取消成功）
+      //   ★ 2026-10-08 用户要求：**放到上面**（原在底部 18px ✗）——改为顶部锚定，与项目弹窗约定一致（14vh）；
+      //   ★ 带 onClick 的（如「运行失败——点这里看详情」）点击执行该动作，否则点击关闭。
       importMsg && (0, import_react102.createElement)(
         "div",
         {
-          title: "\u70B9\u51FB\u5173\u95ED",
+          title: importMsg.onClick ? "\u70B9\u51FB\u67E5\u770B\u8BE6\u60C5" : "\u70B9\u51FB\u5173\u95ED",
           style: {
             position: "fixed",
-            bottom: 18,
+            top: "14vh",
             left: "50%",
             transform: "translateX(-50%)",
             zIndex: 10001,
@@ -76313,7 +76612,11 @@ ${fmtLogValue(e2.out)}`);
             color: importMsg.ok ? "var(--wf-success, #34d399)" : "var(--wf-danger, #f87171)",
             cursor: "pointer"
           },
-          onClick: () => setImportMsg(null)
+          onClick: () => {
+            const act = importMsg.onClick;
+            setImportMsg(null);
+            act?.();
+          }
         },
         `${importMsg.ok ? "\u2713 " : "\u2717 "}${importMsg.text}`
       ),
@@ -76518,8 +76821,8 @@ ${fmtLogValue(e2.out)}`);
           )
         )
       ),
-      // ⚠ 运行前自检未通过（2026-10-04 轮 1 用户拍板）：逐条给「哪里不对 + 怎么改」，
-      //   并让用户**人工确认**——「去修改」（关弹窗并选中第一个出问题的节点）或「仍然运行」（带 skipSelfcheck 重发）。
+      // ⚠ 运行前自检未通过（2026-10-04 轮 1 用户拍板；★2026-10-08 用户收严：**不提供"仍然运行"**，
+      //   自检有 error 就必须去改——「去修改」关弹窗并选中第一个出问题的节点，没有旁路按钮）。
       selfcheckBlock && (0, import_react102.createElement)(
         "div",
         {
@@ -76543,7 +76846,7 @@ ${fmtLogValue(e2.out)}`);
             (0, import_react102.createElement)(
               "div",
               { className: "dag-flow-picker-hint", style: { fontSize: 11.5, opacity: 0.8, lineHeight: 1.65 } },
-              "\u8FD9\u4E9B\u95EE\u9898\u4F1A\u8BA9\u5DE5\u4F5C\u6D41\u8DD1\u4E0D\u8D77\u6765\u3001\u6216\u8DD1\u51FA\u610F\u6599\u4E4B\u5916\u7684\u7ED3\u679C\u3002\u5EFA\u8BAE\u5148\u6309\u4E0B\u9762\u7684\u529E\u6CD5\u6539\u6389\uFF1B\u786E\u8BA4\u6CA1\u95EE\u9898\u4E5F\u53EF\u4EE5\u76F4\u63A5\u300C\u4ECD\u7136\u8FD0\u884C\u300D\u3002"
+              "\u8FD9\u4E9B\u95EE\u9898\u4F1A\u8BA9\u5DE5\u4F5C\u6D41\u8DD1\u4E0D\u8D77\u6765\u3001\u6216\u8DD1\u51FA\u610F\u6599\u4E4B\u5916\u7684\u7ED3\u679C\u3002\u8BF7\u5148\u6309\u4E0B\u9762\u7684\u300C\u89E3\u51B3\u529E\u6CD5\u300D\u6539\u6389\u2014\u2014\u81EA\u68C0\u4E0D\u901A\u8FC7\u65F6\u4E0D\u80FD\u8FD0\u884C\u3002"
             ),
             (0, import_react102.createElement)(
               "div",
@@ -76568,21 +76871,13 @@ ${fmtLogValue(e2.out)}`);
               "div",
               { className: "dsh-wf-manual-acts" },
               (0, import_react102.createElement)("button", {
-                className: "dsh-wf-btn",
+                className: "dsh-wf-btn dsh-wf-btn-primary",
                 onClick: () => {
                   const first = selfcheckBlock.items.find((i3) => i3.level === "error" && i3.nodeId);
                   setSelfcheckBlock(null);
                   if (first?.nodeId) setSelectedNodeId(first.nodeId);
                 }
-              }, "\u2715 \u53BB\u4FEE\u6539"),
-              (0, import_react102.createElement)("span", { className: "dsh-wf-manual-grow" }),
-              (0, import_react102.createElement)("button", {
-                className: "dsh-wf-btn dsh-wf-btn-primary",
-                onClick: () => {
-                  setSelfcheckBlock(null);
-                  void handleRun({ confirmed: true });
-                }
-              }, "\u25B6 \u4ECD\u7136\u8FD0\u884C")
+              }, "\u2715 \u53BB\u4FEE\u6539")
             )
           )
         )

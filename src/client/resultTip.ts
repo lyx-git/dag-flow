@@ -50,6 +50,11 @@ export function tipFullText(m: TipModel): string {
 export function tipModel(item: RunStatusItem | undefined, opts: { label: string; id: string }): TipModel | null {
   if (!item) return null;
   const status = item.status;
+  // ★ 2026-10-08 用户要求：「需要改成执行完成或执行失败才有浮窗，没执行的不用浮窗」——
+  //   起跑时客户端会把**还没跑到**的节点一律置成 pending（progressToStatusMap），
+  //   旧实现只判 !item，于是这些节点也弹卡、而且因为状态不是 success/skipped 会**误显示成「✕ 失败」** ✗。
+  //   所以：未开始/进行中一律不弹（进行中也不弹——用户要的是"最终执行结果"）。
+  if (status === 'pending' || status === 'running') return null;
   const tolerated = item.tolerated === true;
   const ms = item.durationMs != null ? ` · ${Math.round(item.durationMs)}ms` : '';
   const badge = status === 'success' ? `✓ 成功${ms}`

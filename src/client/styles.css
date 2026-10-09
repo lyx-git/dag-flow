@@ -1536,3 +1536,24 @@
   background: var(--wf-bg, #08101e); border: 1px solid var(--wf-border, #22304a); color: var(--wf-text, #dbe6f7);
 }
 .dsh-wf-log-aidebug { font-size: 11px; color: #7dd3fc; word-break: break-all; margin-bottom: 4px; }
+
+/* ★ 2026-10-09 导出菜单（⬇ 按钮 → 导出 JSON / 导出图片 PNG）
+   用户原话「导出 json 已经有导出按钮了，导出图片可以集成到一起」→ 两者合并进同一个菜单。
+   菜单本体用 inline style 做 fixed 锚定（避免头部 overflow 裁切），这里只管条目外观。 */
+.dsh-wf-export-item {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  padding: 8px 10px; margin: 2px 0; border-radius: 7px;
+  border: 1px solid transparent; background: transparent;
+  color: var(--wf-text, #dce7f8); font-size: 12px; font-family: inherit;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+.dsh-wf-export-item:hover {
+  background: color-mix(in srgb, var(--wf-accent, #4c8dff) 14%, transparent);
+  border-color: color-mix(in srgb, var(--wf-accent, #4c8dff) 45%, transparent);
+}
+/* 菜单打开时 ⬇ 按钮的激活态 */
+.dsh-wf-btn.is-on {
+  border-color: var(--wf-accent, #6f8fff);
+  color: #cfe0ff;
+  background: color-mix(in srgb, var(--wf-accent, #4c8dff) 16%, transparent);
+}

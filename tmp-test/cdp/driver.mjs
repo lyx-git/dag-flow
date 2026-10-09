@@ -209,8 +209,9 @@ window.__df_bodies = [];
 }
 
 // ★ 运行前自检的人工确认是产品要求（点 ▶ → 自检 → 确认 → 才真跑）；但**被测对象不是自检**的用例
-//   不该被这道闸门挡住。默认自动点「开始运行」/「仍然运行」；自检用例自己设
-//   window.__df_autoConfirmSelfcheck = false 关掉它，从而测真实闸门。
+//   不该被这道闸门挡住。默认自动点「开始运行」（只在**自检通过**的弹窗里出现）；
+//   自检用例自己设 window.__df_autoConfirmSelfcheck = false 关掉它，从而测真实闸门。
+//   ★ 2026-10-08 用户收严：自检未通过的弹窗里**没有**运行按钮（只有「去修改」），所以助手在这里无事可做。
 if (window.__df_autoConfirmSelfcheck === undefined) window.__df_autoConfirmSelfcheck = true;
 if (!window.__df_autoConfirmBound) {
   window.__df_autoConfirmBound = true;
@@ -219,7 +220,7 @@ if (!window.__df_autoConfirmBound) {
     const dlg = document.querySelector('.dsh-wf-selfcheck');
     if (!dlg) return;
     const btns = [...dlg.querySelectorAll('.dsh-wf-manual-acts button')];
-    const go = btns.find((b) => /开始运行|仍然运行/.test(b.textContent));
+    const go = btns.find((b) => /开始运行/.test(b.textContent));
     if (go) go.click();
   });
   obs.observe(document.documentElement, { childList: true, subtree: true });
@@ -230,7 +231,8 @@ true;
 export async function installHelpers(cdp) { await evaluate(cdp, PAGE_HELPERS); }
 
 /** 越过「运行前自检」那道人工确认（2026-10-04 轮 2 起：点 ▶ 先自检 → 通过/有问题都要人工确认才真跑）。
- *  点完 ▶ 之后调用一次即可：自检弹窗出现就点「▶ 开始运行」/「▶ 仍然运行」；超时没弹就直接返回 false。 */
+ *  点完 ▶ 之后调用一次即可：**自检通过**的弹窗出现就点「▶ 开始运行」；超时没弹就直接返回 false。
+ *  ★ 自检未通过时没有运行入口（2026-10-08 用户收严），这时会一直返回 false（预期行为）。 */
 export async function confirmSelfcheck(cdp, { timeout = 6000 } = {}) {
   // 自动确认模式（默认）下助手里的 MutationObserver 会即时点掉；这里仍做一轮兜底轮询
   //   —— 有些用例自己又 goto 了新页面（助手没了、observer 也不在），这时必须靠这里点。
@@ -241,7 +243,7 @@ export async function confirmSelfcheck(cdp, { timeout = 6000 } = {}) {
       const d = document.querySelector('.dsh-wf-selfcheck');
       if (!d) return { clicked: false };
       const btns = [...d.querySelectorAll('.dsh-wf-manual-acts button')];
-      const go = btns.find((b) => /开始运行|仍然运行/.test(b.textContent));
+      const go = btns.find((b) => /开始运行/.test(b.textContent));
       if (go) { go.click(); return { clicked: true }; }
       return { clicked: false };
     })()`).catch(() => ({ clicked: false }));

@@ -181,6 +181,24 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
   // 2.5 数据依赖预检：每个节点的模板引用必须指向存在的上游节点（拓扑序在其前）
   {
     const orderIdx = new Map(topo.order.map((id, i) => [id, i]));
+    // ★ 2026-10-08 用户拍板「引用即依赖」：被引用的节点必须是引用者的**上游（有连线路径）**。
+    //   旧实现只比较拓扑序号，拦不住"更早/同层但没有连线"的引用（真机踩过：ai_final 引用了
+    //   没连线的 ai_intl，只靠层序侥幸成立）。判据用可达性而非直接边：中间隔着节点也算有依赖。
+    const ancCache = new Map<string, Set<string>>();
+    const ancestorsOf = (id: string): Set<string> => {
+      const hit = ancCache.get(id);
+      if (hit) return hit;
+      const seen = new Set<string>();
+      const q = [...(inEdgesMap.get(id) ?? [])];
+      while (q.length) {
+        const cur = q.shift() as string;
+        if (seen.has(cur)) continue;
+        seen.add(cur);
+        for (const p of inEdgesMap.get(cur) ?? []) if (!seen.has(p)) q.push(p);
+      }
+      ancCache.set(id, seen);
+      return seen;
+    };
     for (const node of def.nodes) {
       const { nodeRefs } = extractRefs(node.params ?? {});
       for (const ref of nodeRefs) {
@@ -194,6 +212,11 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
         const curIdx = orderIdx.get(node.id) ?? -1;
         if (refIdx > curIdx) {
           return dagFail('DATAFLOW_ORDER', `节点 "${node.id}" 引用了排在它之后才执行的 "${ref}"（数据流倒挂）`);
+        }
+        if (!ancestorsOf(node.id).has(ref)) {
+          return dagFail('DATAFLOW_NO_EDGE',
+            `节点 "${node.id}" 引用了 "${ref}" 的输出，但两者之间没有连线（"${ref}" 不是它的上游）——`
+            + `执行先后顺序没有保证。请在画布上从 "${ref}" 拖一条线连到 "${node.id}"（中间隔着别的节点也可以，只要连通）。`);
         }
       }
     }

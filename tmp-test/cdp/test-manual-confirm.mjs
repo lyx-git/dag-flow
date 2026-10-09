@@ -78,20 +78,22 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep }) {
   ok(/已核对/.test(sentNote) && /run-stub-manual/.test(sentNote), 'resume 请求体带 runId 与备注（' + sentNote.slice(0, 90) + '）');
   await waitFor(cdp, `!document.querySelector('.dsh-wf-manual-prompt')`, { timeout: 5000 });
   ok(!(await dlgOpen()), '确认后弹窗收起');
-  await waitFor(cdp, `!!document.querySelector('.dsh-wf-run-result') && !document.querySelector('.dsh-wf-run-result.is-wait')`, { timeout: 5000 });
-  const after = await evaluate(cdp, `document.querySelector('.dsh-wf-run-result')?.textContent ?? ''`);
-  ok(after.includes('✓'), '确认后头部转为运行成功（实际：' + after.trim().slice(0, 40) + '）');
+  // ★ 2026-10-08 用户拍板：右侧结果条撤掉 ✗ → 运行结果改由顶部浮窗提示
+  await waitFor(cdp, `(document.body.textContent || '').includes('运行成功')`, { timeout: 6000 });
+  ok(true, '确认后顶部浮窗提示运行成功');
 
   // ⑥ 取消路径：再跑一次 → 弹窗内点「✕ 取消本次运行」
+  //   ★ 2026-10-08 用户改口径：**右侧结果条不再显示「✗ 已取消」** ✗，改成取消完成时**浮窗提示「取消成功」** ✓
   await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-btn-success').click(); })(); true;`);
   await confirmSelfcheck(cdp);   // ★ 越过运行前自检的人工确认
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-run-result.is-wait')`, { timeout: 6000 });
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-manual-prompt')`, { timeout: 5000 });
   await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-btn-danger').click(); })(); true;`);
   await waitFor(cdp, `!document.querySelector('.dsh-wf-manual-prompt')`, { timeout: 5000 });
-  const cancelled = await evaluate(cdp, `document.querySelector('.dsh-wf-run-result')?.textContent ?? ''`);
-  ok(cancelled.includes('已取消'), '取消后头部显示「✗ 已取消」（实际：' + cancelled.trim() + '）');
   ok(await evaluate(cdp, `(window.__df_reqs ?? []).some((r) => r.includes('/run?name='))`), '取消走了 DELETE /run?name= 通道');
+  await waitFor(cdp, `(document.body.textContent || '').includes('取消成功')`, { timeout: 8000 });
+  ok(true, '★取消完成后浮窗提示「取消成功」');
+  ok(await evaluate(cdp, `!document.querySelector('.dsh-wf-run-result')`), '★右侧结果条已撤掉（不再有任何运行结果徽标）');
 
   // ⑦ 刷新页面 → 等待态从 localStorage + GET /run/status 恢复（契约里的「刷新可恢复」）
   await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-btn-success').click(); })(); true;`);

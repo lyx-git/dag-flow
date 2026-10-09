@@ -170,7 +170,7 @@ export async function run({ cdp, evaluate, waitFor, ok, sleep, name, base }) {
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-btn-success')`, { timeout: 20000 });
   await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-btn-success').click(); return true; })()`);
   await confirmSelfcheck(cdp);   // ★ 越过运行前自检的人工确认
-  await waitFor(cdp, `!!document.querySelector('.dsh-wf-run-result')`, { timeout: 8000 });
+  await waitFor(cdp, `(document.body.textContent || '').includes('运行成功')`, { timeout: 8000 });
   await evaluate(cdp, clickCardByText(' · py'));
   await waitFor(cdp, `[...document.querySelectorAll('.dsh-wf-var-node')].some((n) => n.textContent.includes('取自上次运行的真实输出'))`, { timeout: 8000 });
   const live = await evaluate(cdp, `(() => {

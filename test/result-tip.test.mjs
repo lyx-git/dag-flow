@@ -25,6 +25,8 @@ const texts = (m) => m.lines.map((l) => l.text).join('\n');
 
 console.log('== A. 没跑过 / 成功 ==');
 eq(tipModel(undefined, { label: 'L', id: 'n1' }), null, 'A1. 无运行结果 → 不弹（null）');
+eq(tipModel({ status: 'pending' }, { label: 'L', id: 'n2' }), null, 'A1b. ★待运行（还没跑到）→ 不弹（2026-10-08 用户要求：没执行的不用浮窗）');
+eq(tipModel({ status: 'running' }, { label: 'L', id: 'n3' }), null, 'A1c. ★运行中 → 也不弹（用户要的是"最终执行结果"）');
 {
   const m = tipModel({ status: 'success', durationMs: 120, out: 'hello' }, { label: '取日期', id: 'py_date' });
   eq(m.badge, '✓ 成功 · 120ms', 'A2. 成功徽标含耗时');

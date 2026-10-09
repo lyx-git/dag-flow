@@ -46,10 +46,10 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, sleep }) {
   await waitFor(cdp, `(window.__df_reqs ?? []).some((r) => r.includes('/api/dag-flow/run'))`, { timeout: 5000 });
   ok(true, '点击 ▶ 发出 POST /api/dag-flow/run');
 
-  // ③ runResult 显示成功
-  await waitFor(cdp, `!!document.querySelector('.dsh-wf-run-result')`, { timeout: 5000 });
-  const txt = await evaluate(cdp, `document.querySelector('.dsh-wf-run-result')?.textContent ?? ''`);
-  ok(txt.includes('✓'), '头部显示运行成功（实际：' + txt.trim().slice(0, 60) + '）');
+  // ③ 运行成功 → **顶部浮窗提示**（2026-10-08 用户拍板：右侧结果条撤掉，改浮窗 ✗→✓）
+  await waitFor(cdp, `(document.body.textContent || '').includes('运行成功')`, { timeout: 5000 });
+  const txt = await evaluate(cdp, `(() => { const m = [...document.querySelectorAll('div')].find((d) => /运行成功/.test(d.textContent || '') && d.children.length === 0); return m ? m.textContent : ''; })()`);
+  ok(txt.includes('✓'), '顶部浮窗显示运行成功（实际：' + String(txt).trim().slice(0, 60) + '）');
 
   // ④ 按钮回到可点状态
   const disabled = await evaluate(cdp, `document.querySelector('.dsh-wf-btn-success')?.disabled ?? true`);
@@ -66,5 +66,5 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, sleep }) {
   `);
   await confirmSelfcheck(cdp);   // ★ 越过运行前自检的人工确认（点运行 → 自检 → 确认 → 才真跑）
   await sleep(500);
-  ok(await evaluate(cdp, `!!document.querySelector('.dsh-wf-run-result')`), '重复运行结果正常刷新');
+  ok(await evaluate(cdp, `(document.body.textContent || '').includes('运行成功')`), '重复运行结果正常刷新（浮窗再次提示）');
 }

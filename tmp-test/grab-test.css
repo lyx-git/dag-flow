@@ -2257,6 +2257,30 @@
   word-break: break-all;
   margin-bottom: 4px;
 }
+.dsh-wf-export-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  padding: 8px 10px;
+  margin: 2px 0;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--wf-text, #dce7f8);
+  font-size: 12px;
+  font-family: inherit;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+.dsh-wf-export-item:hover {
+  background: color-mix(in srgb, var(--wf-accent, #4c8dff) 14%, transparent);
+  border-color: color-mix(in srgb, var(--wf-accent, #4c8dff) 45%, transparent);
+}
+.dsh-wf-btn.is-on {
+  border-color: var(--wf-accent, #6f8fff);
+  color: #cfe0ff;
+  background: color-mix(in srgb, var(--wf-accent, #4c8dff) 16%, transparent);
+}
 
 /* node_modules/@flowgram.ai/free-layout-editor/index.css */
 :root {

@@ -13,7 +13,8 @@ import { DEFAULT_WORKFLOW, findMeta, outSpecOf } from './types';
 import { fieldsFromValue } from './outFields';
 // ★ 运行进度 → 节点状态（2026-10-03 用户需求：待运行/运行中/完成/失败，按运行路径依次显示）
 import { progressToStatusMap } from './runProgress';
-import { toRF, fromRF, type RFNode, type RFEdge } from './util/flowDef';
+import { toRF, fromRF, canonicalizeDef, type RFNode, type RFEdge } from './util/flowDef';
+import { buildGraphSvg, svgToPngBlob, type GraphImageNode, type GraphImageEdge } from './util/graphImage';
 import { applyAutoLayout } from './util/layout';
 import { Canvas } from './Canvas';
 import { disposeCanvasNode } from './flowgram/FlowGramCanvas';
@@ -294,9 +295,14 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   // 装饰节点的编辑桥 + 新建：**必须放在 handleDefChange 之后**（它依赖那个 const；
   //   本项目踩过"后置 const 引用 → TDZ：Cannot access before initialization"的坑）
   // JsonView / FormView 直接修改 def
+  // ★ 2026-10-08 用户拍板：**写盘统一到 edges**——这些入口拿到的是"原始 def"（JSON 视图就是
+  //   JSON.parse 出来的对象），先 canonicalizeDef 归一化（把 next 合并进 edges 并删掉 next），
+  //   再落盘；确实发生归一化时给一条浮层提示，免得用户以为"我写的 next 被吞了"。
   const handleDefChange = useCallback((next: WorkflowDef) => {
-    setDef(next);
+    const { def: canon, changed } = canonicalizeDef(next);
+    setDef(canon);
     setDirty(true);
+    if (changed) setImportMsg({ ok: true, text: '已统一为 edges 连线（原 next 已合并进去并移除）——引擎与画布都以 edges 为准' });
   }, []);
 
   // 节点选中（画布单击 / 缩略图点击 / 表单点击 三处都汇总到这）
@@ -397,6 +403,15 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   useEffect(() => { try { ensurePickerStyles(); } catch { /* 忽略 */ } }, []);
   const [runResults, setRunResults] = useState<Record<string, { status: string; durationMs?: number; count?: number; out?: unknown; error?: { code?: string; message?: string }; tolerated?: boolean }>>({});
   const [running, setRunning] = useState(false);
+  // ★ 2026-10-08 用户报「点取消没用、又恢复到运行中」的修复：取消是**异步**的（host 要等当前节点
+  //   收尾/被 kill 才真的停），而取消后控制权会交还后台监视器 ✗ → 它一看到 host 还在跑就把界面
+  //   点回"运行中" ✗。所以加一个"取消中"状态：期间监视器**不许**写回 running，直到 host 确认
+  //   这次运行真的结束（或 404）才清掉取消态，并**浮窗提示「取消成功」**（不在右侧结果条显示「已取消」✗）。
+  const [cancelling, setCancelling] = useState(false);
+  const cancellingRef = useRef(false);
+  // ★ 取消时**立刻踢一次监视器轮询**：否则"取消中"要等监视器下一轮（空闲档 2.5s）才落定 ✗，
+  //   期间运行按钮仍是 disabled → 用户（或用例）马上再点 ▶ 会被静默吞掉（2026-10-08 CDP 实测）。
+  const [cancelTick, setCancelTick] = useState(0);
   const runAbortRef = useRef<AbortController | null>(null);
   // ★ 人工确认（2026-10-03 用户拍板方案 A）：manual 节点挂起 → 头部 ⏸ 徽标 + 确认弹窗
   const [manualWait, setManualWait] = useState<{ runId: string; nodeId: string; prompt: string } | null>(null);
@@ -475,7 +490,10 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   /** 把 /run 与 /run/resume 的响应统一落到界面（两条路径的 summary 语义相同，避免重复代码） */
   const applyRunSummary = useCallback((data: any): void => {
     setRunResult({ status: data?.ok ? 'success' : 'failed', summary: data?.summary });
-    if (!data?.ok) setRunDlgOpen(true); // 失败 → 弹窗展示详情（成功仍用头部 ✓ 小徽标）
+    // ★ 2026-10-08 用户拍板：**右侧结果条整个撤掉** ✗ —— 运行成功/失败也改成**浮窗提示**（与「取消成功」同一形态）。
+    //   成功 → 自动消失的浮窗（约 2.6s）；失败 → **常驻浮窗 + 点击打开详情弹窗**（失败详情仍要能点开 ✓）。
+    if (data?.ok) setImportMsg({ ok: true, text: '运行成功' });
+    else setImportMsg({ ok: false, text: '运行失败——点这里看详情', onClick: () => setRunDlgOpen(true) });
     const results = data?.summary?.results as Record<string, { status?: string; durationMs?: number; out?: { count?: number }; error?: { code?: string; message?: string }; tolerated?: boolean }> | undefined;
     if (results) {
       const map: Record<string, { status: string; durationMs?: number; count?: number; out?: unknown; error?: { code?: string; message?: string }; tolerated?: boolean }> = {};
@@ -535,7 +553,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
           stats: sd.stats ?? { nodes: (def.nodes ?? []).length, edges: (def.edges ?? []).length },
         };
         if (result.errorCount > 0) {
-          // 有问题 → 逐条「报错提示 + 解决办法」，人工确认「仍然运行」或「去修改」
+          // 有问题 → 逐条「报错提示 + 解决办法」，**只给「去修改」**（2026-10-08 用户收严：不提供"仍然运行"旁路）
           setSelfcheckState(null);
           setSelfcheckBlock(result);
           return;
@@ -551,7 +569,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       }
     }
 
-    // ===== 第二段：人工确认过了 → 真正开跑（带 skipSelfcheck:true，不再被 /run 里的自检拦一次）=====
+    // ===== 第二段：自检通过且人工确认过了 → 真正开跑（带 skipSelfcheck:true，不再被 /run 里的自检拦一次）
+    //   ★ 只有「✓ 自检通过」弹窗的「开始运行」能走到这里；自检有 error 时弹窗没有运行入口（2026-10-08）。=====
     setSelfcheckState(null);
     setRunning(true);
     manualRunRef.current = true;   // 告诉后台监视让位（手动路径自己轮询并把终态落定）
@@ -620,14 +639,18 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       }
       applyRunSummary(data);
     } catch (e) {
-      if ((e as Error).name === 'AbortError') setRunResult({ status: 'error', error: '已取消本次运行' });
-      else { setRunResult({ status: 'error', error: (e as Error).message }); setRunDlgOpen(true); }
+      // ★ 2026-10-08 用户要求：取消**不要**在右侧结果条显示「✗ 已取消」✗——所以这里不再写 runResult，
+      //   只让取消流程静默结束；「取消成功」由监视器在宿主确认结束后用浮窗提示。
+      if ((e as Error).name !== 'AbortError') { setRunResult({ status: 'error', error: (e as Error).message }); setRunDlgOpen(true); }
     } finally {
       stopPoll = true;
       if (pollTimer != null) window.clearTimeout(pollTimer);
       if (!keepRunning) {
-        setRunning(false);
-        manualRunRef.current = false;   // 手动路径结束，后台监视恢复接管（定时运行照常点亮）
+        // ★ 2026-10-08：**取消中不要立刻把 running 置回 false** ✗——本地 fetch 被 abort 会立刻走到这里，
+        //   于是头部先闪回「▶ 待运行」、取消按钮消失，随后监视器发现宿主还在跑又把界面点回「取消中…」
+        //   （用户实测："先回到待运行、再跳回取消中"）。取消态统一交给监视器在宿主确认结束后收尾。
+        if (!cancellingRef.current) setRunning(false);
+        manualRunRef.current = false;   // 手动路径结束，后台监视恢复接管（定时运行照常点亮；取消时它负责探测"真的停了"）
         runAbortRef.current = null;
       }
     }
@@ -656,7 +679,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       setManualBroken(`确认失败：${(e as Error).message}`);
     } finally {
       setManualBusy(false);
-      setRunning(false);
+      if (!cancellingRef.current) setRunning(false);   // ★ 取消中：保持取消态，交给监视器收尾（同上）
       manualRunRef.current = false;   // 人工确认路径结束 → 后台监视恢复接管
       runAbortRef.current = null;
     }
@@ -664,12 +687,15 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
 
   /** 取消本次运行（弹窗内）：走既有 DELETE 通道——host 会 reject 挂起的 manual 节点再 abort */
   const cancelManualRun = useCallback(() => {
+    // ★ 2026-10-08：与头部取消按钮同一套语义——进入"取消中"态，不立刻把 running 置回 false ✗，
+    //   等监视器确认宿主真的停了再**浮窗提示「取消成功」**（右侧结果条不动 ✗）。
+    cancellingRef.current = true;
+    setCancelling(true);
+    setCancelTick((n) => n + 1);   // 立刻踢一次监视器轮询（同上）
     void fetch(`/api/dag-flow/run?name=${encodeURIComponent(def.name)}`, { method: 'DELETE', credentials: 'include' }).catch(() => {});
     runAbortRef.current?.abort();
     clearManualWait();
     manualRunRef.current = false;
-    setRunning(false);
-    setRunResult({ status: 'error', error: '已取消本次运行' });
   }, [def.name, clearManualWait]);
 
   /** 撤销误发的 DELETE（刷新后查回等待态时用）：发现状态不符就清掉本地等待标记 */
@@ -710,8 +736,13 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** 取消运行：本地 abort + 通知服务端 abort（RUN_CANCELLED） */
+  /** 取消运行：本地 abort + 通知服务端 abort（RUN_CANCELLED）
+   *  ★ 2026-10-08：进入"取消中"状态——不再立刻把 running 交还给后台监视器（它会把界面点回运行中 ✗），
+   *  由监视器轮询到 host 确认结束后**浮窗提示「取消成功」**（右侧结果条不显示「已取消」✗）。 */
   const cancelRun = useCallback(() => {
+    cancellingRef.current = true;
+    setCancelling(true);
+    setCancelTick((n) => n + 1);   // 立刻踢一次监视器轮询
     runAbortRef.current?.abort();
     void fetch(`/api/dag-flow/run?name=${encodeURIComponent(def.name)}`, { method: 'DELETE', credentials: 'include' }).catch(() => {});
     if (manualWait) { clearManualWait(); setManualNote(''); }
@@ -837,7 +868,17 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   }, [def, dirty, saveDefToDisk]);
 
   // 2026-10-01 深夜：管理视图随「📋 管理」tab 移除——列表/打开/复制/删除/重命名统一收进打开/新建选择器
-  const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string; onClick?: () => void } | null>(null);
+  // ★ 2026-10-09：导出菜单（⬇ 按钮 → 导出 JSON / 导出图片 PNG）；menuAt = 按钮位置，用于 fixed 锚定
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportMenuAt, setExportMenuAt] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+  // ★ 2026-10-08：**成功类浮窗自动消失**（约 2.6s）——否则「取消成功」这类提示会一直挂着等用户点 ✗；
+  //   失败类（ok:false）保留"点击关闭"，避免错误信息被自动吞掉。
+  useEffect(() => {
+    if (!importMsg?.ok) return;
+    const t = window.setTimeout(() => setImportMsg(null), 2600);
+    return () => window.clearTimeout(t);
+  }, [importMsg]);
 
   // 自动布局：按拓扑分层重排节点
   const handleAutoLayout = useCallback(() => {
@@ -879,6 +920,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
 
   // A2 文件导出/导入（工作流 JSON 文件）
   const exportFile = useCallback(() => {
+    setExportMenuOpen(false);
     try {
       const blob = new Blob([JSON.stringify(def, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
@@ -890,6 +932,89 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       setImportMsg({ ok: false, text: `导出失败：${(e as Error).message}` });
     }
   }, [def]);
+
+  /**
+   * ★ 2026-10-09 用户需求「导出 json 已经有导出按钮了，导出图片可以集成到一起」：
+   * 用**自己画的 SVG → PNG**（零依赖；官方 free-export-plugin 未安装、html2canvas 会新增依赖 ✗）。
+   * 坐标取画布 RF 位置（所见布局），节点卡沿用 NODE_PALETTE 的类型色/图标/显示名。
+   */
+  const exportImage = useCallback(async () => {
+    setExportMenuOpen(false);
+    try {
+      const nodes: GraphImageNode[] = rfNodes.map((n) => {
+        const label = (n.data as { label?: unknown } | undefined)?.label;
+        return {
+          id: n.id,
+          type: n.type,
+          ...(typeof label === 'string' && label ? { label } : {}),
+          x: n.position?.x ?? 0,
+          y: n.position?.y ?? 0,
+        };
+      });
+      const edges: GraphImageEdge[] = rfEdges.map((e) => ({
+        from: e.source,
+        to: e.target,
+        ...(e.label ? { when: String(e.label) } : {}),
+      }));
+      const svg = buildGraphSvg({
+        title: def.name,
+        nodes,
+        edges,
+        metaOf: (t) => {
+          const m = findMeta(t);
+          return m ? { label: m.label, emoji: m.emoji, color: m.color } : undefined;
+        },
+      });
+      const blob = await svgToPngBlob(svg, 2);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${def.name || 'workflow'}.png`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setImportMsg({ ok: true, text: `已导出图片（${nodes.length} 节点 · ${edges.length} 连线）` });
+    } catch (e) {
+      setImportMsg({ ok: false, text: `导出图片失败：${(e as Error).message}` });
+    }
+  }, [def.name, rfNodes, rfEdges]);
+  /** 导出 SVG（矢量）——与 PNG 同一份 SVG，只是直接落盘（更清晰、可再编辑/无限缩放） */
+  const exportSvg = useCallback(() => {
+    setExportMenuOpen(false);
+    try {
+      const nodes: GraphImageNode[] = rfNodes.map((n) => {
+        const label = (n.data as { label?: unknown } | undefined)?.label;
+        return {
+          id: n.id,
+          type: n.type,
+          ...(typeof label === 'string' && label ? { label } : {}),
+          x: n.position?.x ?? 0,
+          y: n.position?.y ?? 0,
+        };
+      });
+      const edges: GraphImageEdge[] = rfEdges.map((e) => ({
+        from: e.source,
+        to: e.target,
+        ...(e.label ? { when: String(e.label) } : {}),
+      }));
+      const svg = buildGraphSvg({
+        title: def.name,
+        nodes,
+        edges,
+        metaOf: (t) => {
+          const m = findMeta(t);
+          return m ? { label: m.label, emoji: m.emoji, color: m.color } : undefined;
+        },
+      });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+      a.download = `${def.name || 'workflow'}.svg`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setImportMsg({ ok: true, text: `已导出矢量图 SVG（${nodes.length} 节点 · ${edges.length} 连线）` });
+    } catch (e) {
+      setImportMsg({ ok: false, text: `导出 SVG 失败：${(e as Error).message}` });
+    }
+  }, [def.name, rfNodes, rfEdges]);
+
   const importFile = useCallback(async (file: File) => {
     try {
       const text = await file.text();
@@ -1148,6 +1273,13 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       try {
         if (!manualRunRef.current) {
           const r = await fetch(`/api/dag-flow/run/status?name=${encodeURIComponent(def.name)}`);
+          if (!r.ok && cancellingRef.current) {
+            // 404 = 宿主已没有这次运行的记录（已经停了）→ 取消完成：**浮窗提示「取消成功」**（右侧结果条不动 ✗）
+            cancellingRef.current = false;
+            setCancelling(false);
+            setRunning(false);
+            setImportMsg({ ok: true, text: '取消成功' });
+          }
           if (r.ok) {
             const j = (await r.json()) as {
               status?: string; origin?: string; results?: Record<string, unknown>; running?: string[];
@@ -1158,13 +1290,30 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
               setRunResults(progressToStatusMap(nodesRef.current, { results: j.results as never, running: j.running }));
             }
             const active = j.status === 'running' || j.status === 'awaiting';
-            // 定时/宿主侧发起的运行：让头部也进入运行态（手动路径自己会置位，这里不抢）
-            setRunning(active);
-            if (!active && fast) {
-              fast = false;
-              if (schedOpen) void loadSchedules();   // 刚跑完：刷新 ⏰ 弹窗的上次/下次
+            // ★ 2026-10-08：取消中 → **不许**把界面写回"运行中"（那是用户报的"又恢复成运行中" ✗）；
+            //   等 host 真的停了（active=false，或上面 404 分支）才清掉取消态并**浮窗提示「取消成功」**
+            //   （右侧结果条不显示「已取消」✗——用户明确要求）。
+            if (cancellingRef.current) {
+              if (!active) {
+                cancellingRef.current = false;
+                setCancelling(false);
+                setRunning(false);
+                setImportMsg({ ok: true, text: '取消成功' });
+                manualRunRef.current = false;
+                if (fast) { fast = false; if (schedOpen) void loadSchedules(); }
+              } else {
+                setRunning(true);   // 仍在收尾：显示"取消中…"（头部按 cancelling 显示），但不是普通运行态
+                fast = true;        // ★ 取消中必须**快档轮询**（600ms）——否则"取消中…"最长要等 2.5s 才落定
+              }
+            } else {
+              // 定时/宿主侧发起的运行：让头部也进入运行态（手动路径自己会置位，这里不抢）
+              setRunning(active);
+              if (!active && fast) {
+                fast = false;
+                if (schedOpen) void loadSchedules();   // 刚跑完：刷新 ⏰ 弹窗的上次/下次
+              }
+              fast = active;
             }
-            fast = active;
           }
         }
       } catch { /* 轮询失败不打扰用户，下一轮再试 */ }
@@ -1175,7 +1324,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       stopped = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [def.name, schedOpen, loadSchedules]);
+  }, [def.name, schedOpen, loadSchedules, cancelTick]);
 
   // ★ 失败策略显形（2026-10-04 轮 7）：把 def 里每个节点的失败策略同步进 failPolicyStore，
   //   画布卡片据此在底部显示一枚小 chip（默认 stop **不入表** = 不显示，避免噪音）。
@@ -1309,9 +1458,20 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         ),
       )),
       // ⬇⬆ 导入导出紧跟 JSON 标签（2026-10-02 用户指定头部排列）
+      //   ★ 2026-10-09：⬇ 从「直接导出 JSON」改成**导出菜单**（导出 JSON / 导出图片 PNG）——
+      //   用户原话「导出 json 已经有导出按钮了，导出图片可以集成到一起」。
       createElement(
         'button',
-        { className: 'dsh-wf-btn', onClick: exportFile, title: '导出为 .json 文件' },
+        {
+          className: `dsh-wf-btn${exportMenuOpen ? ' is-on' : ''}`,
+          onClick: (e: { currentTarget?: { getBoundingClientRect?: () => { left: number; bottom: number } } }) => {
+            // 记下按钮位置 → 菜单锚定在它正下方（fixed 定位，不受头部 overflow 影响）
+            const r = e?.currentTarget?.getBoundingClientRect?.();
+            if (r) setExportMenuAt({ left: r.left, top: r.bottom + 6 });
+            setExportMenuOpen((v) => !v);
+          },
+          title: '导出（JSON / 图片 PNG）',
+        },
         '⬇',
       ),
       createElement(
@@ -1354,7 +1514,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         running
           ? createElement('span', { className: 'dsh-wf-run-label' },
               createElement('span', { className: 'dsh-wf-run-ring' }),
-              '运行中')
+              cancelling ? '取消中…' : '运行中')
           : selfcheckState?.phase === 'checking'
             ? createElement('span', { className: 'dsh-wf-run-label' },
                 createElement('span', { className: 'dsh-wf-run-ring' }),
@@ -1362,10 +1522,17 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
             : '▶',
       ),
       // ★ 取消按钮：运行中才出现，排在运行按钮**之后**，且红色
+      //   ★ 2026-10-08：取消是异步的（host 要等当前节点收尾）→ 取消中时按钮禁用、文案改「取消中…」，
+      //   避免用户连点；真正的落定由后台监视器在 host 确认结束后完成。
       running && createElement(
         'button',
-        { className: 'dsh-wf-btn is-danger', onClick: cancelRun, title: '取消本次运行（通知执行器中止）' },
-        '⏹ 取消',
+        {
+          className: 'dsh-wf-btn is-danger',
+          onClick: cancelRun,
+          disabled: cancelling,
+          title: cancelling ? '正在取消…（等当前节点收尾）' : '取消本次运行（通知执行器中止）',
+        },
+        cancelling ? '⏳ 取消中…' : '⏹ 取消',
       ),
       createElement(
         'button',
@@ -1420,24 +1587,9 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         },
         '⏸ 等待人工确认',
       ),
-      // 运行结果回显（2026-10-02 用户需求：报错不在 logo 后行内展示——成功仍用 ✓ 小徽标，
-      // 失败只显示「✗ 运行失败」可点徽标，点击打开详情弹窗，不再截断挤占头部）
-      runResult && createElement(
-        'span',
-        {
-          className: `dsh-wf-run-result ${runResult.status === 'success' ? 'is-ok' : runResult.status === 'error' ? 'is-err' : 'is-fail'}`,
-          ...(runResult.status !== 'success' ? {
-            title: '点击查看失败详情',
-            style: { cursor: 'pointer', maxWidth: 120 },
-            onClick: () => setRunDlgOpen(true),
-          } : {}),
-        },
-        runResult.status === 'success'
-          ? `✓ ${runResult.summary ? summarizeRun(runResult.summary) : '运行成功'}`
-          : runResult.status === 'error' && runResult.error === '已取消本次运行'
-            ? '✗ 已取消'
-            : '✗ 运行失败',
-      ),
+      // ★ 2026-10-08 用户拍板：**右侧结果条整个撤掉** ✗（原来是「✓ 运行成功」/「✗ 运行失败」的可点徽标）——
+      //   运行结果改由**顶部浮窗**提示（成功=自动消失；失败=常驻可点开详情），与「取消成功」同一形态。
+      //   历史：2026-10-02 曾把行内报错改成这个徽标；2026-10-08 再改为浮窗（用户口径）。
     ),
     // body：不同 tab 不同布局
     renderBody({
@@ -1707,19 +1859,66 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         ),
       ),
     ),
-    // 保存/导出/导入的结果提示（此前 importMsg 只 set 不渲染——保存失败是静默的，现补上）
+    // ★ 2026-10-09 导出菜单（⬇ 按钮下方）：导出 JSON / 导出图片（PNG）。
+    //   用一层透明背板实现"点外面关闭"（比 document 监听更省事、也不会漏解绑）。
+    exportMenuOpen && createElement(
+      'div',
+      { style: { position: 'fixed', inset: 0, zIndex: 10000 }, onClick: () => setExportMenuOpen(false) },
+      createElement(
+        'div',
+        {
+          className: 'dsh-wf-export-menu',
+          style: {
+            position: 'fixed', left: exportMenuAt.left, top: exportMenuAt.top, minWidth: 200, padding: 6,
+            background: 'var(--wf-panel, #101a2b)', border: '1px solid var(--wf-border2, #29405f)',
+            borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.45)', fontSize: 12,
+          },
+          onClick: (e: { stopPropagation: () => void }) => e.stopPropagation(),
+        },
+        createElement(
+          'button',
+          {
+            className: 'dsh-wf-export-item',
+            onClick: exportFile,
+            title: '把工作流定义存成 .json 文件',
+          },
+          '📄 导出 JSON',
+        ),
+        createElement(
+          'button',
+          {
+            className: 'dsh-wf-export-item',
+            onClick: () => void exportImage(),
+            title: '把画布画成一张 PNG 图片（按当前布局矢量绘制，2 倍光栅化）',
+          },
+          '🖼 导出图片（PNG）',
+        ),
+        createElement(
+          'button',
+          {
+            className: 'dsh-wf-export-item',
+            onClick: exportSvg,
+            title: '导出矢量图 SVG（同 PNG 的画法，但可无限缩放、可用设计工具再编辑）',
+          },
+          '🧩 导出矢量图（SVG）',
+        ),
+      ),
+    ),
+    // 结果/操作提示浮窗（保存/导出/导入/运行结果/取消成功）
+    //   ★ 2026-10-08 用户要求：**放到上面**（原在底部 18px ✗）——改为顶部锚定，与项目弹窗约定一致（14vh）；
+    //   ★ 带 onClick 的（如「运行失败——点这里看详情」）点击执行该动作，否则点击关闭。
     importMsg && createElement(
       'div',
       {
-        title: '点击关闭',
+        title: importMsg.onClick ? '点击查看详情' : '点击关闭',
         style: {
-          position: 'fixed', bottom: 18, left: '50%', transform: 'translateX(-50%)', zIndex: 10001,
+          position: 'fixed', top: '14vh', left: '50%', transform: 'translateX(-50%)', zIndex: 10001,
           background: 'var(--wf-panel, #101a2b)', border: `1px solid ${importMsg.ok ? 'var(--wf-success, #34d399)' : 'var(--wf-danger, #f87171)'}`,
           borderRadius: 8, padding: '6px 14px', fontSize: 12,
           color: importMsg.ok ? 'var(--wf-success, #34d399)' : 'var(--wf-danger, #f87171)',
           cursor: 'pointer',
         },
-        onClick: () => setImportMsg(null),
+        onClick: () => { const act = importMsg.onClick; setImportMsg(null); act?.(); },
       },
       `${importMsg.ok ? '✓ ' : '✗ '}${importMsg.text}`,
     ),
@@ -1873,8 +2072,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         ),
       ),
     ),
-    // ⚠ 运行前自检未通过（2026-10-04 轮 1 用户拍板）：逐条给「哪里不对 + 怎么改」，
-    //   并让用户**人工确认**——「去修改」（关弹窗并选中第一个出问题的节点）或「仍然运行」（带 skipSelfcheck 重发）。
+    // ⚠ 运行前自检未通过（2026-10-04 轮 1 用户拍板；★2026-10-08 用户收严：**不提供"仍然运行"**，
+    //   自检有 error 就必须去改——「去修改」关弹窗并选中第一个出问题的节点，没有旁路按钮）。
     selfcheckBlock && createElement(
       'div',
       {
@@ -1890,7 +2089,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         ),
         createElement('div', { className: 'dag-flow-picker-body' },
           createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11.5, opacity: 0.8, lineHeight: 1.65 } },
-            '这些问题会让工作流跑不起来、或跑出意料之外的结果。建议先按下面的办法改掉；确认没问题也可以直接「仍然运行」。'),
+            '这些问题会让工作流跑不起来、或跑出意料之外的结果。请先按下面的「解决办法」改掉——自检不通过时不能运行。'),
           createElement('div', { className: 'dsh-wf-selfcheck-list' },
             selfcheckBlock.items.filter((i) => i.level === 'error').map((it, i) =>
               createElement('div', {
@@ -1904,18 +2103,13 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
           ),
           createElement('div', { className: 'dsh-wf-manual-acts' },
             createElement('button', {
-              className: 'dsh-wf-btn',
+              className: 'dsh-wf-btn dsh-wf-btn-primary',
               onClick: () => {
                 const first = selfcheckBlock.items.find((i) => i.level === 'error' && i.nodeId);
                 setSelfcheckBlock(null);
                 if (first?.nodeId) setSelectedNodeId(first.nodeId);
               },
             }, '✕ 去修改'),
-            createElement('span', { className: 'dsh-wf-manual-grow' }),
-            createElement('button', {
-              className: 'dsh-wf-btn dsh-wf-btn-primary',
-              onClick: () => { setSelfcheckBlock(null); void handleRun({ confirmed: true }); },
-            }, '▶ 仍然运行'),
           ),
         ),
       ),

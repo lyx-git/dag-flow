@@ -17,7 +17,7 @@ const eq = (a, b, msg) => ok(JSON.stringify(a) === JSON.stringify(b), `${msg}（
 const dir = mkdtempSync(join(tmpdir(), 'df-flowdef-'));
 const OUT = join(dir, 'flowDef.mjs');
 await build({ entryPoints: ['src/client/util/flowDef.ts'], bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent' });
-const { toRF, fromRF } = await import(pathToFileURL(OUT).href);
+const { toRF, fromRF, canonicalizeDef } = await import(pathToFileURL(OUT).href);
 
 console.log('== A. def → 画布 → def：字段不丢 ==');
 {
@@ -43,6 +43,8 @@ console.log('== A. def → 画布 → def：字段不丢 ==');
   eq(b.onError, { goto: 'a' }, 'A5. onError:{goto} 往返保留');
   eq(back.name, 'w', 'A6. 工作流级字段（name）不丢');
   ok(back.nodes.length === 4, 'A7. 节点数不变');
+  eq(back.nodes.find((n) => n.id === 'start').next, undefined, 'A8. ★写盘不再写 next（2026-10-08 用户拍板：统一到 edges）');
+  eq(back.edges, [{ from: 'start', to: 'a' }, { from: 'a', to: 'end' }], 'A9. edges 原样保留（执行真相）');
 }
 
 console.log('== B. 未知/未来字段也要保留（不再用白名单）==');
@@ -71,12 +73,57 @@ console.log('== C. 结构变更仍然生效（不能因为"保留"而变粘）==
     edges: [{ from: 'start', to: 'a' }],
   };
   const { nodes: rf, edges: rfe } = toRF(def);
-  // 画布上把 start 的出边改指到 end（旧的 next 必须被丢掉，而不是留着指 a）
+  // 画布上把 start 的出边改指到 end（旧的连线必须被丢掉，而不是留着指 a）
   const rfe2 = [{ id: 'e1', source: 'start', target: 'end' }];
   const back = fromRF(def, rf, rfe2);
-  eq(back.nodes.find((n) => n.id === 'start').next, 'end', 'C1. 连线改动写回 next（旧 next 被替换）');
-  eq(back.edges, [{ from: 'start', to: 'end' }], 'C2. edges 同步');
-  eq(back.nodes.find((n) => n.id === 'a').next, undefined, 'C3. 失去入边的节点不再残留旧 next');
+  eq(back.edges, [{ from: 'start', to: 'end' }], 'C1. ★连线改动写回 edges（旧边被替换）');
+  eq(back.nodes.find((n) => n.id === 'start').next, undefined, 'C2. ★不再写 next（写盘统一到 edges）');
+  eq(back.nodes.find((n) => n.id === 'a').next, undefined, 'C3. 失去入边的节点也不残留 next');
+}
+
+console.log('== C2. canonicalizeDef：写盘归一化（next 合并进 edges 并删除）==');
+{
+  // ① 只有 next（老文件/手写/AI 生成）→ 推出 edges 并删 next
+  const onlyNext = {
+    name: 'w5', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', params: {}, next: 'a' },
+      { id: 'a', type: 'if', params: { condition: 'true' }, next: { true: 'end', false: 'a2' } },
+      { id: 'a2', type: 'log', params: { message: 'x' }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  };
+  const r1 = canonicalizeDef(onlyNext);
+  eq(r1.changed, true, 'C2-1. 有 next → changed=true');
+  eq(r1.def.nodes.find((n) => n.id === 'start').next, undefined, 'C2-2. next 已删除');
+  ok(r1.def.edges.some((e) => e.from === 'start' && e.to === 'a'), 'C2-3. 普通 next 推成边');
+  ok(r1.def.edges.some((e) => e.from === 'a' && e.to === 'end' && e.when === 'true'), 'C2-4. if 的 {true,false} 带 when 键');
+  ok(r1.def.edges.some((e) => e.from === 'a' && e.to === 'a2' && e.when === 'false'), 'C2-5. if 的 false 支也带键');
+
+  // ② 只有 edges → 不动（changed=false）
+  const onlyEdges = { name: 'w6', version: 1, nodes: [{ id: 'start', type: 'start', params: {} }, { id: 'end', type: 'end' }], edges: [{ from: 'start', to: 'end' }] };
+  const r2 = canonicalizeDef(onlyEdges);
+  eq(r2.changed, false, 'C2-6. 只有 edges → 不动（changed=false）');
+  eq(r2.def.edges, [{ from: 'start', to: 'end' }], 'C2-7. edges 原样');
+
+  // ③ 两者都有且不一致 → **edges 优先**（引擎/画布同规则），只删 next
+  const both = {
+    name: 'w7', version: 1,
+    nodes: [{ id: 'start', type: 'start', params: {}, next: 'a' }, { id: 'a', type: 'log', params: { message: 'x' } }, { id: 'end', type: 'end' }],
+    edges: [{ from: 'start', to: 'end' }],
+  };
+  const r3 = canonicalizeDef(both);
+  eq(r3.changed, true, 'C2-8. 两者都有 → changed=true');
+  eq(r3.def.edges, [{ from: 'start', to: 'end' }], 'C2-9. ★冲突时 edges 优先（与引擎一致，绝不改执行语义）');
+  eq(r3.def.nodes.find((n) => n.id === 'start').next, undefined, 'C2-10. next 删除');
+
+  // ④ switch 的非对象 next → 恒激活 shim（与宿主 normalize.ts 的例外逐条对齐）
+  const sw = {
+    name: 'w8', version: 1,
+    nodes: [{ id: 'start', type: 'start', params: {}, next: 'sw' }, { id: 'sw', type: 'switch', params: { value: 'x', cases: { a: 'end' } }, next: 'end' }, { id: 'end', type: 'end' }],
+  };
+  const r4 = canonicalizeDef(sw);
+  ok(r4.def.edges.some((e) => e.from === 'sw' && e.to === 'end' && e.when === '*'), 'C2-11. ★switch 的非对象 next → when:"*"（恒激活，与宿主一致）');
 }
 
 console.log('== D. 显式假值原样保留（不静默改写用户数据）==');

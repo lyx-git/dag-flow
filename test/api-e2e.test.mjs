@@ -572,6 +572,52 @@ const del = async (p, body) => { const r = await fetch(url(p), { method: 'DELETE
     JSON.stringify({ media: scMedia.body?.ok, loop: scLoopBig.body?.ok }));
 }
 
+// ===== 14. 引用即依赖（2026-10-08 用户拍板）：引擎侧也要拦 —— DATAFLOW_NO_EDGE =====
+{
+  // 14.1 引用了一个**没有连线**的节点 → 引擎拒绝执行
+  const bad = await post('/run', { skipSelfcheck: true, def: { name: 'e2e-ref-no-edge', version: 1, nodes: [
+    { id: 'start', type: 'start' },
+    { id: 'producer', type: 'set_var', params: { vars: { v: 'x' } } },
+    { id: 'consumer', type: 'log', params: { level: 'info', message: '{{producer.out}}' } },
+    { id: 'end', type: 'end' },
+  ], edges: [
+    { from: 'start', to: 'producer' }, { from: 'start', to: 'consumer' }, { from: 'consumer', to: 'end' },
+  ] } });
+  const err = bad.body?.summary?.error;
+  t('14.1 ★引用无连线的节点 → 引擎拒绝执行（DATAFLOW_NO_EDGE）',
+    bad.body?.summary?.status === 'failed' && err?.code === 'DATAFLOW_NO_EDGE',
+    JSON.stringify({ status: bad.body?.summary?.status, code: err?.code, msg: err?.message }));
+  t('14.2 错误消息点明"没有连线 / 不是它的上游"并给出连线动作',
+    /没有连线/.test(err?.message ?? '') && /上游/.test(err?.message ?? '') && /拖一条线/.test(err?.message ?? ''),
+    String(err?.message).slice(0, 200));
+
+  // 14.3 补上连线 → 正常跑（证明只拦"没依赖"，不拦合理工作流）
+  const good = await post('/run', { skipSelfcheck: true, def: { name: 'e2e-ref-with-edge', version: 1, nodes: [
+    { id: 'start', type: 'start' },
+    { id: 'producer', type: 'set_var', params: { vars: { v: 'x' } } },
+    { id: 'consumer', type: 'log', params: { level: 'info', message: '{{producer.out}}' } },
+    { id: 'end', type: 'end' },
+  ], edges: [
+    { from: 'start', to: 'producer' }, { from: 'producer', to: 'consumer' }, { from: 'consumer', to: 'end' },
+  ] } });
+  t('14.3 补上 producer→consumer 连线 → 正常运行（success）',
+    good.body?.summary?.status === 'success',
+    JSON.stringify({ status: good.body?.summary?.status, code: good.body?.summary?.error?.code }));
+
+  // 14.4 ★可达性口径：隔着中间节点也算有依赖（否则 end 引用远处上游会被误拦）
+  const transitive = await post('/run', { skipSelfcheck: true, def: { name: 'e2e-ref-transitive', version: 1, nodes: [
+    { id: 'start', type: 'start' },
+    { id: 'a', type: 'set_var', params: { vars: { v: 'x' } } },
+    { id: 'b', type: 'log', params: { level: 'info', message: 'mid' } },
+    { id: 'end', type: 'end', params: { outputs: { got: '{{a.out}}' } } },
+  ], edges: [
+    { from: 'start', to: 'a' }, { from: 'a', to: 'b' }, { from: 'b', to: 'end' },
+  ] } });
+  t('14.4 ★隔着节点引用（end 引用 a，路径 a→b→end）→ 放行（可达性口径，不误拦）',
+    transitive.body?.summary?.status === 'success',
+    JSON.stringify({ status: transitive.body?.summary?.status, code: transitive.body?.summary?.error?.code }));
+}
+
 server.close();
 console.log(`\n=== api-e2e: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) { failures.forEach((f) => console.error('FAIL:', f)); process.exit(1); }

@@ -59,7 +59,7 @@ export async function run({ cdp, evaluate, waitFor, ok, eq, sleep, name, base })
   // ===== B. 跑一次 → 日志有内容 =====
   await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-btn-success').click(); return true; })()`);
   await confirmSelfcheck(cdp);
-  await waitFor(cdp, `!!document.querySelector('.dsh-wf-run-result')`, { timeout: 12000 });
+  await waitFor(cdp, `(document.body.textContent || '').includes('运行成功')`, { timeout: 12000 });
   await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-log-btn').click(); return true; })()`);
   await waitFor(cdp, `document.querySelectorAll('.dsh-wf-log-item').length >= 2`, { timeout: 8000 });
   const list = await evaluate(cdp, `(() => {

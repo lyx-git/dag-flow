@@ -71,8 +71,9 @@ export async function run({ cdp, evaluate, waitFor: wf, ok, eq, sleep, name, bas
   eq(dlg.items.length, 2, '②b 问题逐条列出');
   ok(dlg.items.every((i) => i.msg.trim().length > 0), '②c 每条都有报错提示');
   ok(dlg.items.every((i) => i.fix.includes('解决办法')), '②d ★每条都有「👉 解决办法」');
-  ok(dlg.btns.length === 2 && dlg.btns[0].includes('去修改') && dlg.btns[1].includes('仍然运行'),
-    '②e 底部两个动作（实际：' + JSON.stringify(dlg.btns) + '）');
+  ok(dlg.btns.length === 1 && dlg.btns[0].includes('去修改'),
+    '②e ★底部只有「去修改」（2026-10-08 用户收严：不提供"仍然运行"旁路，实际：' + JSON.stringify(dlg.btns) + '）');
+  ok(!dlg.btns.some((b) => b.includes('运行')), '②e2 ★弹窗里没有任何"运行"按钮');
 
   // 「去修改」→ 只关弹窗，不发 /run
   const before = await runReqs();
@@ -80,12 +81,14 @@ export async function run({ cdp, evaluate, waitFor: wf, ok, eq, sleep, name, bas
   await waitFor(cdp, `!document.querySelector('.dsh-wf-selfcheck')`, { timeout: 5000 });
   eq(await runReqs(), before, '②f 点「去修改」不新增 /run 请求');
 
-  // 「仍然运行」→ 才发 /run（带 skipSelfcheck）
+  // ★ 再点一次 ▶ → 仍然只弹自检未通过，**永远不发 /run**（没有旁路）
   await evaluate(cdp, `(() => { document.querySelector('.dsh-wf-btn-success').click(); return true; })()`);
   await waitFor(cdp, `!!document.querySelector('.dsh-wf-selfcheck')`, { timeout: 8000 });
-  await evaluate(cdp, `(() => { [...document.querySelectorAll('.dsh-wf-manual-acts button')].find((b) => b.textContent.includes('仍然运行')).click(); return true; })()`);
-  await waitFor(cdp, `(window.__probe?.run ?? 0) > 0`, { timeout: 8000 });
-  ok(true, '②g 人工确认「仍然运行」后发 /run（带 skipSelfcheck:true）');
+  const btns2 = await evaluate(cdp, `[...document.querySelectorAll('.dsh-wf-manual-acts button')].map((b) => b.textContent.trim())`);
+  ok(btns2.length === 1 && btns2[0].includes('去修改'), '②g ★重试仍然没有"运行"按钮（实际：' + JSON.stringify(btns2) + '）');
+  await evaluate(cdp, `(() => { document.querySelector('.dag-flow-picker-close').click(); return true; })()`);
+  await waitFor(cdp, `!document.querySelector('.dsh-wf-selfcheck')`, { timeout: 5000 });
+  eq(await runReqs(), before, '②h ★自检未通过时全程不发 /run（无旁路，必须去改）');
 
   // ===== C. 自检通过 → 「✓ 自检通过」确认 → 点「开始运行」才跑 =====
   //    控制口改成"通过 + 1 条 warn"，验证提醒项也会展示

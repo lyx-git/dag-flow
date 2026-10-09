@@ -54,7 +54,7 @@
 //   ② host `/run` 执行前自动跑：有 error → **409 { blocked:true, selfcheck }** 拦下（warn 不拦）；
 //      带 `skipSelfcheck:true` 重发即放行（= 人工确认）。★契约变更：非法 def 以前 500，现在 409+问题清单。
 //   ③ 客户端：「⚠ 运行前自检未通过（N 项）」弹窗，逐条 报错提示 +「👉 解决办法」、可点击定位节点，
-//      底部「✕ 去修改」/「▶ 仍然运行」（复用既有弹窗约定，不用原生弹窗）。
+//      底部**只有「✕ 去修改」**（★2026-10-08 用户收严：不提供"仍然运行"旁路，自检不通过就必须去改）。
 //   后续轮次：轮 2 参数必填/分支键/switch 一致性/goto；轮 3 loop 边界/merge/subflow 依赖/模型存在性；轮 4 建议类。
 // v20261004-failchip-drag：两项"可选增强"落地（2026-10-04 用户：「可选的增强（fail 边显形、拖拽 CDP 用例
 //   做稳），处理下」）。
@@ -578,7 +578,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261004-sched-cleanup · apply OK');
+    console.log('[dag-flow] client v20261009-export-image · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

@@ -17,7 +17,7 @@
 import type { JsonValue, WorkflowDef } from '../types.js';
 import { parseAndValidate, nodeTag } from './parse.js';
 import { extractRefs } from './dataflow.js';
-import { normalizeDef } from './normalize.js';
+import { normalizeDef, nextToEdges } from './normalize.js';
 import { topoSort } from './topo.js';
 import { checkWorkflowParams } from '../registry/params-check.js';
 
@@ -118,6 +118,71 @@ export function selfcheck(defInput: unknown, deps: SelfcheckDeps = {}): Selfchec
       }
     }
 
+    // ---------- 引用即依赖（2026-10-08 用户拍板）----------
+    //  「后一个节点用了前一个节点的数据，就必须有连线；否则自检/引擎都不许通过。」
+    //  判据用**可达性（祖先）**而不是"直接边"：中间隔着别的节点也算有依赖
+    //  （例如 end 引用 {{py_date.out}}，中间隔着 cfg→py_policy→…，要求直接连线会逼出一堆冗余边）。
+    const backAdj = new Map<string, string[]>();
+    for (const e of edgesN) {
+      const l = backAdj.get(e.to);
+      if (l) l.push(e.from); else backAdj.set(e.to, [e.from]);
+    }
+    const ancCache = new Map<string, Set<string>>();
+    const ancestorsOf = (id: string): Set<string> => {
+      const hit = ancCache.get(id);
+      if (hit) return hit;
+      const seen = new Set<string>();
+      const q = [...(backAdj.get(id) ?? [])];
+      while (q.length) {
+        const cur = q.shift() as string;
+        if (seen.has(cur)) continue;
+        seen.add(cur);
+        for (const p of backAdj.get(cur) ?? []) if (!seen.has(p)) q.push(p);
+      }
+      ancCache.set(id, seen);
+      return seen;
+    };
+    for (const node of def.nodes) {
+      const { nodeRefs } = extractRefs((node.params ?? {}) as Record<string, JsonValue>);
+      for (const ref of nodeRefs) {
+        if (RESERVED_REF_PREFIX.has(ref) || !ids.has(ref) || ref === node.id) continue;   // 未知引用/自引用另有规则
+        if (ancestorsOf(node.id).has(ref)) continue;
+        push({
+          level: 'error',
+          code: 'REF_NO_EDGE',
+          nodeId: node.id,
+          message: `节点「${labelOf(node.id)}」引用了「${labelOf(ref)}」的输出（{{${ref}.out…}}），但两者之间没有连线`
+            + `——「${labelOf(ref)}」不是它的上游，执行先后顺序没有保证`,
+          fix: `在画布上从「${labelOf(ref)}」拖一条线连到「${labelOf(node.id)}」（中间隔着别的节点也可以，只要连通）；`
+            + `如果本来就不需要它先执行（比如只想在文字里提到它），把 {{${ref}.out…}} 改成普通文字。`,
+        });
+      }
+    }
+
+    // ---------- next 与 edges 不一致（2026-10-08 用户拍板：写盘统一到 edges，这里做过渡期护栏）----------
+    //  引擎（normalize.ts）与画布（toRF）都是"有 edges 就完全忽略 next"，所以两者不一致时
+    //  用户改了 next 会**静默不生效**。这条 warn 把它显形；新的保存路径已只写 edges（不再产生新的不一致）。
+    if (def.edges && def.edges.length > 0 && def.nodes.some((n) => n.next !== undefined && n.next !== null)) {
+      const key = (e: { from: string; to: string; when?: string }): string => `${e.from}\u0000${e.when ?? ''}\u0000${e.to}`;
+      const inEdges = new Set((def.edges ?? []).map((e) => key(e as { from: string; to: string; when?: string })));
+      const derived = nextToEdges(def.nodes).map((e) => key(e as { from: string; to: string; when?: string }));
+      const missing = derived.filter((k) => !inEdges.has(k));
+      if (missing.length > 0) {
+        const show = missing.slice(0, 3).map((k) => {
+          const [from, when, to] = k.split('\u0000');
+          return `${labelOf(from)}${when ? `（${when}）` : ''} → ${labelOf(to)}`;
+        }).join('、');
+        push({
+          level: 'warn',
+          code: 'NEXT_EDGES_MISMATCH',
+          message: `工作流同时写了 next 与 edges，且两者不一致（next 里多出 ${missing.length} 条连线：${show}）`
+            + `——引擎与画布都以 edges 为准，这些 next 连线不会生效`,
+          fix: '在画布上随便动一下再保存（保存时已统一为 edges），或在 JSON 视图里把 next 删掉/对齐 edges。'
+            + '今后保存只写 edges，这类不一致不会再产生。',
+        });
+      }
+    }
+
     // ---------- 轮 1 ③：从 start 不可达（运行时会当独立入口直接执行）----------
     const starts = def.nodes.filter((n) => n.type === 'start');
     if (starts.length === 1) {
@@ -146,32 +211,16 @@ export function selfcheck(defInput: unknown, deps: SelfcheckDeps = {}): Selfchec
 
     // ---------- 死路：非 end 节点没有任何出边（warn 不拦——支路到此结束是合法形态）----------
     //  2026-10-08 新增：此前只有画布问题面板会提示「无出边（死路）」，点 ▶ 时看不到（用户追问过）。
-    //  ★ 真正要提醒的不是"没出边"本身，而是"**有人在取它的输出却没连线**"——那没有先后顺序保证。
+    //  ★ "有人在取它的输出"那类已升级为 **error `REF_NO_EDGE`**（见上）——这里只提示形状本身，避免同一条依赖报两遍。
     const hasOut = new Set(edgesN.map((e) => e.from));
-    const referencedBy = new Map<string, string[]>();
-    for (const node of def.nodes) {
-      const { nodeRefs } = extractRefs((node.params ?? {}) as Record<string, JsonValue>);
-      for (const ref of nodeRefs) {
-        if (ref === node.id || !ids.has(ref)) continue;
-        const l = referencedBy.get(ref);
-        if (l) l.push(node.id); else referencedBy.set(ref, [node.id]);
-      }
-    }
     for (const n of def.nodes) {
       if (n.type === 'end' || hasOut.has(n.id)) continue;
-      const users = [...new Set(referencedBy.get(n.id) ?? [])].filter((id) => id !== n.id);
       push({
         level: 'warn',
         code: 'DEAD_END',
         nodeId: n.id,
-        message: users.length
-          ? `节点「${labelOf(n.id)}」没有出边（支路到此结束），但「${users.map((u) => labelOf(u)).join('、')}」在取它的输出`
-            + `——两者之间没有连线，就没有执行先后顺序的保证`
-          : `节点「${labelOf(n.id)}」没有出边（支路到此结束）`,
-        fix: users.length
-          ? `从它拖一条线连到取用它的节点，让执行顺序有保证（画布上「${labelOf(n.id)}」→「${labelOf(users[0])}」）。`
-            + `如果它的执行顺序本来就无所谓，忽略这条提醒即可。`
-          : '如果这就是支路的终点（比如收尾的 log），忽略即可；否则从它拖一条线接到下一个节点，或删掉它。',
+        message: `节点「${labelOf(n.id)}」没有出边（支路到此结束）`,
+        fix: '如果这就是支路的终点（比如收尾的 log），忽略即可；否则从它拖一条线接到下一个节点，或删掉它。',
       });
     }
 

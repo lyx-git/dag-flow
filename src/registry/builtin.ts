@@ -87,7 +87,7 @@ function pickPython(interpreter: PythonParams['interpreter']): string {
   return process.platform === 'win32' ? 'py' : 'python3';
 } */
 
-async function runPython(p: PythonParams): Promise<NodeResult> {
+async function runPython(p: PythonParams, signal?: AbortSignal): Promise<NodeResult> {
   const { startedAt, t0 } = startedEnded();
   // ★ codePath（文件引用）优先于内联 code——明确引用了文件就以文件为准（内联 code 是
   //   另一录入途径的残留，不应悄悄压过文件引用；2026-10-02 语义定档）
@@ -122,12 +122,24 @@ async function runPython(p: PythonParams): Promise<NodeResult> {
     child.stdout!.on('data', (b) => { out += b.toString(); });
     child.stderr!.on('data', (b) => { err += b.toString(); });
     const t = setTimeout(() => { child.kill('SIGKILL'); settle({ ...makeResult('failed', { error: { code: 'PYTHON_TIMEOUT', message: `执行超时（${timeoutMs}ms）` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() }); }, timeoutMs);
+    // ★ 2026-10-08 用户拍板修「点取消没用」：python 节点此前**完全不接 ctx.signal** ✗ →
+    //   取消要等脚本自己跑完（或撞 300s 超时）✗。现在 abort 即 SIGKILL 子进程并立刻以
+    //   RUN_CANCELLED 收尾（与 subagent/http 等节点同码，取消永不算容错）。
+    const onAbort = (): void => {
+      clearTimeout(t);
+      try { child.kill('SIGKILL'); } catch { /* 已退出 */ }
+      settle({ ...makeResult('failed', { error: { code: 'RUN_CANCELLED', message: '运行已由用户取消' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() });
+    };
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener('abort', onAbort, { once: true });
     child.on('error', (e) => {
       clearTimeout(t);
+      signal?.removeEventListener('abort', onAbort);
       settle({ ...makeResult('failed', { error: { code: 'PYTHON_SPAWN', message: e.message } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() });
     });
     child.on('close', (code) => {
       clearTimeout(t);
+      signal?.removeEventListener('abort', onAbort);
       if (code === 0) settle(finish(t0, startedAt, { out: out.replace(/\n$/, '') }));
       else settle({ ...makeResult('failed', { error: { code: 'PYTHON_EXIT', message: `退出码 ${code}（非零）: ${err.trim() || out.trim()}` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() });
     });
@@ -149,7 +161,7 @@ const pythonDef: NodeDefinition<PythonParams> = {
     },
     anyOf: [{ required: ['code'] }, { required: ['codePath'] }],
   },
-  run: async (_ctx, p) => safeNodeRun(() => runPython(p)),
+  run: async (ctx, p) => safeNodeRun(() => runPython(p, ctx.signal)),
   describe: () => ({ label: 'Python', category: 'script' }),
 };
 
@@ -158,7 +170,7 @@ interface BashParams { code?: string; codePath?: string; timeoutMs?: number; cwd
 
 const DESTRUCTIVE = /(^|\s|;|&&|\|\|)(rm\s+-rf\s+\/|mkfs|dd\s+if=|format\s+)/;
 
-async function runBash(p: BashParams): Promise<NodeResult> {
+async function runBash(p: BashParams, signal?: AbortSignal): Promise<NodeResult> {
   const { startedAt, t0 } = startedEnded();
   // ★ codePath 优先于内联 code（与 python 同语义，2026-10-02 定档）
   const code = p.codePath ? await readFile(await resolveCodePath(p.codePath), 'utf8') : (p.code ?? '');
@@ -186,8 +198,17 @@ async function runBash(p: BashParams): Promise<NodeResult> {
     child.stdout!.on('data', (b) => { out += b.toString(); });
     child.stderr!.on('data', (b) => { err += b.toString(); });
     const t = setTimeout(() => { child.kill('SIGKILL'); settle({ ...makeResult('failed', { error: { code: 'BASH_TIMEOUT', message: `执行超时（${timeoutMs}ms）` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() }); }, timeoutMs);
+    // ★ 2026-10-08 与 python 同款：bash 也接 ctx.signal，取消即 kill 子进程 + RUN_CANCELLED
+    const onAbort = (): void => {
+      clearTimeout(t);
+      try { child.kill('SIGKILL'); } catch { /* 已退出 */ }
+      settle({ ...makeResult('failed', { error: { code: 'RUN_CANCELLED', message: '运行已由用户取消' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() });
+    };
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener('abort', onAbort, { once: true });
     child.on('error', (e) => {
       clearTimeout(t);
+      signal?.removeEventListener('abort', onAbort);
       const msg = (e as NodeJS.ErrnoException).code === 'ENOENT'
         ? 'bash not found on PATH (Windows: install Git Bash / WSL; macOS/Linux: install bash)'
         : e.message;
@@ -195,6 +216,7 @@ async function runBash(p: BashParams): Promise<NodeResult> {
     });
     child.on('close', (code) => {
       clearTimeout(t);
+      signal?.removeEventListener('abort', onAbort);
       if (code === 0) settle(finish(t0, startedAt, { out: out.replace(/\n$/, '') }));
       else settle({ ...makeResult('failed', { error: { code: 'BASH_EXIT', message: `退出码 ${code}（非零）: ${err.trim() || out.trim()}` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() });
     });
@@ -214,7 +236,7 @@ const bashDef: NodeDefinition<BashParams> = {
     },
     anyOf: [{ required: ['code'] }, { required: ['codePath'] }],
   },
-  run: async (_ctx, p) => safeNodeRun(() => runBash(p)),
+  run: async (ctx, p) => safeNodeRun(() => runBash(p, ctx.signal)),
   describe: () => ({ label: 'Bash', category: 'script' }),
 };
 
