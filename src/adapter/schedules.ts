@@ -1,6 +1,6 @@
 // src/adapter/schedules.ts
 // 定时任务配置存储（2026-10-03 用户拍板方案 v1，见 docs/SCHEDULE-PLAN.md §3）：
-//   落盘位置 = `<工作区>/.dag-flow/schedules.json`（与 workflow/ 同级，随工作区走）
+//   落盘位置 = `<DSH_HOME>/.dag-flow/schedules.json`（与 workflow/ 同级；2026-10-11 起固定随 DSH_HOME，不随工作区走）
 //   结构     = { version: 1, items: ScheduleItem[] }
 //   语义要点（用户已拍板）：
 //     · 原子写：先写 `${file}.tmp` 再 rename（同盘替换，沿用 workflow 保存的既有做法）

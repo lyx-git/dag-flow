@@ -1,3 +1,4 @@
+import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/node-matrix.test.mjs — 18 节点逐节点执行矩阵（每个节点真实走 start→target→end）
 // 可独立执行节点走 /run-node；依赖上游数据的节点（merge/loop.over 等）已在 api-e2e 覆盖。
 // 跑法：node test/node-matrix.test.mjs

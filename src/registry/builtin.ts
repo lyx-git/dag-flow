@@ -43,7 +43,7 @@ function scriptEnv(exe: string): NodeJS.ProcessEnv {
 }
 
 /** codePath 解析（2026-10-02 用户需求「写格式化的代码文件，引入执行」）：
- *  相对路径锚定 <工作区>/.dag-flow/（如 'scripts/hello.py'）；绝对路径原样使用。
+ *  相对路径锚定 <DSH_HOME>/.dag-flow/（如 'scripts/hello.py'）；绝对路径原样使用。
  *  此前直接 readFile(p.codePath) 是相对 host 进程 cwd 的——真机上根本找不到用户以为的文件。 */
 async function resolveCodePath(p: string): Promise<string> {
   if (isAbsolute(p)) return p;
@@ -769,7 +769,7 @@ async function runVideoGen(p: VideoGenParams, ctx: Context): Promise<NodeResult>
     if (!videoUrl) {
       return { ...makeResult('failed', { error: { code: 'VIDEO_NOT_READY', message: `轮询 ${Math.round(maxWait / 1000)}s 后仍未完成（最后状态：${lastStatus || 'unknown'}）。增大 maxWaitMs 或检查任务状态` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
     }
-    // 3. 下载视频到工作区资产
+    // 3. 下载视频到 .dag-flow/ 产出目录
     const saved = await downloadAsset(videoUrl, p.filename ?? `video-${Date.now()}.mp4`);
     return finish(t0, startedAt, {
       out: { taskId, videoUrl, path: saved.relativePath, bytes: saved.bytes, waitedMs: Date.now() - t0 },
@@ -801,7 +801,7 @@ const videoGenDef: NodeDefinition<VideoGenParams> = {
   describe: () => ({ label: '视频生成', category: 'media' }),
 };
 
-// ---------- 17. file_save（#多模态：内容/URL 落盘为工作区文件） ----------
+// ---------- 17. file_save（#多模态：内容/URL 落盘为 .dag-flow/ 下的产出文件） ----------
 interface FileSaveParams { source?: 'text' | 'base64' | 'url'; content?: string; url?: string; filename: string }
 const fileSaveDef: NodeDefinition<FileSaveParams> = {
   type: 'file_save',

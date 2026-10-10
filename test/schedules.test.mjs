@@ -1,3 +1,4 @@
+import { useHomeAs } from './_isolate-home.mjs';   // ★ 2026-10-11：存储根 = <DSH_HOME>/.dag-flow
 // test/schedules.test.mjs — 定时任务配置存储（schedules.ts）+ 共享运行登记（running.ts）
 // 手法：esbuild 用 stdin 入口把 schedules/running/cron 打进**同一个** bundle（共享模块实例，
 //   这样 markRunning 的效果能被 listSchedules 看到），跑在临时工作区里（chdir 后 storage 解析到它）。
@@ -10,6 +11,7 @@ import { pathToFileURL } from 'node:url';
 const ROOT = process.cwd();
 const WS = mkdtempSync(join(tmpdir(), 'df-sched-'));
 process.chdir(WS);
+useHomeAs(WS);   // ★ 2026-10-11：存储根 = <DSH_HOME>/.dag-flow，指到本测试临时工作区
 
 const OUT = join(WS, 'schedules.bundle.mjs');
 await build({
@@ -45,7 +47,7 @@ const throwsAsync = async (fn, needle) => {
 
 const file = await schedulesPath();
 console.log('schedules 路径 =', file);
-ok(file.endsWith(join('.dag-flow', 'schedules.json')), '配置文件落在 <工作区>/.dag-flow/schedules.json（与 workflow/ 同级）');
+ok(file.endsWith(join('.dag-flow', 'schedules.json')), '配置文件落在 <DSH_HOME>/.dag-flow/schedules.json（与 workflow/ 同级）');
 
 // A. 初始状态
 console.log('\n== A. 初始与落盘 ==');

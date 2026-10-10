@@ -1,3 +1,4 @@
+import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/goto-edge.test.mjs — DAG 失败跳转 onError:{goto} 专项（2026-10-04 轮 3）
 //
 // 背景：轮 2 把 stop/continue 搬进 DAG 后，goto 一直"暂时按 stop 处理"（面板也只显示只读项）。

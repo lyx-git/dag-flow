@@ -356,7 +356,7 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
     if (rows.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'dag-flow-combo-empty';
-      empty.textContent = text ? '无匹配——回车创建' : '工作区暂无工作流——输入名称创建第一个';
+      empty.textContent = text ? '无匹配——回车创建' : '暂无已保存的工作流——输入名称创建第一个';
       rows.push(empty);
     }
     listBox.innerHTML = '';

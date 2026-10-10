@@ -1,3 +1,4 @@
+import { useHomeAs } from './_isolate-home.mjs';   // ★ 2026-10-11：存储根 = <DSH_HOME>/.dag-flow
 // test/api-e2e.test.mjs — HTTP API 端到端测试（不安装到 DSH）
 // 手段：伪造 cordis ctx（webServer.register 捕获路由）→ 调 dist/index.js 的 apply(ctx)
 //       → 用 node:http 把捕获的路由挂成本地服务 → 用 fetch 真实请求逐条断言。
@@ -16,9 +17,10 @@ function t(name, cond, detail = '') {
   else { fail++; failures.push(name); console.log(`  ✗ ${name}${detail ? ' — ' + detail : ''}`); }
 }
 
-// 1) 临时工作区（storage 的 process.cwd() 解析链会落到这里）
+// 1) 临时工作区 + 把它设为 DSH_HOME（2026-10-11 起存储根 = <DSH_HOME>/.dag-flow，与工作区无关）
 const fakeWorkspace = mkdtempSync(join(tmpdir(), 'dag-flow-e2e-'));
 process.chdir(fakeWorkspace);
+useHomeAs(fakeWorkspace);
 const API_BASE = '/api/dag-flow';
 
 // 2) 伪造 cordis ctx：捕获 webServer 路由
@@ -69,7 +71,7 @@ const del = async (p, body) => { const r = await fetch(url(p), { method: 'DELETE
   t('POST /workflows/save → 200 且名称规范化', saved.status === 200 && saved.body?.name === 'e2e-demo', JSON.stringify(saved.body));
 
   const disk = join(fakeWorkspace, '.dag-flow', 'workflow', 'e2e-demo.json');
-  t('工作流已落盘为工作区 JSON（.dag-flow/workflow/）', existsSync(disk));
+  t('工作流已落盘为 JSON（<DSH_HOME>/.dag-flow/workflow/）', existsSync(disk));
   if (existsSync(disk)) {
     const raw = JSON.parse(readFileSync(disk, 'utf8'));
     t('落盘内容是 pretty JSON 且 name 规范化', raw?.name === 'e2e-demo' && Array.isArray(raw.nodes));

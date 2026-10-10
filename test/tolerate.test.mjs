@@ -1,3 +1,4 @@
+import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/tolerate.test.mjs — 节点级容错开关 tolerate（「失败不影响流程」）专项验证 —— 2026-10-03 用户拍板 A 方案
 //
 // 背景：DAG 模式（def 带 edges）下**节点级 onError 完全不生效**（执行器从不读它），

@@ -7,8 +7,8 @@
 - **FlowGram 可视化画布**（字节开源引擎，Coze Studio 同款）：拖拽连线、minimap、对齐吸附、运行状态徽标回放、问题面板实时校验
 - **20 个内置节点**：控制流（if/switch/merge/loop/subflow）+ 脚本（Python/Bash）+ AI（子代理/会话输入）+ IO（HTTP/网页搜索/网页抓取）+ 多模态（图片生成/视频生成/文件保存）
 - **架构级版本韧性**：5 个 adapter + drift 控测 + safe-mode 降级
-- **工作区 JSON 存储**：工作流存 `<工作区>/.dag-flow-workflows/`，可读可携带可进 git，自带 20 份历史版本快照
-- **统一落盘布局**：全部运行数据收拢 `<工作区>/.dag-flow/`——工作流定义 `workflow/`、运行记录 `runs/`、临时文件 `tmp/`、按天日志 `logs/`；最终产出（图片/视频/文件）直接放 `.dag-flow/` 根下（不建专门子目录）；目录不存在自动创建，旧 `.dag-flow-workflows/` 不迁移不删除
+- **JSON 存储（与工作区解耦）**：工作流存 `<DSH_HOME>/.dag-flow/workflow/`（2026-10-11 起固定随 `DSH_HOME`，不依赖当前工作区，避免"没选工作区"就没数据的问题），可读可携带可进 git，自带 20 份历史版本快照
+- **统一落盘布局**：全部运行数据收拢 `<DSH_HOME>/.dag-flow/`——工作流定义 `workflow/`、运行记录 `runs/`、临时文件 `tmp/`、按天日志 `logs/`；最终产出（图片/视频/文件）直接放 `.dag-flow/` 根下（不建专门子目录）；目录不存在自动创建，旧 `.dag-flow-workflows/` 不迁移不删除
 - **零配置搜索节点**：内置 5 个免 key 引擎（Bing/DDG/SearXNG/AnySearch）+ 宿主优先自动回落
 - **模型/密钥统一来自 dsh**：插件不存储任何模型或密钥，AI 节点模型必选（自动发现 dsh 已配置模型）
 

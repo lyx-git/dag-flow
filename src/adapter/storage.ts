@@ -1,16 +1,16 @@
-// src/adapter/storage.ts — 工作流数据存储：**工作区 JSON 文件，无数据库**
+// src/adapter/storage.ts — 工作流数据存储：**JSON 文件，无数据库**
 //
-// 2026-09-23 重构（用户拍板）：SQLite 退役。工作流保存为 JSON（当前：<工作区>/.dag-flow/workflow/<name>.json），
-// 运行记录为 <工作区>/.dag-flow/runs/<runId>.json —— 纯 JSON、可读、可携带、可进 git。
+// ★ 2026-10-11 用户拍板（原话）：「dag-flow 创建的文件，不依赖于 dsh 的工作区，默认放在
+//   <DSH_HOME>\.dag-flow 文件夹下，避免工作区没选择的问题」。
+//   ⇒ 存储根**固定** `<DSH_HOME>/.dag-flow/workflow/`（与工作区、cwd 全都无关），
+//     运行记录 `<DSH_HOME>/.dag-flow/runs/` —— 纯 JSON、可读、可携带、可进 git。
+//   （此前的四级解析链 host-ctx → workspace-registry → process.cwd → ~/.dsh/workflows 已废弃：
+//     工作区没选择时会落到 ~/.dsh/workflows，用户"不知道文件去哪了"。旧的三个探测函数**保留**，
+//     但现在只服务于"工作区时代数据的一次性补缺复制"，见 migrateFromLegacyRoots。）
 //
-// 存储根目录解析链（进程内解析一次并缓存，来源记录在 storageInfo）：
-//   1) host ctx 上的工作区线索：ctx.workspace.{cwd|root|path|dir} / ctx.cwd()
-//   2) process.cwd()（DSH web profile 通常从工作区目录启动 → 即工作区根；
-//      排除用户主目录与 system32，防启动环境异常时误判）
-//   3) 回退 ~/.dsh/workflows（旧行为，兜底永远可用）
-//
-// 一次性迁移：旧 ~/.dsh/workflows/workflows.db（SQLite）若存在，启动时把
-// workflows/runs 两表导出成 JSON 写入新目录，然后改名 .db.bak。node:sqlite 不可用时静默跳过。
+// 一次性迁移（都是**只复制、不移动/删除**，且目标已存在就跳过）：
+//   ① 工作区时代的 <旧工作区>/.dag-flow/（workflow/ + runs/ + schedules.json）→ 新根；
+//   ② 更早的兜底目录 ~/.dsh/workflows → 新根；③ 旧目录名 / 旧 SQLite → 新根。
 //
 // DshStorage 接口与旧版完全一致（readWorkflow/writeWorkflow/listWorkflows/
 // workflowsDir/runsDir/writeRunRecord/listRunRecords/readRunRecord + 新增 describe），
@@ -21,11 +21,12 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { getHost, hostService } from './safety.js';
 import { dshHome } from './dsh-home.js';
+import { dagFlowHome } from '../dsh-gate/paths.js';
 import { isValidWorkflowName } from '../name-rule.js';
 import type { WorkflowDef } from '../types.js';
 
 export interface DshStorage {
-  /** 工作流 JSON 目录（工作区内） */
+  /** 工作流 JSON 目录（<DSH_HOME>/.dag-flow/workflow） */
   workflowsDir(): Promise<string>;
   /** 运行记录目录（工作流目录下 runs/） */
   runsDir(): Promise<string>;
@@ -46,15 +47,15 @@ export interface DshStorage {
 }
 
 const USER_DIR = dshHome(); // 09-27 意见 2：DSH_HOME 统一（便携安装场景此前读不到）
-// 2026-09-26 布局统一（用户指令）：全部运行数据收拢 <工作区>/.dag-flow/ 下——
-//   工作流定义 .dag-flow/workflow/、运行记录 .dag-flow/runs/、临时 .dag-flow/tmp/、日志 .dag-flow/logs/
+// ★ 2026-10-11 起：所有运行数据锚定 **<DSH_HOME>/.dag-flow/**（与工作区无关）——
+//   工作流定义 .dag-flow/workflow/、运行记录 .dag-flow/runs/、临时 .dag-flow/tmp/、日志 .dag-flow/logs/。
+//   （原 `DIR_NAME = '.dag-flow/workflow'` 常量随四级解析链一起废弃：路径现在由 dagFlowHome() 拼。）
 // 旧 .dag-flow-workflows/ 与 .dsh-workflows/ 不迁移不删除（历史数据原地保留）。
-const DIR_NAME = path.join('.dag-flow', 'workflow');
 const LEGACY_DIR_NAMES: string[] = [];
 
 export interface StorageInfo {
   dir: string;
-  source: string; // 'host-ctx' | 'workspace-registry' | 'process-cwd' | 'user-dir-fallback'
+  source: string; // 'dsh-home'（2026-10-11 起唯一取值）| 旧值：'host-ctx' | 'workspace-registry' | 'process-cwd' | 'user-dir-fallback'
 }
 
 let _info: StorageInfo | null = null;
@@ -102,6 +103,8 @@ function usableProcessCwd(): string | null {
 //   服务（dsh-workspace，Workspace = { id, path, title, updatedAt, sessionIds }），
 //   用它把存储锚定到 <当前工作区>/.dag-flow/workflow/。
 //   选「当前」工作区：候选取磁盘上真实存在的 path；多个时取 updatedAt 最新（= 最近使用）。
+//   ★ 2026-10-11 起存储根改为固定 <DSH_HOME>/.dag-flow/：本函数**只用于迁移来源探测**
+//     （migrateFromLegacyRoots 找回工作区时代的数据），不再参与存储根解析。
 async function probeWorkspaceRegistry(): Promise<string | null> {
   try {
     const wr = hostService('workspaceRegistry') as { list?: () => Promise<unknown> } | undefined;
@@ -127,29 +130,97 @@ async function probeWorkspaceRegistry(): Promise<string | null> {
   }
 }
 
-async function resolveRoot(): Promise<StorageInfo> {  if (_info) return _info;
-  const fromHost = probeHostWorkspace();
-  const fromRegistry = fromHost ? null : await probeWorkspaceRegistry();
-  if (fromHost) {
-    _info = { dir: path.join(fromHost, DIR_NAME), source: 'host-ctx' };
-  } else if (fromRegistry) {
-    _info = { dir: path.join(fromRegistry, DIR_NAME), source: 'workspace-registry' };
-  } else {
-    const cwd = usableProcessCwd();
-    if (cwd) {
-      _info = { dir: path.join(cwd, DIR_NAME), source: 'process-cwd' };
-    } else {
-      _info = { dir: path.join(USER_DIR, 'workflows'), source: 'user-dir-fallback' };
-    }
-  }
+async function resolveRoot(): Promise<StorageInfo> {
+  if (_info) return _info;
+  // ★ 2026-10-11：**不再依赖工作区/cwd** —— 根固定在 <DSH_HOME>/.dag-flow/（用户拍板，原话见文件头）。
+  _info = { dir: path.join(dagFlowHome(), 'workflow'), source: 'dsh-home' };
   await fs.mkdir(_info.dir, { recursive: true });
   if (!_migrated) {
     _migrated = true;
-    await migrateFallbackWorkflows(_info);
-    await migrateLegacyDirs(_info);
-    await migrateLegacySqlite(_info.dir);
+    await migrateFromLegacyRoots(_info);   // ① 工作区时代的 <旧工作区>/.dag-flow/ → 新根（补缺复制）
+    await migrateFallbackWorkflows(_info); // ② 更早的兜底 ~/.dsh/workflows → 新根
+    await migrateLegacyDirs(_info);        // ③ 旧目录名
+    await migrateLegacySqlite(_info.dir);  // ④ 旧 SQLite
   }
   return _info;
+}
+
+/** 迁移标记：钉死"已从工作区时代的位置补缺复制过"，避免每次启动重跑（同 .fallback-migrated 的教训）。 */
+const WORKSPACE_MIGRATION_MARKER = '.migrated-from-workspace';
+
+/** ★ 工作区时代 → 新根的一次性**补缺复制**（2026-10-11 存储锚点变更配套）。
+ *  · **只复制、绝不移动/删除**旧目录里的任何东西；目标已存在则跳过（force:false + errorOnExist:false）。
+ *  · 覆盖 workflow/（含 config/ 邮件配置与 versions/ 版本历史）、runs/、schedules.json（定时任务不丢）。
+ *  · 没有任何旧目录可迁时不写标记 → 将来工作区出现还能再迁一次。 */
+async function migrateFromLegacyRoots(info: StorageInfo): Promise<void> {
+  const marker = path.join(info.dir, WORKSPACE_MIGRATION_MARKER);
+  try { await fs.access(marker); return; } catch { /* 没迁过，继续 */ }
+  const newHome = path.dirname(info.dir);                      // <DSH_HOME>/.dag-flow
+  const candidates: string[] = [];
+  const add = (root: string | null): void => { if (root) candidates.push(path.join(root, '.dag-flow')); };
+  add(probeHostWorkspace());
+  add(await probeWorkspaceRegistry());
+  add(usableProcessCwd());
+
+  const seen = new Set<string>([path.resolve(newHome).toLowerCase()]);
+  const done: string[] = [];
+  for (const oldHome of candidates) {
+    const key = path.resolve(oldHome).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    try { if (!(await fs.stat(oldHome)).isDirectory()) continue; } catch { continue; }
+    for (const sub of ['workflow', 'runs']) {
+      const from = path.join(oldHome, sub);
+      try { if (!(await fs.stat(from)).isDirectory()) continue; } catch { continue; }
+      await fs.cp(from, path.join(newHome, sub), { recursive: true, force: false, errorOnExist: false });
+    }
+    const oldSchedules = path.join(oldHome, 'schedules.json');
+    try {
+      await fs.access(oldSchedules);
+      const dst = path.join(newHome, 'schedules.json');
+      await mergeSchedules(path.join(oldHome, 'schedules.json'), dst);
+    } catch { /* 旧位置没有定时配置，正常 */ }
+    done.push(oldHome);
+  }
+  if (done.length === 0) return;                                // 没旧数据：不写标记，留待将来
+  await fs.writeFile(marker, JSON.stringify({ migratedAt: new Date().toISOString(), from: done }) + '\n', 'utf8');
+  console.info('[dag-flow] storage root is now <DSH_HOME>/.dag-flow; copied missing files from:', done.join(', '));
+}
+
+/** 旧定时配置 → 新根：**按 id 合并**（2026-10-11 用户拍板加固；此前是「目标存在就整体跳过」）。
+ *  为什么必须合并：目标可能已经有一份（此前迁过一半 / 用户在新根建过定时项 / 别的来源占位），
+ *  整体跳过会**静默丢掉**旧位置里真实的定时任务——本机实测过这起事故：一份测试用的 schedules.json
+ *  占位，差点让用户真实的「06:00 金融政策日报」迁不过来。
+ *  合并口径：**目标已存在的条目一律保留、永不被覆盖**（同 id 以目标为准，不回退用户在新根的修改）；
+ *  只把源里 id 不存在的条目补进来。目标文件存在但**解析不了**时**不碰它**（宁可让用户看到损坏提示，
+ *  也不拿另一份数据去覆盖可能是他唯一的一份）。任一步失败静默跳过——迁移是增强，绝不能影响主流程。 */
+async function mergeSchedules(from: string, to: string): Promise<void> {
+  try {
+    const srcParsed = JSON.parse(await fs.readFile(from, 'utf8')) as { items?: unknown };
+    const srcItems = Array.isArray(srcParsed?.items) ? srcParsed.items : [];
+    if (srcItems.length === 0) return;
+    let dstItems: unknown[] = [];
+    let dstExists = false;
+    try {
+      await fs.access(to);
+      dstExists = true;
+      const dstParsed = JSON.parse(await fs.readFile(to, 'utf8')) as { items?: unknown };
+      if (!Array.isArray(dstParsed?.items)) return;             // 目标结构不认识 → 不碰
+      dstItems = dstParsed.items;
+    } catch {
+      if (dstExists) return;                                    // 目标在但读/解析失败 → 不碰它
+    }
+    const idOf = (it: unknown): string => String((it as { id?: unknown } | null)?.id ?? '');
+    const have = new Set(dstItems.map(idOf).filter(Boolean));
+    const add = srcItems.filter((it) => { const id = idOf(it); return id !== '' && !have.has(id); });
+    if (add.length === 0) return;
+    // 原子写与 schedules.ts 的 writeSchedules 保持一致（tmp + rename），不留半个文件
+    await fs.mkdir(path.dirname(to), { recursive: true });
+    const tmp = `${to}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify({ version: 1, items: [...dstItems, ...add] }, null, 2), 'utf8');
+    await fs.rename(tmp, to);
+    console.info('[dag-flow] legacy schedules merged (never lose a timer):', from, `+${add.length} items`);
+  } catch { /* 源不存在/损坏：正常，跳过 */ }
 }
 
 export async function resolveStorageRoot(): Promise<StorageInfo> {

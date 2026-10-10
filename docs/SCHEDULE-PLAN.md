@@ -34,7 +34,7 @@
 | 精度与误差 | tick 20s，触发误差 ≤20s | tick 5s | 分钟级语义下 20s 足够；tick 越密空转越多 |
 
 ## 3. 数据模型与存储
-`<工作区>/.dag-flow/schedules.json`（与 `workflow/` 同级，随工作区走；原子写复用既有 tmp+rename）：
+`<DSH_HOME>/.dag-flow/schedules.json`（与 `workflow/` 同级；2026-10-11 起固定随 DSH_HOME，不随工作区走；原子写复用既有 tmp+rename）：
 ```json
 {
   "version": 1,

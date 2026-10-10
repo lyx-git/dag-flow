@@ -1,3 +1,4 @@
+import { useHomeAs } from './_isolate-home.mjs';   // ★ 2026-10-11：存储根 = <DSH_HOME>/.dag-flow
 // test/asset-naming.test.mjs — 产出文件同名冲突策略（2026-10-03 用户拍板**方案 A：默认自动改名不覆盖**）
 //   用户原话：「文件保存节点，如果保存的时候，文件夹下已经存在一份相同的文件，需要给我解决方案」
 //   契约：同名 → `报告.md` / `报告-2.md` / `报告-3.md`…（保留历史、不静默覆盖、不让 DAG 节点失败）；
@@ -13,9 +14,11 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log('  ✓ ' + m); } else { fail++; console.error('  ✗ ' + m); } };
 const eq = (a, b, m) => ok(JSON.stringify(a) === JSON.stringify(b), `${m}（actual=${JSON.stringify(a)} expected=${JSON.stringify(b)}）`);
 
-// 临时工作区：storage 的解析链会落到 process.cwd()（不污染真实工作区）
+// 临时工作区：2026-10-11 起存储根固定 <DSH_HOME>/.dag-flow（与 cwd/工作区无关）→ 把 DSH_HOME 指到它，
+//   于是产出仍落在 <ws>/.dag-flow 下，下面断言语义不变；也不会碰真机 ~/.dsh。
 const ws = mkdtempSync(join(tmpdir(), 'df-asset-name-'));
 process.chdir(ws);
+useHomeAs(ws);
 
 const dir = mkdtempSync(join(tmpdir(), 'df-asset-bundle-'));
 const OUT = join(dir, 'assets.mjs');

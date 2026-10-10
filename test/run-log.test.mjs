@@ -1,3 +1,4 @@
+import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/run-log.test.mjs — 「运行日志」专项验证（2026-10-03 用户需求）
 //
 // 用户原话：「现在每个节点的执行情况没有日志打印，参数传递是否正常，下个节点接收参数是否正常

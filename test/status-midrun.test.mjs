@@ -1,3 +1,4 @@
+import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/status-midrun.test.mjs — 「运行中的逐节点结果」契约（2026-10-03 用户反馈）
 //
 // 用户原话：「画布节点悬浮弹窗的执行结果，为何要等工作流全部执行完才能显示，不应该是执行完一个节点，

@@ -1,3 +1,4 @@
+import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/llm-config.test.mjs — dsh settings.yaml schema 解析锁定（2026-09-27 降耦审计意见 5）
 // 目标：把 dag-flow 依赖的 dsh 配置结构（llm-pi-ai.providers / llm-deepseek / refs）
 // 用多代 fixture 形态锁住——dsh 改 schema 时这里是第一道报警。

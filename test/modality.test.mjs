@@ -1,3 +1,4 @@
+import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/modality.test.mjs — 模型多模态能力校验（/models 透传 + 运行前模态拦截 + 图片 API 测试路由）
 // 数据源：dsh settings.yaml models[].input（标注 input: [text, image] 才支持图片，未标注视为仅文本）。
 // 跑法：node test/modality.test.mjs

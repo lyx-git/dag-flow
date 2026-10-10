@@ -1,11 +1,12 @@
-// src/adapter/workspace.ts — 工作区目录统一解析
-// 布局（2026-09-26 用户指令：全部运行数据收拢 <工作区>/.dag-flow/ 下）：
-//   <工作区>/.dag-flow/workflow/    工作流定义（storage.ts 管）
-//   <工作区>/.dag-flow/runs/        运行记录（storage.ts 管）
-//   <工作区>/.dag-flow/tmp/         执行临时文件（下载中间产物等，可随时清空）
-//   <工作区>/.dag-flow/logs/        运行日志（logger.ts 按天写 dag-flow-YYYY-MM-DD.log）
-//   <工作区>/.dag-flow/             最终产出（file_save/image/video 的结果文件直接放这里，不建专门子目录）
-// 旧 .dag-flow-workflows/ 不迁移不删除（历史数据原地保留）。
+// src/adapter/workspace.ts — dag-flow 数据目录统一解析
+// ★ 布局（2026-10-11 用户拍板：**dag-flow 创建的文件不依赖 DSH 工作区**，根固定 <DSH_HOME>/.dag-flow/）：
+//   <DSH_HOME>/.dag-flow/workflow/    工作流定义（storage.ts 管）
+//   <DSH_HOME>/.dag-flow/runs/        运行记录（storage.ts 管）
+//   <DSH_HOME>/.dag-flow/tmp/         执行临时文件（下载中间产物等，可随时清空）
+//   <DSH_HOME>/.dag-flow/logs/        运行日志（logger.ts 按天写 dag-flow-YYYY-MM-DD.log）
+//   <DSH_HOME>/.dag-flow/scripts/     python/bash codePath 相对路径的锚定根
+//   <DSH_HOME>/.dag-flow/             最终产出（file_save/image/video 的结果文件直接放这里，不建专门子目录）
+// （工作区时代的 <工作区>/.dag-flow/ 由 storage.ts 一次性**补缺复制**到新根，旧目录原样保留不删。）
 
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
@@ -13,8 +14,9 @@ import { resolveStorageRoot } from './storage.js';
 
 let cachedRoot: string | null = null;
 
-/** 工作区根目录（storage.dir = <工作区>/.dag-flow/workflow → 上两级 = 工作区根），结果缓存 */
-export async function workspaceRoot(): Promise<string> {
+/** 相对路径的基准目录（= <DSH_HOME>，即 .dag-flow 的上一级）—— 只用于产出文件回报「相对路径」。
+ *  storage.dir = <DSH_HOME>/.dag-flow/workflow → 上两级 = <DSH_HOME>。结果缓存。 */
+export async function storageBaseDir(): Promise<string> {
   if (cachedRoot) return cachedRoot;
   const info = await resolveStorageRoot();
   cachedRoot = path.dirname(path.dirname(info.dir));
@@ -44,19 +46,19 @@ export async function ensureDagFlowDirs(): Promise<void> {
   return ensured;
 }
 
-/** 代码文件目录：<工作区>/.dag-flow/scripts（python/bash codePath 相对路径锚定根） */
+/** 代码文件目录：<DSH_HOME>/.dag-flow/scripts（python/bash codePath 相对路径锚定根） */
 export async function dagFlowScriptsDir(): Promise<string> {
   await ensureDagFlowDirs();
   return path.join(await dagFlowDir(), 'scripts');
 }
 
-/** 临时文件目录：<工作区>/.dag-flow/tmp */
+/** 临时文件目录：<DSH_HOME>/.dag-flow/tmp */
 export async function dagFlowTmpDir(): Promise<string> {
   await ensureDagFlowDirs();
   return path.join(await dagFlowDir(), 'tmp');
 }
 
-/** 日志目录：<工作区>/.dag-flow/logs */
+/** 日志目录：<DSH_HOME>/.dag-flow/logs */
 export async function dagFlowLogsDir(): Promise<string> {
   await ensureDagFlowDirs();
   return path.join(await dagFlowDir(), 'logs');

@@ -40,7 +40,7 @@ export const name = 'dag-flow';
 // ★ inject 名单唯一来源 = 防腐层 dsh-gate/host.ts 的 HOST_INJECT（服务名清单/访问语义
 // /三层容错都在防腐层维护；2026-10-02 防腐层改造后业务代码不感知 DSH 服务名）。
 // 现名单：webServer（client HTTP API）、tools（/workflow 工具）、workspaceRegistry
-// （存储根锚定 <当前工作区>/.dag-flow/）、llm（自带模型发现与 viaHost 分发）。
+// （存储根固定 <DSH_HOME>/.dag-flow/，2026-10-11 起与工作区无关）、llm（自带模型发现与 viaHost 分发）。
 // ★ 0.2.0 cordis 无 optional inject——新增名字前必须先经 cordis_inspect 查证宿主确有此服务。
 export const inject: string[] = HOST_INJECT;
 
@@ -113,7 +113,7 @@ export function apply(ctx: any, config?: any): void {
     const status = (r: AttachResult) => (r.registered ? 'registered' : `skipped${r.reason ? ` (${r.reason})` : ''}`);
     try {
       logger.info(
-        `[dag-flow] loaded (host v20261011-cleanup), ${WorkflowNodeRegistry.list().length} nodes, workflow tool ${status(toolResult)}, api ${status(apiResult)}, scheduler ${status(schedResult)}, ${driftMsg}`
+        `[dag-flow] loaded (host v20261011-dshhome), ${WorkflowNodeRegistry.list().length} nodes, workflow tool ${status(toolResult)}, api ${status(apiResult)}, scheduler ${status(schedResult)}, ${driftMsg}`
       );
     } catch {}
   } catch (e) {

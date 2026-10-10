@@ -8,7 +8,8 @@
 // 宿主服务清单（2026-10-02）：
 //   webServer          — dsh-auto-compact / dsh-versions 同款（client HTTP API 注册）
 //   tools              — dsh-vision-router 同款（/workflow 工具注册）
-//   workspaceRegistry  — dsh-workspace 提供（存储根锚定 <当前工作区>/.dag-flow/）
+//   workspaceRegistry  — dsh-workspace 提供（工作区时代用于锚定存储根；2026-10-11 起存储根固定
+//                        <DSH_HOME>/.dag-flow/，此服务只在 migrateFromLegacyRoots 里当迁移来源探测）
 //   llm                — LlmRuntime（listProviders/listModels/stream，DSH 自带模型发现与分发）
 // ★ 0.2.0 cordis 4.x 没有 optional inject——声明宿主不存在的服务名会让插件永不 apply。
 //   新增名字前必须先经 cordis_inspect 查证宿主确有此服务（教训见 2026-10-01 404 事故）。

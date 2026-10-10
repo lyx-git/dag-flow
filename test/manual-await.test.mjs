@@ -1,3 +1,4 @@
+import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/manual-await.test.mjs — 人工确认节点（manual）真暂停 + 恢复
 //
 // 背景（2026-10-03 用户反馈「画布中的人工确认节点好像都没作用，不需要人工确认就直接执行完成」）：

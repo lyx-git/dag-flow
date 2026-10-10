@@ -55,26 +55,16 @@ async function callSubagent(host, opts) {
   return { text: await host.llm.chat(opts) };
 }
 
-// 存储根目录解析链 replica（2026-09-23 存储架构 v2：工作区 JSON，见 src/adapter/storage.ts）
-// 链：host ctx 工作区线索 → cwd（排除 system32/主目录）→ ~/.dsh/workflows 兜底
-function probeWorkspaceRoot(host) {
-  const ws = host?.workspace ?? host?.workspaceService;
-  const candidates = [ws?.cwd, ws?.root, ws?.path, ws?.dir, host?.cwd, host?.baseDir, host?.workspacePath];
-  for (const c of candidates) {
-    const v = typeof c === 'function' ? c() : c;
-    if (typeof v === 'string' && v) return v;
-  }
-  return null;
+// 存储根 replica（2026-10-11 存储锚点变更：dag-flow 文件不再依赖 dsh 工作区）
+// 用户原话：「dag-flow 创建的文件，不依赖于 dsh 的工作区，默认放在 <DSH_HOME>\.dag-flow 文件夹下，
+//   避免工作区没选择的问题」→ 根**固定** <DSH_HOME>/.dag-flow/workflow（DSH_HOME 缺省 = ~/.dsh），
+// 与工作区/cwd 一点关系都没有。src/adapter/storage.ts 里仍留着 host-ctx / workspaceRegistry / cwd
+// 三个探测函数，但它们**只用于迁移来源探测**（把工作区时代的数据补缺复制过来），不再参与根解析。
+function dshHomeOf(env = process.env) {
+  return env?.DSH_HOME || path.join(os.homedir(), '.dsh');
 }
-function workflowsDir(host, cwd = null) {
-  const ws = probeWorkspaceRoot(host);
-  if (ws) return path.join(ws, '.dag-flow', 'workflow');
-  const usable = cwd
-    && path.isAbsolute(cwd)
-    && !cwd.toLowerCase().endsWith('system32')
-    && path.resolve(cwd) !== path.resolve(os.homedir());
-  if (usable) return path.join(cwd, '.dag-flow', 'workflow');
-  return path.join(os.homedir(), '.dsh', 'workflows');
+function workflowsDir(env = process.env) {
+  return path.join(dshHomeOf(env), '.dag-flow', 'workflow');
 }
 
 function bashErrorOnEnoent(errCode) {
@@ -154,19 +144,16 @@ await t('AC8 drift 探测: all-OK / empty / 字符串冒充', () => {
   assert.equal(detectDrift({ tools:{register:'not-fn'} }).drifted.includes('tools.register'), true);
 });
 
-await t('AC8 存储解析链: 无 host 线索且 cwd 不可用 → ~/.dsh/workflows 兜底', async () => {
-  assert.equal(workflowsDir({}, null), path.join(os.homedir(), '.dsh', 'workflows'));
+await t('AC8 存储根: DSH_HOME 缺省 → ~/.dsh/.dag-flow/workflow（与工作区无关）', async () => {
+  assert.equal(workflowsDir({}), path.join(os.homedir(), '.dsh', '.dag-flow', 'workflow'));
 });
 
-await t('AC8 存储解析链: host ctx 提供工作区 → <工作区>/.dag-flow/workflow', async () => {
-  const host = { workspace: { cwd: 'D:/some/workspace' } };
-  assert.equal(workflowsDir(host, 'D:/other'), path.join('D:/some/workspace', '.dag-flow', 'workflow'));
+await t('AC8 存储根: 便携场景 DSH_HOME 生效 → <DSH_HOME>/.dag-flow/workflow', async () => {
+  assert.equal(workflowsDir({ DSH_HOME: 'D:/portable/dsh' }), path.join('D:/portable/dsh', '.dag-flow', 'workflow'));
 });
 
-await t('AC8 存储解析链: cwd 可用（非 system32/主目录）→ <cwd>/.dag-flow/workflow', async () => {
-  assert.equal(workflowsDir({}, 'D:/workspace/pluginspace'), path.join('D:/workspace/pluginspace', '.dag-flow', 'workflow'));
-  assert.equal(workflowsDir({}, 'C:\\Windows\\System32'), path.join(os.homedir(), '.dsh', 'workflows'));
-  assert.equal(workflowsDir({}, os.homedir()), path.join(os.homedir(), '.dsh', 'workflows'));
+await t('AC8 存储根: DSH_HOME 优先于主目录（便携安装不再写进用户主目录）', async () => {
+  assert.notEqual(workflowsDir({ DSH_HOME: 'D:/portable/dsh' }), workflowsDir({}));
 });
 
 await t('AC9 JSON 损坏: SyntaxError', () => {

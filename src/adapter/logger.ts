@@ -2,7 +2,7 @@
 // ★ 唯一允许调 DSH logger 的地方
 //
 // 2026-09-06 修订：真实 ctx 直接有 logger（ctx.logger.info/warn/error）。
-// 2026-09-26 新增：同时落文件到 <工作区>/.dag-flow/logs/dag-flow-YYYY-MM-DD.log
+// 2026-09-26 新增：同时落文件到 <DSH_HOME>/.dag-flow/logs/dag-flow-YYYY-MM-DD.log
 //   （fire-and-forget 追加写，失败静默——文件日志是增强，绝不能影响主流程）。
 
 import { appendFile } from 'node:fs/promises';

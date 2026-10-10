@@ -354,8 +354,8 @@ export function selfcheck(defInput: unknown, deps: SelfcheckDeps = {}): Selfchec
           level: 'error',
           code: 'LOOP_BODY_MISSING',
           nodeId: n.id,
-          message: `节点「${labelOf(n.id)}」的循环体指定了子工作流「${bodyName}」，但工作区里没有这个名字的工作流——运行时每轮都会失败（WORKFLOW_NOT_FOUND）`,
-          fix: `在「🔁 循环设置」的循环体下拉里选一个真实存在的工作流；如果是想新建，先建好再回来选（当前工作区的工作流可在左上角 📂 列表里看到）。`,
+          message: `节点「${labelOf(n.id)}」的循环体指定了子工作流「${bodyName}」，但没有这个名字的工作流——运行时每轮都会失败（WORKFLOW_NOT_FOUND）`,
+          fix: `在「🔁 循环设置」的循环体下拉里选一个真实存在的工作流；如果是想新建，先建好再回来选（已保存的工作流可在左上角 📂 列表里看到）。`,
         });
       }
     }

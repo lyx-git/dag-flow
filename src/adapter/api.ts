@@ -430,7 +430,7 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
       },
     });
 
-    // 3.2 打开工作流数据文件夹（2026-10-02 用户需求：dock head 按钮 → 系统文件管理器打开 <工作区>/.dag-flow/）
+    // 3.2 打开工作流数据文件夹（2026-10-02 用户需求：dock head 按钮 → 系统文件管理器打开 <DSH_HOME>/.dag-flow/）
     route({
       kind: 'exact',
       path: '/api/dag-flow/open-folder',
@@ -608,7 +608,7 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
       },
     });
 
-    // 5. 保存工作流（POST { name, def, snapshot? }）→ 写入 <工作区>/.dag-flow/workflow/<name>.json
+    // 5. 保存工作流（POST { name, def, snapshot? }）→ 写入 <DSH_HOME>/.dag-flow/workflow/<name>.json
     //    snapshot=true（默认）生成版本快照（versions/<name>/<ts>.json，存本次保存内容）；false 不生成（自动保存用）
     route({
       kind: 'exact',

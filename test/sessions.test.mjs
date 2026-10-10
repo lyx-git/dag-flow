@@ -1,3 +1,4 @@
+import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/sessions.test.mjs — 会话读取层回归（2026-09-27 sessions.v3 布局漂移修复 + 命名解耦；2026-10-01 v4 + 多帧 zstd；
 // 2026-10-02 会话标题提取：listSessions 返回首条 user 消息摘要 + mtime + 按最后活动倒序）
 // 锁定：①新文件名 session.v4.jsonl.zstd 可读；②v3 兼容；③旧 session.jsonl.zstd 兼容；

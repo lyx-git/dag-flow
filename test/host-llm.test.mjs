@@ -1,3 +1,4 @@
+import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/host-llm.test.mjs — 宿主 LLM 流契约（2026-10-03 修「AI 节点成功但输出为空」）
 //
 // 背景：dsh-llm 的 FinishReasonMap 是

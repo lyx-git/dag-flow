@@ -35,6 +35,14 @@ export function credentialsYamlPath(): string {
   return path.join(dshHome(), '.credentials.yaml');
 }
 
+/** ★ dag-flow 自己的数据根（**与 DSH 工作区无关**，2026-10-11 用户拍板）：
+ *  「dag-flow 创建的文件，不依赖于 dsh 的工作区，默认放在 <DSH_HOME>\.dag-flow 文件夹下，
+ *    避免工作区没选择的问题」—— 所有落盘路径（workflow/ runs/ logs/ tmp/ scripts/ 产出/ schedules.json）
+ *  都锚定到这里。改布局只改本函数。 */
+export function dagFlowHome(): string {
+  return path.join(dshHome(), '.dag-flow');
+}
+
 /** profile 目录根（0.2.0 的配置持久层 profiles/<name>/cordis.patch.yml） */
 export function profilesDir(): string {
   return path.join(dshHome(), 'profiles');

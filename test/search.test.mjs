@@ -1,3 +1,4 @@
+import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/search.test.mjs — web_search / web_fetch 节点测试（fixture 化，不打真实网络）
 // 覆盖：5 个内置免 key 引擎解析、bing 无关缓存 SERP 识别→回退链、宿主优先（成功/失败回落/仅宿主报错）、
 //      空参快失败、web_fetch 剥 HTML/JSON/raw/HTTP 错误/超参钳制。

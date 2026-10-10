@@ -17,7 +17,7 @@ import type { WorkflowDef } from '../types.js';
 const USAGE = `用法: /workflow <list|run|validate|new|show> [名称]`;
 
 function fmtList(names: string[]): string {
-  if (names.length === 0) return '(还没有已保存的工作流——JSON 文件在当前工作区 .dag-flow/workflow/ 目录)';
+  if (names.length === 0) return '(还没有已保存的工作流——JSON 文件在 <DSH_HOME>/.dag-flow/workflow/ 目录)';
   return names.map((n) => `  - ${n}`).join('\n');
 }
 

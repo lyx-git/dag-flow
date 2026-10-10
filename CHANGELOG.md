@@ -4,6 +4,15 @@
 
 > 主题：**FlowGram 画布 + 节点扩展 + 重命名 dag-flow + 工作区 JSON 存储**。
 
+### 存储锚点变更（2026-10-11）
+> 用户原话：「dag-flow 创建的文件，不依赖于 dsh 的工作区，默认放在 `<DSH_HOME>\.dag-flow` 文件夹下，避免工作区没选择的问题」
+
+- 存储根由「工作区派生」改为**固定** `<DSH_HOME>/.dag-flow/`（`DSH_HOME` 未设 = `~/.dsh`）：工作流 `workflow/`（含 `versions/`）、运行记录 `runs/`、定时配置 `schedules.json`、日志 `logs/`、临时 `tmp/`、脚本 `scripts/`、最终产出，全部与工作区/cwd 无关（此前"没选工作区"会落到 `~/.dsh/workflows`，用户找不到文件）
+- 旧位置数据**一次性补缺复制**（只复制、不移动、不删除、不覆盖新根已有文件）：
+  ① 工作区时代 `<旧工作区>/.dag-flow/`（`workflow/` + `runs/` + `schedules.json`）→ 新根，标记 `.migrated-from-workspace`
+  ② 更早兜底 `~/.dsh/workflows` → 新根（原有逻辑不变，标记 `.fallback-migrated`）
+  两者都靠一次性标记，避免用户删掉的工作流在下次启动被复活（2026-10-04 的教训）；旧目录原样保留，定时任务随 `schedules.json` 一并搬迁不丢
+
 ### 破坏性更名
 - 插件名 `dsh-workflow-builder` → **`dag-flow`**（package.json / cordis.patch.yml / API 前缀 `/api/dag-flow` / 存储目录 `.dag-flow-workflows/`）
 
@@ -16,12 +25,12 @@
 - **模型多模态能力感知**：`/models` 透传 settings.yaml 的 `models[].input` 模态（text/image，未标注视为仅文本）；subagent 模型下拉显示 📷 徽章、选中纯文本模型提示不支持图片；运行前校验 prompt 引用（图片/视频/文件扩展名）与模型能力，不匹配 → `MODEL_MODALITY_MISMATCH` 明确失败并给出换模型/标注能力两条出路
 - **image_generate 提前测试**：配置面板「🔍 测试连接」真实发一次最小生成请求，验证 baseURL/Key/模型组合（401 Key 无效 / 404 模型不存在 / 400 参数不支持 均给出针对性指引），新增 `/test-image-api` 路由
 - **版本管理**：工作流保存自动快照，最近 20 份可回读（`/workflows/<name>/versions`）
-- **统一落盘布局**：全部运行数据收拢 `<工作区>/.dag-flow/`——工作流定义 `workflow/`、运行记录 `runs/`、临时文件 `tmp/`、按天日志 `logs/`；最终产出（图片/视频/文件）直接放 `.dag-flow/` 根下（可含子目录，防路径穿越）；旧 `.dag-flow-workflows/` 不迁移不删除
+- **统一落盘布局**：全部运行数据收拢 `<DSH_HOME>/.dag-flow/`（2026-10-11 起固定随 `DSH_HOME`，不随工作区走）——工作流定义 `workflow/`、运行记录 `runs/`、临时文件 `tmp/`、按天日志 `logs/`；最终产出（图片/视频/文件）直接放 `.dag-flow/` 根下（可含子目录，防路径穿越）；旧 `.dag-flow-workflows/` 不迁移不删除
 - **管理视图**：过滤 / 重命名 / 复制 / 删除 / 版本历史 / 导入导出
 - **侧边栏入口** + 工作流选择器组合框（过滤 + 内联新建）
 
 ### 变更
-- **存储 SQLite → 工作区 JSON**：`<工作区>/.dag-flow-workflows/<name>.json` + `runs/`，原子写（同盘 tmp+rename）；旧 `~/.dsh/workflows/workflows.db` 首启自动导出
+- **存储 SQLite → JSON**：工作区时代存 `<工作区>/.dag-flow-workflows/<name>.json`，2026-10-11 起为 `<DSH_HOME>/.dag-flow/workflow/<name>.json` + `runs/`，原子写（同盘 tmp+rename）；旧 `~/.dsh/workflows/workflows.db` 首启自动导出
 - **模型/密钥收编 dsh**：插件零密钥存储；`/models` 只读自动发现；AI 节点**模型必选**（UI 拦截保存/试跑/运行 + 执行层 `MODEL_REQUIRED` 兜底）
 - **留空中断语义**：subagent prompt / web_search query / web_fetch url 为空 → 对应错误码秒返，不发请求、流程中断
 - onError 失败策略泛化（stop / continue / goto）；merge 需 ≥2 上游

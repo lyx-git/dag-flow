@@ -539,18 +539,18 @@ function DockedMainPanel(): any {
   return createElement('div', { className: 'dsh-wf-dock' },
     createElement('div', { className: 'dsh-wf-dock-head' },
       createElement('span', { className: 'dsh-wf-dock-title' }, '⚡ 自定义工作流'),
-      createElement('span', { className: 'dsh-wf-dock-sub' }, '停靠在会话区域 · 数据落 <工作区>/.dag-flow/'),
+      createElement('span', { className: 'dsh-wf-dock-sub' }, '停靠在会话区域 · 数据落 <DSH_HOME>/.dag-flow/'),
       createElement('div', { className: 'dsh-wf-dock-actions' },
         createElement('button', {
           className: 'dsh-wf-dock-btn', type: 'button',
           onClick: () => {
-            // 打开当前工作区的工作流数据文件夹（<工作区>/.dag-flow/，系统文件管理器）
+            // 打开工作流数据文件夹（<DSH_HOME>/.dag-flow/，系统文件管理器；2026-10-11 起与工作区无关）
             fetch('/api/dag-flow/open-folder', { method: 'POST', credentials: 'include' })
               .then(async (r) => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`); })
               // ★ 2026-10-11：失败提示由原生 alert 改为**应用内浮窗**（用户准则：禁止系统原生弹窗）
               .catch((e) => { console.error('[dag-flow] open folder failed:', e); showToast('打开文件夹失败：' + (e as Error).message); });
           },
-          title: '打开工作流数据文件夹（<工作区>/.dag-flow/）',
+          title: '打开工作流数据文件夹（<DSH_HOME>/.dag-flow/）',
         }, '📁 工作流文件夹'),
         createElement('button', {
           className: 'dsh-wf-dock-btn', type: 'button',
@@ -603,7 +603,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261011-btnwidth · apply OK');
+    console.log('[dag-flow] client v20261011-dshhome · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

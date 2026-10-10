@@ -1,3 +1,4 @@
+import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/loop.test.mjs — loop 节点语义专项验证
 //
 // 背景（2026-10-03 用户要求「验证 loop 功能」）：api-e2e 此前只覆盖了 loop.over 一条，

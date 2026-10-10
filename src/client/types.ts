@@ -202,7 +202,7 @@ export const NODE_OUT_SPECS: Record<string, NodeOutSpec> = {
     kind: 'object',
     fields: [
       { path: 'path', desc: '相对路径（同 relativePath）' },
-      { path: 'relativePath', desc: '相对工作区的路径' },
+      { path: 'relativePath', desc: '相对 <DSH_HOME> 的路径（.dag-flow/…）' },
       { path: 'absolutePath', desc: '磁盘绝对路径' },
       { path: 'bytes', desc: '文件字节数' },
       { path: 'source', desc: '内容来源（text / url）' },

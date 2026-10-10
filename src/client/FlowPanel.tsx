@@ -877,7 +877,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def, dirty, nav, saveDefToDisk]);
 
-  // 手动保存到 <工作区>/.dag-flow/workflow/<name>.json（调 host API）；AI 节点必须已选模型；
+  // 手动保存到 <DSH_HOME>/.dag-flow/workflow/<name>.json（调 host API；2026-10-11 起与工作区无关）；AI 节点必须已选模型；
   // ★ 手动保存生成版本快照（服务端把本次保存的内容存档到 versions/，可回载回退）
   // （自动保存跳过此校验——自动保存永不阻塞，模型缺失由运行时校验兜底）
   const handleSaveToDisk = useCallback(async (): Promise<string> => {
@@ -1594,7 +1594,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         'button',
         {
           className: 'dsh-wf-btn',
-          title: '保存到工作区',
+          title: '保存工作流到磁盘（<DSH_HOME>/.dag-flow/workflow/）',
           onClick: async () => {
             try {
               const savedName = await handleSaveToDisk();
@@ -1822,7 +1822,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
             onClick: addSchedule,
           }, '＋ 添加定时'),
           createElement('div', { className: 'dsh-wf-sched-foot' },
-            '配置存在工作区 .dag-flow/schedules.json；cron 为本机时区的「分 时 日 月 周」；cron 改完点行内「保存」才生效。',
+            '配置存在 <DSH_HOME>/.dag-flow/schedules.json；cron 为本机时区的「分 时 日 月 周」；cron 改完点行内「保存」才生效。',
             createElement('br'),
             '同一工作流上一次没跑完时，本次会跳过并记「⏭ 本次跳过」；dsh 重启后不补跑错过的档期。'),
         ),
@@ -1890,7 +1890,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
             '手动 💾 保存会生成一个版本快照（自动保存不计入）。点「回载」把该版本放回画布；回载前的当前内容如与最新版本不同，也会先存为一个版本，随时可再退回。'),
           // 数据存储位置标注（2026-10-01 夜用户要求；旧 host 无 dir 字段时回退通用路径，保证这行永远在）
           createElement('div', { className: 'dag-flow-picker-hint dag-flow-picker-ver-path', style: { fontSize: 10, opacity: 0.6, flex: 'none', fontFamily: 'ui-monospace, Consolas, monospace' } },
-            verDir ? `📁 数据存于 ${verDisplayPath(verDir, def.name)}` : '📁 数据存于 <工作区>/.dag-flow/workflow/versions/<名称>/<时间戳>.json'),
+            verDir ? `📁 数据存于 ${verDisplayPath(verDir, def.name)}` : '📁 数据存于 <DSH_HOME>/.dag-flow/workflow/versions/<名称>/<时间戳>.json'),
           verLoading && createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11, opacity: 0.72 } }, '加载中…'),
           !verLoading && verList.length === 0
             ? createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11, opacity: 0.72 } }, '暂无历史版本——手动 💾 保存后即可在此回溯。')
@@ -3176,7 +3176,7 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
     ),
     // ★ 代码两种录入途径（python/bash，2026-10-02 用户定档：两种互补）——
     //   a) 简单脚本：面板「📝 编辑代码」弹窗直接写多行（存 params.code，随工作流走）；
-    //   b) 复杂/多脚本：文件引用 codePath —— 约定 <工作区>/.dag-flow/scripts/<工作流名>/xxx.py
+    //   b) 复杂/多脚本：文件引用 codePath —— 约定 <DSH_HOME>/.dag-flow/scripts/<工作流名>/xxx.py
     //     （相对路径锚定 .dag-flow/，也支持绝对路径）；填了 codePath 优先于内联 code。
     (node.type === 'python' || node.type === 'bash') && createElement('div', { className: 'dsh-wf-panel-row' },
       createElement('label', { className: 'dsh-wf-panel-label' }, reqMark(), '📄 代码文件（二选一）'),
@@ -3568,7 +3568,7 @@ function MediaFields({ node, onParamsChange }: {
         title: '真实发一次最小生成请求，验证 baseURL/Key/模型组合是否可用',
       }, imageTesting ? '⏳ 测试中…' : '🔍 测试连接')),
       imageTestMsg && createElement('div', { className: 'dsh-wf-panel-hint' }, imageTestMsg),
-      createElement('div', { className: 'dsh-wf-panel-hint' }, '运行后图片直接保存到工作区 .dag-flow/ 目录，输出含相对路径。测试会真实生成 1 张最小图（产生少量费用）。'),
+      createElement('div', { className: 'dsh-wf-panel-hint' }, '运行后图片直接保存到 <DSH_HOME>/.dag-flow/ 目录，输出含相对路径。测试会真实生成 1 张最小图（产生少量费用）。'),
     );
   }
   if (node.type === 'video_generate') {
@@ -3578,7 +3578,7 @@ function MediaFields({ node, onParamsChange }: {
       row('Key 环境变量名 / apiKey', text('apiKeyEnv', 'DASHSCOPE_API_KEY')),
       row('轮询间隔 (ms)', text('pollIntervalMs', '5000')),
       row('最长等待 (ms)', text('maxWaitMs', '600000'), '超时后节点失败并给出最后任务状态'),
-      createElement('div', { className: 'dsh-wf-panel-hint' }, '异步任务模式：提交 → 按 interval 轮询 statusPath → videoUrlPath 有值即完成，视频直接下载到工作区 .dag-flow/ 目录。'),
+      createElement('div', { className: 'dsh-wf-panel-hint' }, '异步任务模式：提交 → 按 interval 轮询 statusPath → videoUrlPath 有值即完成，视频直接下载到 <DSH_HOME>/.dag-flow/ 目录。'),
     );
   }
   // file_save
@@ -3602,7 +3602,7 @@ function MediaFields({ node, onParamsChange }: {
           defaultValue: typeof p.content === 'string' ? p.content : '',
           onBlur: (e: React.FocusEvent<HTMLTextAreaElement>) => onParamsChange({ content: e.target.value }),
         })),
-    row('!保存文件名', text('filename', 'output.txt'), '可含子目录（如 reports/周报.md）；直接保存到工作区 .dag-flow/ 目录下'),
+    row('!保存文件名', text('filename', 'output.txt'), '可含子目录（如 reports/周报.md）；直接保存到 <DSH_HOME>/.dag-flow/ 目录下'),
   );
 }
 

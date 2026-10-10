@@ -1,3 +1,4 @@
+import { useHomeAs } from './_isolate-home.mjs';   // ★ 2026-10-11：存储根 = <DSH_HOME>/.dag-flow
 // test/apply-host.test.mjs — 宿主接入层测试（dsh 0.2.0 语义 / 404 回归防线）
 //
 // 背景（2026-10-01 线上故障）：前端「新建工作流」报
@@ -36,6 +37,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ===== 伪造宿主 =====
 
 const WS = mkdtempSync(join(tmpdir(), 'dag-flow-apply-'));
+// ★ 2026-10-11：存储根固定 <DSH_HOME>/.dag-flow（与工作区无关）→ 把 DSH_HOME 指到本测试的临时工作区，
+//   于是 <DSH_HOME>/.dag-flow 正好等于 <WS>/.dag-flow，下面的路径断言语义不变。
+useHomeAs(WS);
 
 /** 伪造 0.2.0 cordis ctx：自有属性只有 get / effect，其余属性裸访问一律抛 inject 错。 */
 function makeProxyCtx(services) {
@@ -211,7 +215,7 @@ let s1 = null;   // 场景 2 要拿它的 effect disposer 模拟 fiber 卸载
   t('加载日志同时报告 tool / api 的注册结果', /workflow tool registered/.test(infoLine) && /api registered/.test(infoLine), infoLine);
   t('加载日志不再声称 safe mode', !/safe mode active/.test(infoLine), infoLine);
 
-  // 文件日志（工作区 .dag-flow/logs/）——修复前这条证据完全缺失
+  // 文件日志（<DSH_HOME>/.dag-flow/logs/）——修复前这条证据完全缺失
   await sleep(400);
   const logDir = join(WS, '.dag-flow', 'logs');
   const logFiles = existsSync(logDir) ? readdirSync(logDir).filter((f) => f.endsWith('.log')) : [];
@@ -219,8 +223,8 @@ let s1 = null;   // 场景 2 要拿它的 effect disposer 模拟 fiber 卸载
   const logText = logFiles.length ? readFileSync(join(logDir, logFiles[0]), 'utf8') : '';
   t('文件日志含路由注册条数与 loaded 行', /API routes registered: 21/.test(logText) && /\[dag-flow\] loaded/.test(logText), logText.slice(-300));
 
-  // 存储根来自 host-ctx（ctx.get('workspace').cwd），全部写入临时工作区
-  t('storage 根解析为宿主工作区（host-ctx）', existsSync(join(WS, '.dag-flow', 'workflow')), join(WS, '.dag-flow'));
+  // 存储根固定 <DSH_HOME>/.dag-flow（2026-10-11 起与工作区无关；本测试把 DSH_HOME 指向临时工作区）
+  t('storage 根落在 <DSH_HOME>/.dag-flow', existsSync(join(WS, '.dag-flow', 'workflow')), join(WS, '.dag-flow'));
 
   // ===== 复现 UI 的「新建工作流」请求 =====
   const save = await reqJson('POST', '/api/dag-flow/workflows/save', {

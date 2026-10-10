@@ -1,7 +1,7 @@
 // src/adapter/assets.ts — 工作流产出文件落盘（图片/视频/文件）
-// 产物目录：**<工作区>/.dag-flow/ 根下**（2026-09-26 用户指令：最终结果直接放 .dag-flow/，
+// 产物目录：**<DSH_HOME>/.dag-flow/ 根下**（2026-09-26 用户指令：最终结果直接放 .dag-flow/，
 //           不建专门产物子目录；filename 自带的相对子路径照落，如 .dag-flow/reports/周报.md）
-// 临时中转：下载类产物先写 <工作区>/.dag-flow/tmp/*.part，完成后 rename 到最终位置
+// 临时中转：下载类产物先写 <DSH_HOME>/.dag-flow/tmp/*.part，完成后 rename 到最终位置
 //          （大文件不占内存；中断残留只留在 tmp，不会污染最终目录）
 // 安全：filename 解析后必须仍在 .dag-flow/ 内（防路径穿越 ../）
 
@@ -10,17 +10,17 @@ import { createWriteStream, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
-import { workspaceRoot, dagFlowDir, dagFlowTmpDir } from './workspace.js';
+import { storageBaseDir, dagFlowDir, dagFlowTmpDir } from './workspace.js';
 
 export interface SavedAsset {
-  /** 相对当前工作区根的路径（含 .dag-flow/ 前缀，如 .dag-flow/reports/周报.md） */
+  /** 相对 <DSH_HOME> 的路径（含 .dag-flow/ 前缀，如 .dag-flow/reports/周报.md；2026-10-11 起基准不再是工作区） */
   relativePath: string;
   /** 宿主机绝对路径 */
   absolutePath: string;
   bytes: number;
 }
 
-/** 产物输出目录：<工作区>/.dag-flow（最终结果直接放这里，不建专门子目录） */
+/** 产物输出目录：<DSH_HOME>/.dag-flow（最终结果直接放这里，不建专门子目录） */
 export async function outputDir(): Promise<string> {
   return dagFlowDir();
 }
@@ -77,7 +77,7 @@ export async function saveAsset(
     ? (encoding === 'base64' ? Buffer.from(content, 'base64') : Buffer.from(content, 'utf8'))
     : Buffer.from(content);
   await fs.writeFile(file, buf);
-  const root = await workspaceRoot();
+  const root = await storageBaseDir();
   return {
     relativePath: path.relative(root, file).replace(/\\/g, '/'),
     absolutePath: file,
@@ -87,7 +87,7 @@ export async function saveAsset(
 
 /**
  * 下载 URL 为产出文件（视频/图片生成 API 常返回 CDN 链接）。
- * 流式写 <工作区>/.dag-flow/tmp/download-<随机>.part → 完成后 rename 到最终位置：
+ * 流式写 <DSH_HOME>/.dag-flow/tmp/download-<随机>.part → 完成后 rename 到最终位置：
  * 大文件不占内存；下载中断时残留只在 tmp，不会在最终目录留半成品。
  */
 export async function downloadAsset(url: string, filename: string, timeoutMs = 300_000): Promise<SavedAsset> {
@@ -107,7 +107,7 @@ export async function downloadAsset(url: string, filename: string, timeoutMs = 3
     await fs.rename(tmpFile, file);
     tmpFile = null;
     const stat = await fs.stat(file);
-    const root = await workspaceRoot();
+    const root = await storageBaseDir();
     return {
       relativePath: path.relative(root, file).replace(/\\/g, '/'),
       absolutePath: file,

@@ -1,3 +1,4 @@
+import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/fail-policy.test.mjs — DAG 失败策略专项（2026-10-04 轮 2，用户拍板「合并执行模型」第二棒）
 //
 // 背景：旧 DAG 执行器只有一个失败语义——`failedCount>0 → break`，**全图停**；

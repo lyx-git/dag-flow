@@ -1,3 +1,4 @@
+import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/storage-json.test.mjs — 存储层端到端验证：工作区 JSON 文件（无 SQLite）
 // 用 esbuild 即时打包 src/adapter/storage.ts → 临时 mjs → 跑断言
 import { build } from 'esbuild';
