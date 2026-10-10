@@ -213,7 +213,7 @@ export function JsonView({ def, onChange }: JsonViewProps) {
       createElement(
         'button',
         {
-          className: 'dsh-wf-btn dsh-wf-btn-primary dsh-wf-w-full',
+          className: 'dsh-wf-btn dsh-wf-btn-primary',
           disabled: !valid,
           onClick: commit,
           style: { marginTop: 8 },

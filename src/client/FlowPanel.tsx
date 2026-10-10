@@ -3329,7 +3329,7 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
       }),
     ),
     createElement('div', { className: 'dsh-wf-panel-row' },
-      createElement('button', { className: 'dsh-wf-btn dsh-wf-btn-danger dsh-wf-w-full', onClick: onDelete }, '🗑 删除节点'),
+      createElement('button', { className: 'dsh-wf-btn dsh-wf-btn-danger', onClick: onDelete }, '🗑 删除节点'),
     ),
     // ★ 内联代码编辑弹窗（每键自动写回 params.code，随工作流保存；右上角 ✕ 关闭——弹窗交互统一模式）。
     //   带丰富工具的代码编辑器（零依赖）：行号槽 + 语法高亮层 + 透明 textarea 叠加，

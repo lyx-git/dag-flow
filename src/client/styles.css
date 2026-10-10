@@ -688,7 +688,11 @@
 }
 
 .dsh-wf-text-muted { color: var(--dsh-wf-muted); }
-.dsh-wf-w-full { width: 100%; }
+/* ★ 2026-10-11：原「整行按钮」类（w-full / width:100%）已删除 —— 用户要求「🗑 删除节点」这类
+   "整行按钮"也**跟随文字宽度**（是 2026-10-09「按钮尺寸适配」的延伸）。
+   两处用法（FlowPanel 的删除节点、JsonView 的「应用 JSON」）同步去掉了该类名，
+   于是它们回到基类 `.dsh-wf-btn` 的 `width: fit-content; max-width: 100%`。
+   （下拉菜单条目 `.dsh-wf-export-item` 仍保留 width:100% —— 菜单项本来就该占满菜单宽。） */
 
 /* ========== 宸ヤ綔娴佺獥鍙ｏ紙涓瓑寮圭獥 + 鏈€澶у寲/鏈€灏忓寲/鎷栨嫿锛?========== */
 .dsh-wf-win {
