@@ -481,6 +481,30 @@ class DockErrorBoundary extends Component<{ children: any }, { error: Error | nu
   }
 }
 
+/** 应用内浮窗提示（用于面板外的宿主级操作，例如「打开文件夹」失败）——
+ *  与 FlowPanel 的 toast **同一套观感与口径**：顶部 14vh 居中、`dsh-wf-toast` 类名（吃 styles.css 的入场动画）；
+ *  **成功类 2.6s 自动消失、失败类常驻且点一下关闭**。
+ *  ★ 2026-10-11：用它替换了原来的原生 `alert`（用户准则：禁止系统原生弹窗）。 */
+function showToast(text: string, ok = false): void {
+  try {
+    const el = document.createElement('div');
+    el.className = 'dsh-wf-toast';
+    el.title = '点击关闭';
+    el.textContent = (ok ? '✓ ' : '✗ ') + text;
+    const accent = ok ? 'var(--wf-success, #34d399)' : 'var(--wf-danger, #f87171)';
+    el.setAttribute('style', [
+      'position:fixed', 'top:14vh', 'left:50%', 'transform:translateX(-50%)', 'z-index:10001',
+      'background:var(--wf-panel, #101a2b)',
+      `border:1px solid ${accent}`,
+      'border-radius:8px', 'padding:6px 14px', 'font-size:12px', 'line-height:1.5',
+      `color:${accent}`, 'cursor:pointer', 'max-width:min(560px, 88vw)', 'word-break:break-word',
+    ].join(';'));
+    el.addEventListener('click', () => { el.remove(); });
+    document.body.appendChild(el);
+    if (ok) setTimeout(() => { el.remove(); }, 2600);   // 失败类不自动消失（错误不该被吞掉）
+  } catch { /* 提示失败不影响功能 */ }
+}
+
 /** main 区的停靠面板：头部工具行 + 独立 React root 承载 FlowPanel。
  *  ★ 与 legacy 窗口模式同款挂载方式（createRoot 独立挂载，真机验证过）——
  *  在宿主 React 树内直接渲染 FlowPanel/FlowGram 会触发打包内 TDZ 崩溃
@@ -523,7 +547,8 @@ function DockedMainPanel(): any {
             // 打开当前工作区的工作流数据文件夹（<工作区>/.dag-flow/，系统文件管理器）
             fetch('/api/dag-flow/open-folder', { method: 'POST', credentials: 'include' })
               .then(async (r) => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`); })
-              .catch((e) => { console.error('[dag-flow] open folder failed:', e); alert('打开文件夹失败：' + (e as Error).message); });
+              // ★ 2026-10-11：失败提示由原生 alert 改为**应用内浮窗**（用户准则：禁止系统原生弹窗）
+              .catch((e) => { console.error('[dag-flow] open folder failed:', e); showToast('打开文件夹失败：' + (e as Error).message); });
           },
           title: '打开工作流数据文件夹（<工作区>/.dag-flow/）',
         }, '📁 工作流文件夹'),
@@ -578,7 +603,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261011-cleanup · apply OK');
+    console.log('[dag-flow] client v20261011-toast · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }
