@@ -1277,6 +1277,31 @@
 /* 右侧参数面板整体出现/消失（内容切换不重放，见上面说明） */
 .dsh-wf-right { animation: dsh-wf-fade 140ms ease-out; }
 
+/* 数据落盘位置标注（2026-10-11 用户需求：「定时任务的弹窗和运行日志的弹窗里面都和历史版本一样，
+   标记一下数据的存放位置，可以点一下直接打开文件夹」）——🕘 历史版本 / ⏰ 定时任务 / 🧾 运行日志 三处共用。
+   整行可点（cursor:pointer + hover 下划线），尾部一枚小「打开文件夹」胶囊提示可点。 */
+.dsh-wf-data-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  opacity: 0.72;
+  cursor: pointer;
+  word-break: break-all;
+}
+.dsh-wf-data-path:hover { opacity: 1; text-decoration: underline; }
+.dsh-wf-data-path-go {
+  flex: none;
+  font-size: 10px;
+  line-height: 1.5;
+  padding: 0 5px;
+  border: 1px solid var(--wf-line, rgba(139, 155, 179, .45));
+  border-radius: 4px;
+  font-family: var(--wf-font, inherit);
+  text-decoration: none;
+}
+
 /* 系统开了"减少动态效果"就全关（无障碍 ✓） */
 @media (prefers-reduced-motion: reduce) {
   .dag-flow-picker, .dag-flow-picker-overlay, .dsh-wf-export-menu, .dsh-wf-toast, .dsh-wf-right {

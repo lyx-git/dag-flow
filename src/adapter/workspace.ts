@@ -29,6 +29,21 @@ export async function dagFlowDir(): Promise<string> {
   return path.dirname(info.dir);
 }
 
+/** ★ 2026-10-11 新增：把「相对 .dag-flow 的子目录」解析成绝对路径（供「数据存于 … → 打开文件夹」用）。
+ *  规则：空/未给 = .dag-flow 根本身（与旧行为一致）；禁止绝对路径与任何 `../` 穿越
+ *  （解析后必须仍在 .dag-flow 内，Windows 下大小写不敏感比较）→ 越界一律返回 null（调用方 400）。 */
+export function resolveDagFlowSub(dir: string, sub?: string | null): string | null {
+  const base = path.resolve(dir);
+  const raw = String(sub ?? '').trim();
+  if (!raw) return base;
+  if (path.isAbsolute(raw)) return null;
+  const target = path.resolve(base, raw);
+  const norm = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p);
+  if (norm(target) === norm(base)) return base;
+  if (!norm(target).startsWith(norm(base) + path.sep)) return null;
+  return target;
+}
+
 let ensured: Promise<void> | null = null;
 
 /** 确保 .dag-flow/tmp、.dag-flow/logs 与 .dag-flow/scripts 目录存在（进程内只创建一次） */

@@ -97,6 +97,43 @@ function verDisplayPath(dir: string, name: string): string {
   return `${base}${sep}versions${sep}${name}${sep}<时间戳>.json`;
 }
 
+/** 展示用路径拼接（跟随服务端目录分隔符） */
+function joinDisplay(dir: string, file: string): string {
+  const sep = dir.includes('\\') ? '\\' : '/';
+  return `${dir.replace(/[\\/]+$/, '')}${sep}${file}`;
+}
+
+/** 打开 .dag-flow 下的数据文件夹（2026-10-11 用户需求：「标记一下数据的存放位置，可以点一下直接打开文件夹」）。
+ *  sub = 相对 .dag-flow 的子目录（'' = 根，如 schedules.json 就在根下）；越界由宿主 resolveDagFlowSub 拦下（400）。
+ *  失败走**应用内顶部浮窗**（项目铁律：禁用原生 alert/confirm）。 */
+function openFolderAt(sub: string, onFail: (msg: string) => void): void {
+  fetch('/api/dag-flow/open-folder', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sub }),
+  })
+    .then(async (r) => {
+      if (r.ok) return;
+      const j: any = await r.json().catch(() => null);
+      throw new Error(String(j?.error ?? `HTTP ${r.status}`));
+    })
+    .catch((e) => onFail(`打开文件夹失败：${(e as Error).message}`));
+}
+
+/** 「📁 数据存于 …（打开文件夹）」整行——🕘 历史版本 / ⏰ 定时任务 / 🧾 运行日志 三个弹窗共用同一样式与行为 */
+function dataPathRow(text: string, sub: string, onFail: (msg: string) => void): any {
+  return createElement('div', {
+    className: 'dag-flow-picker-hint dsh-wf-data-path',
+    style: { fontSize: 10, flex: 'none', fontFamily: 'ui-monospace, Consolas, monospace' },
+    title: '点击打开所在文件夹',
+    onClick: () => openFolderAt(sub, onFail),
+  },
+    `📁 数据存于 ${text}`,
+    createElement('span', { className: 'dsh-wf-data-path-go' }, '打开文件夹'),
+  );
+}
+
 /** 运行失败详情全文（失败弹窗正文，2026-10-02）：优先执行器错误串；否则从 RunSummary
  *  提取汇总错误 + 逐节点失败明细（画布徽标只标了状态，弹窗里给出每个节点的失败原因）。
  *  ★ 节点标识统一「显示名_节点id」格式（2026-10-02 用户指定：【失败原因：显示名_id】
@@ -1102,6 +1139,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
    *  补丁保存必须基于最新列表，不能读闭包里的 state（见 patchScheduleLocal 的注释）。 */
   const schedItemsRef = useRef<any[]>([]);
   const [schedInfo, setSchedInfo] = useState<any>(null);
+  /** 定时配置落盘文件全路径（服务端 /schedules 响应带 dir = …/schedules.json）——弹窗里标注并点击打开 */
+  const [schedDir, setSchedDir] = useState('');
   const [schedNote, setSchedNote] = useState('');
   const [schedBad, setSchedBad] = useState<Record<string, string>>({});
   /** ★ 2026-10-04 用户拍板「cron 改成手动确认生效」：编辑中的**草稿**（id → 文本）。
@@ -1118,6 +1157,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       schedItemsRef.current = items;      // ★ 与 ref 镜像同步（唯一写入口）
       setSchedItems(items);
       setSchedInfo(data.scheduler ?? null);
+      setSchedDir(String(data.dir ?? ''));
       setSchedNote(data.warning ? String(data.warning) : '');
     } catch (e) {
       setSchedNote('读取定时配置失败：' + (e as Error).message);
@@ -1207,6 +1247,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   const [logOpen, setLogOpen] = useState(false);
   const [logEntries, setLogEntries] = useState<any[]>([]);
   const [logMeta, setLogMeta] = useState<{ runId?: string; live?: boolean; runStatus?: string; error?: string; at?: number } | null>(null);
+  /** 运行记录落盘目录（服务端 /run/log 响应带 dir = …/runs）——弹窗里标注并点击打开 */
+  const [logDir, setLogDir] = useState('');
   const [logBusy, setLogBusy] = useState(false);
   const [logFilter, setLogFilter] = useState('');
   const [logScope, setLogScope] = useState<'all' | 'problem'>('all');
@@ -1230,6 +1272,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         return;
       }
       const entries: any[] = Array.isArray(j?.entries) ? j.entries : [];
+      setLogDir(String(j?.dir ?? ''));   // 落盘目录（每次拉取都写，值不变时 React 自动跳过重渲染）
       const live = !!j?.live;
       const sig = `${live}|${j?.runStatus ?? ''}|${entries.map((e) => `${e?.id}:${e?.status}:${e?.durationMs ?? ''}`).join(',')}`;
       logLiveRef.current = live;
@@ -1753,6 +1796,13 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
             schedInfo?.running
               ? `● 调度器运行中（心跳 ${fmtAgo(schedInfo?.lastTickAt)}，每 ${Math.round((schedInfo?.tickMs ?? 20000) / 1000)}s 检查一次；本机时区）`
               : '○ 调度器未运行——需要 dsh web 常驻，定时才会触发'),
+          // ★ 2026-10-11 用户需求：定时任务弹窗也要标记数据存放位置，且点一下直接打开文件夹
+          //   （schedules.json 就在 .dag-flow 根下 → sub 传空串开根目录；旧 host 无 dir 字段时回退通用路径）
+          dataPathRow(
+            schedDir || '<DSH_HOME>/.dag-flow/schedules.json',
+            '',
+            (m) => setImportMsg({ ok: false, text: m }),
+          ),
           schedNote ? createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11, opacity: 0.72 } }, schedNote) : null,
           createElement('div', { className: 'dsh-wf-sched-list' },
             schedItems.length
@@ -1888,9 +1938,12 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         createElement('div', { className: 'dag-flow-picker-body', style: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } },
           createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11, opacity: 0.72, flex: 'none' } },
             '手动 💾 保存会生成一个版本快照（自动保存不计入）。点「回载」把该版本放回画布；回载前的当前内容如与最新版本不同，也会先存为一个版本，随时可再退回。'),
-          // 数据存储位置标注（2026-10-01 夜用户要求；旧 host 无 dir 字段时回退通用路径，保证这行永远在）
-          createElement('div', { className: 'dag-flow-picker-hint dag-flow-picker-ver-path', style: { fontSize: 10, opacity: 0.6, flex: 'none', fontFamily: 'ui-monospace, Consolas, monospace' } },
-            verDir ? `📁 数据存于 ${verDisplayPath(verDir, def.name)}` : '📁 数据存于 <DSH_HOME>/.dag-flow/workflow/versions/<名称>/<时间戳>.json'),
+          // 数据存储位置标注（2026-10-01 夜用户要求；★ 2026-10-11 起**可点击打开**所在文件夹）
+          dataPathRow(
+            verDir ? verDisplayPath(verDir, def.name) : '<DSH_HOME>/.dag-flow/workflow/versions/<名称>/<时间戳>.json',
+            `workflow/versions/${def.name}`,
+            (m) => setImportMsg({ ok: false, text: m }),
+          ),
           verLoading && createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11, opacity: 0.72 } }, '加载中…'),
           !verLoading && verList.length === 0
             ? createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11, opacity: 0.72 } }, '暂无历史版本——手动 💾 保存后即可在此回溯。')
@@ -2191,6 +2244,13 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
                   // ★ 2026-10-09：过滤生效时把"藏了多少条"也写出来，避免用户以为日志丢了 ✓
                   ? ` · 已过滤：只看失败/跳过（显示 ${logView.length} 条，隐藏 ${Math.max(0, logEntries.length - logView.length)} 条）`
                   : '')),
+          // ★ 2026-10-11 用户需求：运行日志弹窗也要标记数据存放位置 + 点击打开文件夹
+          //   运行记录落盘在 .dag-flow/runs/<runId>.json（画布节点的入参/出参就是从这些记录读的）
+          dataPathRow(
+            logDir ? joinDisplay(logDir, `${logMeta?.runId ?? '<runId>'}.json`) : '<DSH_HOME>/.dag-flow/runs/<runId>.json',
+            'runs',
+            (m) => setImportMsg({ ok: false, text: m }),
+          ),
           createElement('div', { className: 'dsh-wf-log-toolbar' },
             createElement('button', { className: 'dsh-wf-btn', title: '重新拉取日志', onClick: () => void fetchRunLog() }, logBusy ? '⏳ 刷新中' : '🔄 刷新'),
             // ★ 只看失败/跳过（2026-10-04 便利性：大图排查时不必在几十条里翻）

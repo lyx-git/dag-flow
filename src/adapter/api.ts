@@ -23,7 +23,7 @@ import { disabledApis } from './safety.js';
 import { createHostRouteRegistrar } from '../dsh-gate/registrar.js';
 import { createStorage } from './storage.js';
 import { createLogger } from './logger.js';
-import { dagFlowDir } from './workspace.js';
+import { dagFlowDir, resolveDagFlowSub } from './workspace.js';
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import * as path from 'node:path';
@@ -431,22 +431,32 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
     });
 
     // 3.2 打开工作流数据文件夹（2026-10-02 用户需求：dock head 按钮 → 系统文件管理器打开 <DSH_HOME>/.dag-flow/）
+    //     ★ 2026-10-11 用户需求：⏰ 定时任务弹窗 / 🧾 运行日志弹窗也要「标记数据存放位置 + 点一下打开文件夹」
+    //     → 本路由接受**可选** body `{ sub }`（.dag-flow 下的相对子目录，如 'runs'、'workflow/versions/<名>'）。
+    //     不带 sub = 打开 .dag-flow 根（dock 按钮的既有行为**一字未改** ✓）；越界路径由 resolveDagFlowSub 拦下。
     route({
       kind: 'exact',
       path: '/api/dag-flow/open-folder',
-      handler: async (_req: any, res: any) => {
+      handler: async (req: any, res: any) => {
         try {
+          let sub = '';
+          try {
+            const body = (await readJsonBody(req)) as { sub?: unknown };
+            sub = String((body as any)?.sub ?? '');
+          } catch { /* 没有 body（fetch 不带 JSON）：按根目录处理 */ }
           const dir = await dagFlowDir();
-          mkdirSync(dir, { recursive: true }); // 目录尚不存在时先建（首次安装还没存过工作流）
+          const target = resolveDagFlowSub(dir, sub);
+          if (!target) { sendJson(res, 400, { error: `打开文件夹失败：子目录非法（${sub}）` }); return; }
+          mkdirSync(target, { recursive: true }); // 目录尚不存在时先建（首次安装还没存过工作流）
           if (process.platform === 'win32') {
             // explorer.exe 的退出码不可靠（开成功也常返回 1），fire-and-forget 不等它
-            spawn('explorer.exe', [dir], { detached: true, stdio: 'ignore' }).unref();
+            spawn('explorer.exe', [target], { detached: true, stdio: 'ignore' }).unref();
           } else if (process.platform === 'darwin') {
-            spawn('open', [dir], { detached: true, stdio: 'ignore' }).unref();
+            spawn('open', [target], { detached: true, stdio: 'ignore' }).unref();
           } else {
-            spawn('xdg-open', [dir], { detached: true, stdio: 'ignore' }).unref();
+            spawn('xdg-open', [target], { detached: true, stdio: 'ignore' }).unref();
           }
-          sendJson(res, 200, { ok: true, path: dir });
+          sendJson(res, 200, { ok: true, path: target });
         } catch (e) {
           sendJson(res, 500, { error: `打开文件夹失败: ${(e as Error).message}` });
         }
@@ -497,6 +507,8 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
             finishedAt: target.finishedAt,
             nodeCount: entries.length,
             entries,
+            /** ★ 2026-10-11：运行记录落盘目录（弹窗里标注「数据存于 …」+ 点击打开用） */
+            dir: await storage.runsDir(),
           });
         } catch (e) {
           sendJson(res, 500, { error: `读取运行日志失败: ${(e as Error).message}` });
