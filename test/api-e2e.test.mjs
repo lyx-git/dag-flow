@@ -5,7 +5,7 @@ import { useHomeAs } from './_isolate-home.mjs';   // ★ 2026-10-11：存储根
 // 覆盖：节点列表 / 保存 / 列表 / 读取 / 404 / ai-models CRUD / sessions / run 真实执行。
 // 跑法：node test/api-e2e.test.mjs
 import * as http from 'node:http';
-import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -618,6 +618,27 @@ const del = async (p, body) => { const r = await fetch(url(p), { method: 'DELETE
   t('14.4 ★隔着节点引用（end 引用 a，路径 a→b→end）→ 放行（可达性口径，不误拦）',
     transitive.body?.summary?.status === 'success',
     JSON.stringify({ status: transitive.body?.summary?.status, code: transitive.body?.summary?.error?.code }));
+}
+
+// ===== 15. python / bash 默认执行目录（2026-10-11 用户拍板 A：不继承宿主 cwd，默认 <DSH_HOME>/.dag-flow）=====
+{
+  const dataRoot = join(fakeWorkspace, '.dag-flow');
+  const outOf = (b) => String(b && b.summary && b.summary.results && b.summary.results.target && b.summary.results.target.out || '').trim();
+
+  const py = await post('/run-node', { nodeType: 'python', params: { code: 'import os\nprint(os.getcwd())' } });
+  t('15.1 python 默认 cwd = <DSH_HOME>/.dag-flow（不再继承宿主启动目录）', outOf(py.body) === dataRoot, outOf(py.body));
+
+  const py2 = await post('/run-node', { nodeType: 'python', params: { code: 'import os\nprint(os.getcwd())', cwd: fakeWorkspace } });
+  t('15.2 显式 params.cwd 完全覆盖默认值', outOf(py2.body) === fakeWorkspace, outOf(py2.body));
+
+  // bash 用"相对路径产物落在哪"来断言（不依赖 MSYS 的 /c/... 路径格式）
+  const bs = await post('/run-node', { nodeType: 'bash', params: { code: 'echo hello-from-bash > cwd-probe.txt' } });
+  t('15.3 bash 的相对路径产物落在 <DSH_HOME>/.dag-flow', bs.status === 200 && existsSync(join(dataRoot, 'cwd-probe.txt')), JSON.stringify(bs.body) && JSON.stringify(bs.body).slice(0, 160));
+  try { rmSync(join(dataRoot, 'cwd-probe.txt')); } catch { /* 清理失败不影响断言 */ }
+
+  const bs2 = await post('/run-node', { nodeType: 'bash', params: { code: 'echo x > cwd-probe2.txt', cwd: fakeWorkspace } });
+  t('15.4 bash 显式 cwd 覆盖生效（产物落在指定目录）', bs2.status === 200 && existsSync(join(fakeWorkspace, 'cwd-probe2.txt')));
+  try { rmSync(join(fakeWorkspace, 'cwd-probe2.txt')); } catch { /* 同上 */ }
 }
 
 server.close();

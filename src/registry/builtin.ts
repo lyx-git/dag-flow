@@ -86,6 +86,21 @@ function pickPython(interpreter: PythonParams['interpreter']): string {
   return process.platform === 'win32' ? 'py' : 'python3';
 } */
 
+/** ★ 2026-10-11 用户拍板：python/bash 节点的**默认执行目录 = `<DSH_HOME>/.dag-flow`**（dag-flow 数据根），
+ *  **不再继承宿主 `process.cwd()`**（= 启动 dsh web 的目录）——脚本写相对路径会落进数据根，跟其它
+ *  dag-flow 数据同处一地（与「dag-flow 创建的文件默认放 <DSH_HOME>/.dag-flow」这条存储锚点一致）。
+ *  显式 `params.cwd` **完全覆盖**；取数据根失败时回退 `undefined`（= 继承宿主 cwd），
+ *  绝不因为取不到目录就让节点跑不起来。
+ *  ★ 注意：`dagFlowDir` 在本文件里是**函数内动态 import**（见 resolveCodePath）——不能当模块级标识符用，
+ *  所以这里同样动态取；否则本文件带 @ts-nocheck，tsc 不会报未定义，运行时才炸（2026-10-11 实测踩到）。 */
+async function scriptCwd(p: { cwd?: string }): Promise<string | undefined> {
+  if (p.cwd) return p.cwd;
+  try {
+    const { dagFlowDir } = await import('../adapter/workspace.js');
+    return await dagFlowDir();
+  } catch { return undefined; }
+}
+
 async function runPython(p: PythonParams, signal?: AbortSignal): Promise<NodeResult> {
   const { startedAt, t0 } = startedEnded();
   // ★ codePath（文件引用）优先于内联 code——明确引用了文件就以文件为准（内联 code 是
@@ -99,6 +114,7 @@ async function runPython(p: PythonParams, signal?: AbortSignal): Promise<NodeRes
     return { ...makeResult('failed', { error: { code: 'PYTHON_UNAVAILABLE', message: `Python 运行时未找到。执行：node scripts/download-runtime.mjs --platform=${detectPlatform()}` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
   }
   const timeoutMs = p.timeoutMs ?? 30_000;
+  const workDir = await scriptCwd(p);   // ★ 默认 <DSH_HOME>/.dag-flow（见 scriptCwd 注释）
 
   return new Promise<NodeResult>((resolve) => {
     let settled = false;
@@ -106,7 +122,7 @@ async function runPython(p: PythonParams, signal?: AbortSignal): Promise<NodeRes
     let child;
     try {
       child = spawn(exe, ['-c', code], {
-        cwd: p.cwd,
+        cwd: workDir,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
         // ★ 强制 Python 以 UTF-8 写 stdout/stderr——中文 Windows 下管道默认用系统代码页（GBK），
@@ -154,7 +170,7 @@ const pythonDef: NodeDefinition<PythonParams> = {
       code: { type: 'string' },
       codePath: { type: 'string' },
       timeoutMs: { type: 'integer', minimum: 1, maximum: 600_000 },
-      cwd: { type: 'string' },
+      cwd: { type: 'string', description: '脚本执行目录；留空 = <DSH_HOME>/.dag-flow（dag-flow 数据根），脚本的相对路径产物落在那里；填了完全以它为准' },
       requirements: { type: 'array', items: { type: 'string' } },
       packages: { type: 'array', items: { type: 'string' } },
     },
@@ -183,12 +199,13 @@ async function runBash(p: BashParams, signal?: AbortSignal): Promise<NodeResult>
     return { ...makeResult('failed', { error: { code: 'BASH_UNAVAILABLE', message: `bash 运行时未找到。执行：node scripts/download-runtime.mjs --platform=${detectPlatform()}` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
   }
   const timeoutMs = p.timeoutMs ?? 30_000;
+  const workDir = await scriptCwd(p);   // ★ 默认 <DSH_HOME>/.dag-flow（见 scriptCwd 注释）
   return new Promise<NodeResult>((resolve) => {
     let settled = false;
     const settle = (r: NodeResult) => { if (!settled) { settled = true; resolve(r); } };
     let child;
     try {
-      child = spawn(exe, ['-c', code], { cwd: p.cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: scriptEnv(exe) });
+      child = spawn(exe, ['-c', code], { cwd: workDir, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: scriptEnv(exe) });
     } catch (e) {
       settle({ ...makeResult('failed', { error: { code: 'BASH_SPAWN', message: `${exe}: ${(e as Error).message}` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() });
       return;
@@ -230,7 +247,7 @@ const bashDef: NodeDefinition<BashParams> = {
     properties: {
       code: { type: 'string' }, codePath: { type: 'string' },
       timeoutMs: { type: 'integer', minimum: 1, maximum: 600_000 },
-      cwd: { type: 'string' },
+      cwd: { type: 'string', description: '脚本执行目录；留空 = <DSH_HOME>/.dag-flow（dag-flow 数据根），脚本的相对路径产物落在那里；填了完全以它为准' },
       dangerouslyAllowDestructive: { type: 'boolean' },
     },
     anyOf: [{ required: ['code'] }, { required: ['codePath'] }],
