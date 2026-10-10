@@ -3,8 +3,7 @@
 // ★ 所有节点 run 必须返回 NodeResult，不得抛非受控异常（用 safeNodeRun 包）
 
 import { spawn } from 'node:child_process';
-import { writeFile, mkdtemp, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import { join, dirname, isAbsolute } from 'node:path';
 import type { Context, NodeDefinition, NodeResult, JsonValue } from '../types.js';
 import {
