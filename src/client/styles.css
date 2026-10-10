@@ -1,4 +1,4 @@
-/* src/client/styles.css 鈥?瀹㈡埛绔?UI 鐙珛鏍峰紡锛堜笉鑱斿姩 DSH 涓婚鍙橀噺锛?*/
+/* src/client/styles.css — 客户端 UI 独立样式（不联动 DSH 主题变量） */
 
 /* ========== CSS Reset & Root ========== */
 .dsh-wf-root,
@@ -20,8 +20,8 @@
   overflow: hidden;
 }
 
-/* ========== 璁捐绯荤粺锛堝榻?dsh-node-flow锛氭繁绌鸿摑 --wf-* 鍙屼富棰橈級 ========== */
-/* 涓婚 A锛氭繁绌鸿摑锛堥粯璁わ紝鍙傝€?dsh-node-flow dark #08101e锛?*/
+/* ========== 设计系统（对齐 dsh-node-flow：深空蓝 --wf-* 双主题） ========== */
+/* 主题 A：深空蓝（默认，参考 dsh-node-flow dark #08101e） */
 :root,
 [data-wf-theme="nodeflow"] {
   --wf-bg: #08101e;
@@ -50,7 +50,7 @@
   --wf-focus: rgba(111, 143, 255, 0.18);
   --wf-shadow: rgba(0, 0, 0, 0.42);
   --wf-shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.38), 0 2px 10px rgba(0, 0, 0, 0.2);
-  /* 鍏煎鏄犲皠锛氭垜浠殑 dsh-wf-* 缁勪欢鍙橀噺 鈫?鏂颁綋绯?*/
+  /* 兼容映射：我们的 dsh-wf-* 组件变量 → 新体系 */
   --dsh-wf-bg: var(--wf-bg);
   --dsh-wf-panel: var(--wf-panel);
   --dsh-wf-border: var(--wf-border);
@@ -72,7 +72,7 @@
   --dsh-wf-edge: var(--wf-edge);
   --dsh-wf-edge-active: var(--wf-edge-active);
 }
-/* 涓婚 B锛氭祬鑹诧紙鍙傝€?dsh-node-flow light锛?*/
+/* 主题 B：浅色（参考 dsh-node-flow light） */
 [data-wf-theme="nodeflow-light"],
 [data-wf-theme="dsh"] {
   --wf-bg: #f2f5fa;
@@ -122,7 +122,7 @@
   --dsh-wf-edge: var(--wf-edge);
   --dsh-wf-edge-active: var(--wf-edge-active);
 }
-/* 娣辩┖钃濋潰鏉胯儗鏅厜鏅曪紙瀵归綈 dsh-node-flow .wf-shell锛?*/
+/* 深空蓝面板背景光晕（对齐 dsh-node-flow .wf-shell） */
 .dsh-wf-root {
   background:
     radial-gradient(circle at 50% -20%, rgba(73, 111, 187, 0.1), transparent 34%),
@@ -282,7 +282,7 @@
   padding-inline: 10px;
 }
 
-/* ========== 鎸夐挳锛堢粺涓€浣撶郴锛?========== */
+/* ========== 按钮（统一体系） ========== */
 .dsh-wf-btn {
   min-height: 34px;
   box-sizing: border-box;
@@ -323,7 +323,7 @@
 .dsh-wf-btn:active:not(:disabled) { transform: translateY(0); }
 .dsh-wf-btn:focus-visible { outline: 2px solid var(--wf-accent, #6f8fff); outline-offset: 2px; }
 .dsh-wf-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-/* 涓昏鎸夐挳锛堜繚瀛?纭畾锛宎ccent 娓愬彉 + 鍐呭彂鍏夛紝瀵归綈 wf-btn--primary锛?*/
+/* 主要按钮（accent 渐变 + 内发光，对齐 wf-btn--primary） */
 .dsh-wf-btn-primary {
   padding-inline: 16px;
   background: linear-gradient(180deg, #7394ff, var(--wf-accent-dark, #5574e8));
@@ -337,7 +337,7 @@
   border-color: #9bb0ff;
   box-shadow: 0 9px 22px rgba(72, 102, 224, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
-/* 杩愯鎸夐挳锛堟垚鍔熻涔夛紝缁胯壊锛?*/
+/* 运行按钮（成功语义，绿色） */
 .dsh-wf-btn-success {
   background: linear-gradient(180deg, #34d399, #10b981);
   color: white;
@@ -350,7 +350,7 @@
   transform: translateY(-1px);
   box-shadow: 0 7px 16px rgba(16, 185, 129, 0.25);
 }
-/* 鍗遍櫓鎸夐挳锛堝垹闄わ紝鏆楃孩搴曪級 */
+/* 危险按钮（删除，暗红底） */
 .dsh-wf-btn-danger {
   background: rgba(93, 22, 42, 0.56);
   border-color: rgba(190, 52, 82, 0.35);
@@ -361,7 +361,7 @@
   border-color: rgba(190, 52, 82, 0.6);
   color: #ffffff;
 }
-/* 娆¤鎸夐挳锛坓host锛?*/
+/* 次要按钮（ghost） */
 .dsh-wf-btn-ghost {
   background: transparent;
   border-color: var(--wf-border3, #365173);
@@ -370,8 +370,8 @@
 }
 .dsh-wf-btn-ghost:hover:not(:disabled) { background: var(--wf-panel3, #172640); color: var(--wf-text, #dce7f8); border-color: #3a4f7a; }
 
-/* ========== 涓夋爮甯冨眬 ========== */
-/* ========== 甯冨眬锛氱敾甯冨叏灞?+ 娴眰闈㈡澘锛堝榻?dsh-node-flow锛?========== */
+/* ========== 三栏布局 ========== */
+/* ========== 布局：画布全屏 + 浮层面板（对齐 dsh-node-flow） ========== */
 .dsh-wf-body {
   position: relative;
   flex: 1;
@@ -381,7 +381,7 @@
     radial-gradient(circle at 50% -20%, rgba(73, 111, 187, 0.1), transparent 34%),
     var(--wf-bg, #08101e);
 }
-/* Inspector 娴眰锛堝彸渚у崱鐗囷紝瀵归綈 .wf-inspector锛?*/
+/* Inspector 浮层（右侧卡片，对齐 .wf-inspector） */
 .dsh-wf-right {
   position: absolute;
   top: 14px;
@@ -470,7 +470,7 @@
 .dsh-wf-right-resize.se { bottom: 0; right: 0; width: 13px; height: 13px; cursor: nwse-resize; }
 .dsh-wf-right-resize.sw { bottom: 0; left: 0; width: 13px; height: 13px; cursor: nesw-resize; }
 
-/* ========== Palette 鑺傜偣鍗＄墖锛堝乏渚ч潰鏉匡級 ========== */
+/* ========== Palette 节点卡片（左侧面板） ========== */
 .dsh-wf-palette-section {
   padding: 10px 8px 6px;
   font-size: 10px;
@@ -485,7 +485,7 @@
   border-color: var(--wf-node-border2, #466485);
   box-shadow: 0 18px 38px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.055);
 }
-/* 鑺傜偣鍥炬爣锛?-kind 鑳屾櫙鏂瑰潡锛?*/
+/* 节点图标：--kind 背景方块 */
 .dsh-wf-rf-node-icon {
   display: inline-flex;
   align-items: center;
@@ -630,7 +630,7 @@
 }
 
 
-/* ========== 鐘舵€佹爮锛圕anvas 搴曢儴锛?========= */
+/* ========== 状态栏（Canvas 底部） ========== */
 .dsh-wf-statusbar {
   position: absolute;
   bottom: 12px;
@@ -651,7 +651,7 @@
 .dsh-wf-statusbar-valid { color: var(--dsh-wf-success); font-weight: 500; }
 .dsh-wf-statusbar-error { color: var(--dsh-wf-danger); font-weight: 500; }
 
-/* ========== React Flow 涓婚瑕嗙洊锛堜笉鑱斿姩 DSH 涓婚锛?========== */
+/* ========== React Flow 主题覆盖（不联动 DSH 主题） ========== */
 .dsh-wf-root .react-flow {
   background: var(--dsh-wf-bg);
 }
@@ -694,7 +694,7 @@
    于是它们回到基类 `.dsh-wf-btn` 的 `width: fit-content; max-width: 100%`。
    （下拉菜单条目 `.dsh-wf-export-item` 仍保留 width:100% —— 菜单项本来就该占满菜单宽。） */
 
-/* ========== 宸ヤ綔娴佺獥鍙ｏ紙涓瓑寮圭獥 + 鏈€澶у寲/鏈€灏忓寲/鎷栨嫿锛?========== */
+/* ========== 工作流窗口（中等弹窗 + 最大化/最小化/拖拽） ========== */
 .dsh-wf-win {
   position: fixed;
   background: color-mix(in srgb, var(--wf-panel, #0d1728) 98%, transparent);
@@ -766,13 +766,13 @@
   line-height: 1.5;
 }
 
-/* 鎵撳紑宸蹭繚瀛樺伐浣滄祦涓嬫媺 */
+/* 打开已保存工作流下拉 */
 .dsh-wf-open-select {
   max-width: 140px;
   font-size: 12px;
 }
 
-/* 杩愯缁撴灉鍥炴樉 */
+/* 运行状态徽标（现仅用于头部「⏸ 等待人工确认」） */
 .dsh-wf-run-result {
   font-size: 12px;
   padding: 3px 8px;
@@ -782,9 +782,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.dsh-wf-run-result.is-ok { background: rgba(16,185,129,.12); color: #0f9d6e; }
-.dsh-wf-run-result.is-fail { background: rgba(245,158,11,.12); color: #d97706; }
-.dsh-wf-run-result.is-err { background: rgba(244,63,94,.12); color: #e11d48; }
+/* ★ 2026-10-11 清理：is-ok / is-fail / is-err 三条已随"右侧运行结果条撤掉"变成死规则 → 已删除。
+   基类 .dsh-wf-run-result 保留：头部「⏸ 等待人工确认」徽标（.is-wait，见下方）仍在使用。 */
 
 .dsh-wf-rf-node.is-ok { border-color: var(--dsh-wf-success); }
 .dsh-wf-rf-node.is-err { border-color: var(--dsh-wf-danger); }
@@ -793,7 +792,7 @@
 .dsh-wf-rf-node-run.is-err { background: rgba(244,63,94,.12); color: var(--dsh-wf-danger); }
 .dsh-wf-rf-node-run.is-skip { background: rgba(100,116,139,.12); color: var(--dsh-wf-muted); }
 
-/* ========== 缁勪欢澶у皬 token 浣撶郴锛堜腑寮?8px 鍩烘暟锛?========== */
+/* ========== 组件大小 token 体系（8px 基数） ========== */
 :root {
   --dsh-wf-space-1: 4px;
   --dsh-wf-space-2: 8px;
@@ -806,7 +805,7 @@
   --dsh-wf-font-sm: 12px;
   --dsh-wf-font-md: 13px;
   --dsh-wf-font-lg: 14px;
-  --dsh-wf-control-h: 28px;      /* 鎸夐挳/杈撳叆妗嗙粺涓€楂樺害 */
+  --dsh-wf-control-h: 28px;      /* 按钮/输入框统一高度 */
   --dsh-wf-node-min-w: 150px;    /* 鑺傜偣鍗℃渶灏忓 */
   --dsh-wf-node-max-w: 220px;
 }
@@ -826,14 +825,14 @@
 .dsh-wf-manage-item-action { font-size: 12px; color: var(--dsh-wf-accent); }
 
 
-/* 杩愯璺緞楂樹寒锛堝榻?wf-edge--active锛氱豢鍏夋祦鍔ㄨ竟锛?*/
+/* 运行路径高亮（对齐 wf-edge--active：绿光流动边） */
 .react-flow__edge.wf-edge--active .react-flow__edge-path {
   stroke: var(--wf-edge-active, #35d39a);
   stroke-width: 2.6;
   filter: drop-shadow(0 0 5px var(--wf-edge-active-glow, rgba(53,211,154,.48)));
 }
 
-/* 椤堕儴娓愬彉 logo锛堝榻?wf-toolbar__logo锛?*/
+/* 顶部渐变 logo（对齐 wf-toolbar__logo） */
 .dsh-wf-logo {
   display: inline-flex;
   align-items: center;
@@ -1052,7 +1051,7 @@
 .dsh-wf-test-result pre { margin-top: 6px; font-size: 10.5px; white-space: pre-wrap; word-break: break-all;
   color: var(--wf-muted, #8b9bb3); font-family: ui-monospace, Consolas, monospace; }
 
-/* ==================== 鍋滈潬妯″紡锛坢ain 鍖哄煙鍋滈潬灞曠ず鐢诲竷锛?026-10-01锛?==================== */
+/* ==================== 停靠模式（main 区域停靠展示画布，2026-10-01） ==================== */
 /* 中央列（宿主 AppFrame 哈希类，本安装权威）：加定位锚点，供停靠面板铺满 */
 .pI_x6G_centerCol { position: relative; }
 .dsh-wf-dock { position: absolute; inset: 0; display: flex; flex-direction: column;

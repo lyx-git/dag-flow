@@ -16,7 +16,6 @@
     "cordis.patch.yml",
     "README.md",
     "RUNTIME_SETUP.md",
-    "CHANGELOG.md",
     "scripts/download-runtime.mjs"
   ],
   "scripts": {

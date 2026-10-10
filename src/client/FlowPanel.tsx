@@ -78,18 +78,6 @@ interface FlowPanelProps {
   onCache?: (def: WorkflowDef) => void;
 }
 
-/** 从 RunSummary 提取简短展示文本 */
-function summarizeRun(summary: unknown): string {
-  const s = summary as { status?: string; totalDurationMs?: number; toleratedCount?: number; error?: { code?: string; message?: string; nodeId?: string } } | null;
-  if (!s) return '完成';
-  const parts: string[] = [];
-  if (typeof s.totalDurationMs === 'number') parts.push(`${Math.round(s.totalDurationMs)}ms`);
-  // ★ 容错（2026-10-03）：有节点失败但被「失败不影响流程」放行时，头部明确标注（不静默吞掉失败）
-  if (s.toleratedCount) parts.push(`${s.toleratedCount} 个节点失败已容错`);
-  if (s.error?.message) parts.push(s.error.message);
-  return parts.length ? parts.join(' · ') : (s.status ?? '完成');
-}
-
 /** 版本数据落盘位置展示串（跟随服务端目录分隔符；2026-10-01 夜弹窗标注用） */
 function verDisplayPath(dir: string, name: string): string {
   const sep = dir.includes('\\') ? '\\' : '/';
