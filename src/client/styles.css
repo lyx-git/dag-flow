@@ -238,14 +238,6 @@
   border-color: var(--wf-accent, #6f8fff);
   box-shadow: 0 0 0 3px var(--wf-focus, rgba(111,143,255,.18));
 }
-.dsh-wf-btn-close {
-  background: transparent;
-  color: var(--dsh-wf-muted);
-}
-.dsh-wf-btn-close:hover:not(:disabled) {
-  color: var(--dsh-wf-danger);
-  background: rgba(244, 63, 94, .08);
-}
 .dsh-wf-spacer { flex: 1; }
 
 /* ========== Tabs ========== */
@@ -389,24 +381,6 @@
     radial-gradient(circle at 50% -20%, rgba(73, 111, 187, 0.1), transparent 34%),
     var(--wf-bg, #08101e);
 }
-/* Palette 娴眰锛堝乏涓婂崱鐗囷紝瀵归綈 .wf-palette锛?*/
-.dsh-wf-left {
-  position: absolute;
-  top: 62px;
-  left: 14px;
-  bottom: 14px;
-  width: 268px;
-  z-index: 45;
-  display: flex;
-  flex-direction: column;
-  background: color-mix(in srgb, var(--wf-panel, #0d1728) 97%, transparent);
-  border: 1px solid var(--wf-border2, #29405f);
-  border-radius: 16px;
-  box-shadow: var(--wf-shadow-panel, 0 18px 48px rgba(0,0,0,.38));
-  backdrop-filter: blur(18px);
-  overflow-y: auto;
-  overflow-x: hidden;
-}
 /* Inspector 娴眰锛堝彸渚у崱鐗囷紝瀵归綈 .wf-inspector锛?*/
 .dsh-wf-right {
   position: absolute;
@@ -505,68 +479,7 @@
   color: var(--wf-muted2, #647895);
   text-transform: uppercase;
 }
-.dsh-wf-palette-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 2px 6px;
-  min-height: 38px;
-  box-sizing: border-box;
-  padding: 7px 8px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  font-size: 12.5px;
-  font-weight: 560;
-  color: var(--wf-text, #dce7f8);
-  cursor: grab;
-  user-select: none;
-  transition: transform 0.14s ease, background 0.14s ease, border-color 0.14s ease;
-}
-.dsh-wf-palette-item:hover {
-  transform: translateX(2px);
-  background: var(--wf-panel3, #172640);
-  border-color: color-mix(in srgb, var(--wf-border2, #29405f) 75%, transparent);
-}
-.dsh-wf-palette-item:active { cursor: grabbing; }
-.dsh-wf-palette-emoji {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  font-size: 11px;
-  color: var(--wf-on-accent, #07111f);
-  flex-shrink: 0;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 4px 10px rgba(0, 0, 0, 0.16);
-}
-.dsh-wf-palette-label { color: var(--wf-text, #dce7f8); flex: 1; }
-.dsh-wf-palette-cat { font-size: 10px; color: var(--wf-muted, #91a4bf); }
 
-/* ========== 鏃у紩鎿庤妭鐐瑰崱鐗囷紙dsh-wf-rf-*锛孎lowGram 鐗堢敾甯冧笉鍐嶄娇鐢紱ThumbView 娌跨敤閮ㄥ垎鍙橀噺锛?========== */
-.dsh-wf-rf-node {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 12px;
-  text-align: center;
-  width: 132px;
-  min-height: 118px;
-  box-sizing: border-box;
-  border: 1px solid var(--wf-node-border, #314966);
-  border-radius: 15px;
-  background:
-    radial-gradient(circle at 50% -18%, color-mix(in srgb, var(--kind) 15%, transparent), transparent 56%),
-    linear-gradient(180deg, color-mix(in srgb, var(--wf-panel2, #111e32) 97%, white 3%), var(--wf-panel, #0d1728));
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  color: var(--wf-text, #dce7f8);
-  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
-  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, outline-color 0.16s ease;
-}
 .react-flow__node:hover .dsh-wf-rf-node {
   transform: translateY(-2px);
   border-color: var(--wf-node-border2, #466485);
@@ -585,26 +498,6 @@
   color: var(--wf-on-accent, #07111f);
   flex-shrink: 0;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 8px 16px rgba(0, 0, 0, 0.25);
-}
-.dsh-wf-rf-node-title {
-  font-weight: 680;
-  font-size: 12.5px;
-  color: var(--wf-text2, #f6f9ff);
-  line-height: 1.3;
-  letter-spacing: -0.015em;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.dsh-wf-rf-node-sub {
-  font-size: 10px;
-  color: var(--wf-muted, #91a4bf);
-  margin-top: 0;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .dsh-wf-rf-node.selected {
   outline: 2px solid var(--wf-accent, #6f8fff);
@@ -693,108 +586,18 @@
   user-select: none;
 }
 
-/* ========== 缂╃暐鍥撅紙Thumb锛?========= */
-.dsh-wf-thumb-root {
-  padding: 24px;
-  overflow-y: auto;
-  height: 100%;
-}
-.dsh-wf-thumb-flow {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-.dsh-wf-thumb-card {
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--wf-node-border, #314966);
-  text-align: center;
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-  min-width: 160px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--wf-panel2, #111e32) 97%, white 3%), var(--wf-panel, #0d1728));
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
-}
-.dsh-wf-thumb-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--wf-node-border2, #466485);
-  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.32);
-}
-.dsh-wf-thumb-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--dsh-wf-shadow-lg);
-}
-.dsh-wf-thumb-card-title {
-  font-weight: 600;
-  font-size: 13px;
-}
-.dsh-wf-thumb-card-sub {
-  font-size: 11px;
-  opacity: 0.7;
-  margin-top: 2px;
-}
-.dsh-wf-thumb-arrow {
-  width: 2px;
-  height: 24px;
-  background: var(--dsh-wf-muted);
-  position: relative;
-}
-.dsh-wf-thumb-arrow::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  left: -4px;
-  width: 0;
-  height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-top: 8px solid var(--dsh-wf-muted);
-}
 .dsh-wf-thumb-arrow.true { background: var(--dsh-wf-success); }
 .dsh-wf-thumb-arrow.true::after { border-top-color: var(--dsh-wf-success); }
 .dsh-wf-thumb-arrow.false { background: var(--dsh-wf-danger); }
 .dsh-wf-thumb-arrow.false::after { border-top-color: var(--dsh-wf-danger); }
-.dsh-wf-thumb-branch {
-  display: flex;
-  gap: 32px;
-  align-items: flex-start;
-  justify-content: center;
-  position: relative;
-}
-.dsh-wf-thumb-branch-label {
-  font-size: 10px;
-  margin-bottom: 4px;
-  text-align: center;
-}
 .dsh-wf-thumb-branch-label.true { color: var(--dsh-wf-success); }
 .dsh-wf-thumb-branch-label.false { color: var(--dsh-wf-danger); }
 
-/* ========== 琛ㄥ崟瑙嗗浘锛團orm锛?========= */
-.dsh-wf-form-root {
-  display: grid;
-  grid-template-columns: 240px 1fr 280px;
-  height: 100%;
-  background: var(--dsh-wf-bg);
-}
-.dsh-wf-form-list { background: var(--dsh-wf-panel); border-right: 1px solid var(--dsh-wf-border); overflow-y: auto; }
-.dsh-wf-form-list-item {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--dsh-wf-border);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-.dsh-wf-form-list-item:hover { background: var(--dsh-wf-hover); }
 .dsh-wf-form-list-item.active {
   background: rgba(59, 130, 246, 0.1);
   border-left: 3px solid var(--dsh-wf-accent);
   font-weight: 500;
 }
-.dsh-wf-form-detail { padding: 24px; overflow-y: auto; }
-.dsh-wf-form-record { background: var(--dsh-wf-panel); border-left: 1px solid var(--dsh-wf-border); overflow-y: auto; padding: 12px; }
 
 /* ========== JSON 瑙嗗浘 ========== */
 .dsh-wf-json-root {
@@ -826,38 +629,6 @@
   font-size: 11px;
 }
 
-/* ========== AI 瑙嗗浘 ========== */
-.dsh-wf-ai-root {
-  padding: 24px;
-  max-width: 800px;
-  margin: 0 auto;
-  height: 100%;
-  overflow-y: auto;
-}
-.dsh-wf-ai-prompt {
-  width: 100%;
-  min-height: 100px;
-  padding: 8px 12px;
-  font-size: 13px;
-  border: 1px solid var(--dsh-wf-border);
-  border-radius: 6px;
-  background: var(--dsh-wf-panel);
-  color: var(--dsh-wf-fg);
-  font-family: inherit;
-  resize: vertical;
-}
-.dsh-wf-ai-result {
-  margin-top: 16px;
-  padding: 12px;
-  background: var(--dsh-wf-panel);
-  border: 1px solid var(--dsh-wf-border);
-  border-radius: 6px;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 11px;
-  white-space: pre-wrap;
-  max-height: 360px;
-  overflow-y: auto;
-}
 
 /* ========== 鐘舵€佹爮锛圕anvas 搴曢儴锛?========= */
 .dsh-wf-statusbar {
@@ -916,19 +687,8 @@
   fill: var(--dsh-wf-panel);
 }
 
-/* ========== 宸ュ叿鏍峰紡 ========== */
-.dsh-wf-mt-2 { margin-top: 8px; }
-.dsh-wf-mt-4 { margin-top: 16px; }
-.dsh-wf-mb-2 { margin-bottom: 8px; }
 .dsh-wf-text-muted { color: var(--dsh-wf-muted); }
-.dsh-wf-text-success { color: var(--dsh-wf-success); }
-.dsh-wf-text-danger { color: var(--dsh-wf-danger); }
-.dsh-wf-flex { display: flex; }
-.dsh-wf-flex-col { display: flex; flex-direction: column; }
-.dsh-wf-gap-1 { gap: 4px; }
-.dsh-wf-gap-2 { gap: 8px; }
 .dsh-wf-w-full { width: 100%; }
-.dsh-wf-h-full { height: 100%; }
 
 /* ========== 宸ヤ綔娴佺獥鍙ｏ紙涓瓑寮圭獥 + 鏈€澶у寲/鏈€灏忓寲/鎷栨嫿锛?========== */
 .dsh-wf-win {
@@ -983,18 +743,6 @@
   min-height: 0;
   overflow: hidden;
 }
-/* 杈撳叆妗嗗唴宸ヤ綔娴佹寜閽?*/
-.dsh-wf-input-btn {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 13px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  color: var(--dsh-wf-muted, #64748b);
-  transition: background .15s, color .15s;
-}
-.dsh-wf-input-btn:hover { background: rgba(100,116,139,.12); color: var(--dsh-wf-fg, #0f172a); }
 
 /* 失败策略下拉（2026-10-04 轮 2：合并旧的「失败策略」+「失败不影响流程」两块，面板上只留一个入口） */
 .dsh-wf-failpolicy { cursor: pointer; }
@@ -1004,20 +752,7 @@
   line-height: 1.5;
 }
 
-/* tolerate switch (2026-10-03 plan A) 的历史样式：勾选框已并入上面的下拉（2026-10-04 轮 2），
-   规则暂留以免影响其它引用；新代码请用 .dsh-wf-failpolicy。 */
-.dsh-wf-tolerate {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--dsh-wf-fg, #e6edf7);
-  user-select: none;
-}
 
-.dsh-wf-tolerate-check { accent-color: var(--dsh-wf-accent, #38bdf8); cursor: pointer; }
-.dsh-wf-tolerate-text { opacity: .9; }
 
 /* 浼氳瘽杈撳叆鑺傜偣鎻愮ず */
 .dsh-wf-panel-hint {
@@ -1047,25 +782,9 @@
 .dsh-wf-run-result.is-fail { background: rgba(245,158,11,.12); color: #d97706; }
 .dsh-wf-run-result.is-err { background: rgba(244,63,94,.12); color: #e11d48; }
 
-/* ========== 杩愯鐘舵€佸彲瑙嗗寲锛堣妭鐐瑰窘鏍囷級 ========== */
-.dsh-wf-rf-node-status-dot {
-  display: inline-block;
-  width: 8px;
-  text-align: center;
-  font-size: 9px;
-  margin-right: 2px;
-}
 .dsh-wf-rf-node.is-ok { border-color: var(--dsh-wf-success); }
 .dsh-wf-rf-node.is-err { border-color: var(--dsh-wf-danger); }
 .dsh-wf-rf-node.is-skip { opacity: 0.55; }
-.dsh-wf-rf-node-run {
-  margin-top: 4px;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 4px;
-  display: inline-block;
-}
 .dsh-wf-rf-node-run.is-ok { background: rgba(16,185,129,.12); color: var(--dsh-wf-success); }
 .dsh-wf-rf-node-run.is-err { background: rgba(244,63,94,.12); color: var(--dsh-wf-danger); }
 .dsh-wf-rf-node-run.is-skip { background: rgba(100,116,139,.12); color: var(--dsh-wf-muted); }
@@ -1099,62 +818,9 @@
   line-height: 1.4;
 }
 
-/* 鑺傜偣绫诲瀷鏍囩锛堟柟鍧楄妭鐐瑰唴锛氳嚜瀹氫箟鍚嶄笅鏂规樉绀虹被鍨嬶級 */
-.dsh-wf-rf-node-type {
-  font-size: 10px;
-  opacity: 0.6;
-  margin-top: 1px;
-  font-weight: 500;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-/* ========== 宸ヤ綔娴佺鐞嗚鍥?========== */
-.dsh-wf-manage { padding: 16px; overflow-y: auto; height: 100%; }
-.dsh-wf-manage-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-.dsh-wf-manage-title { font-size: 14px; font-weight: 600; }
-.dsh-wf-manage-empty { color: var(--dsh-wf-muted); padding: 24px; text-align: center; font-size: 13px; }
-.dsh-wf-manage-list { display: flex; flex-direction: column; gap: 8px; }
-.dsh-wf-manage-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px 16px;
-  border: 1px solid var(--wf-border2, #29405f);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--wf-panel, #0d1728) 97%, transparent);
-  cursor: pointer;
-  transition: transform 0.14s ease, background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
-}
-.dsh-wf-manage-item:hover {
-  transform: translateY(-1px);
-  border-color: var(--wf-border3, #365173);
-  background: var(--wf-panel3, #172640);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
-}
-.dsh-wf-manage-item:hover { border-color: var(--dsh-wf-accent); box-shadow: var(--dsh-wf-shadow); }
-.dsh-wf-manage-item-name { font-size: 13px; font-weight: 600; flex: 1; }
-.dsh-wf-manage-item-meta { font-size: 12px; color: var(--dsh-wf-muted); }
 .dsh-wf-manage-item-action { font-size: 12px; color: var(--dsh-wf-accent); }
 
-/* 鍒嗘敮绔彛鏍囩锛坕f:true/false锛屽榻?wf-node__branch-label锛?*/
-.dsh-wf-rf-node-branch {
-  position: absolute;
-  right: 13px;
-  transform: translateY(-50%);
-  padding: 2px 4px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--wf-panel, #0d1728) 82%, transparent);
-  color: var(--wf-muted, #91a4bf);
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 2;
-}
 
 /* 杩愯璺緞楂樹寒锛堝榻?wf-edge--active锛氱豢鍏夋祦鍔ㄨ竟锛?*/
 .react-flow__edge.wf-edge--active .react-flow__edge-path {
@@ -1263,13 +929,6 @@
   from { opacity: 0; transform: translateX(-50%) translateY(8px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
-.dsh-wf-ver-list { display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; }
-.dsh-wf-ver-item {
-  padding: 7px 10px; border-radius: 8px; font-size: 12px; cursor: pointer;
-  font-family: ui-monospace, Consolas, monospace;
-  background: var(--wf-bg, #0b1120); border: 1px solid var(--wf-border, #22304a); color: var(--wf-text, #e6edf7);
-}
-.dsh-wf-ver-item:hover { border-color: var(--wf-accent, #4f8cff); }
 /* ===== ⏰ 定时任务弹窗（2026-10-03 用户拍板方案 v1，docs/SCHEDULE-PLAN.md §6）===== */
 /* ★ 为什么下面这几个弹窗宽度要写成 `.dag-flow-picker.xxx`（两个类）：
    `.dag-flow-picker { width: 680px }` 由 src/client/workflow-picker.ts 的 PICKER_CSS **运行时注入**，

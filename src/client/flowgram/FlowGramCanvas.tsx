@@ -1325,7 +1325,7 @@ export function Canvas(props: {
     runStatusStore.set(runResults ?? {});
   }, [runResults]);
 
-  // 选中节点 → 外置 store（FormView/ThumbView 发起的选中在画布上高亮）
+  // 选中节点 → 外置 store（外部视图发起的选中在画布上高亮）
   useEffect(() => {
     selectionStore.set(props.selectedNodeId ?? '');
   }, [props.selectedNodeId]);

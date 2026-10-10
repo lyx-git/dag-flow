@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// scripts/run-example.mjs — 本地 harness 运行 examples/*.json（不依赖 DSH 真机 GUI）
+// scripts/run-example.mjs — 本地 harness 运行工作流 JSON（不依赖 DSH 真机 GUI）
 //
 // 用法：
-//   node scripts/run-example.mjs examples/daily-briefing.json \
-//        [--inputs '{"run_media":"1","img_baseURL":"MOCK"}'] [--probes]
+//   node scripts/run-example.mjs <工作流.json> \
+//        [--inputs '{"k":"v"}'] [--probes]
 //
 // 说明：
 //   - stub cordis ctx（捕获 webServer 路由）+ 本地 http 服务挂插件 API，跑的是真实 dist/index.js；

@@ -180,10 +180,10 @@ function highlightCode(code: string, lang: 'python' | 'bash'): string {
 
 const TABS: { id: ViewTab; label: string; emoji: string }[] = [
   { id: 'canvas', label: '画布', emoji: '🎨' },
-  // 2026-10-01 深夜：移除「🖼 缩略图」「📝 表单」tab（用户反馈没啥用）——ThumbView/FormView.tsx 保留未引用
+  // 2026-10-01 深夜：移除「🖼 缩略图」「📝 表单」tab（用户反馈没啥用）
   { id: 'json', label: 'JSON', emoji: '{ }' },
-  // 2026-10-01 深夜：移除「🖼 缩略图」「📝 表单」「📋 管理」「🤖 AI 生成」tab（用户反馈没用）
-  // ——ThumbView/FormView/ManageView/AiGenView.tsx 保留未引用（esbuild 不打包）
+  // 2026-10-01 深夜：又移除「📋 管理」「🤖 AI 生成」tab（用户反馈没用）
+  // ——随之下线的 ThumbView/FormView/ManageView/AiGenView.tsx 已于 2026-10-11 删除（全仓零引用）
 ];
 
 // ================= 运行日志（2026-10-04 用户需求：「工作流执行黑盒」） =================
@@ -333,7 +333,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
 
   // 装饰节点的编辑桥 + 新建：**必须放在 handleDefChange 之后**（它依赖那个 const；
   //   本项目踩过"后置 const 引用 → TDZ：Cannot access before initialization"的坑）
-  // JsonView / FormView 直接修改 def
+  // JsonView 直接修改 def
   // ★ 2026-10-08 用户拍板：**写盘统一到 edges**——这些入口拿到的是"原始 def"（JSON 视图就是
   //   JSON.parse 出来的对象），先 canonicalizeDef 归一化（把 next 合并进 edges 并删掉 next），
   //   再落盘；确实发生归一化时给一条浮层提示，免得用户以为"我写的 next 被吞了"。

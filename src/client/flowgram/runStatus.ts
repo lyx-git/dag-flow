@@ -43,7 +43,7 @@ export const runStatusStore = {
   },
 };
 
-// —— 选中节点同步（FormView/ThumbView → 画布高亮）——
+// —— 选中节点同步（外部视图 → 画布高亮）——
 let _selected = '';
 const selListeners = new Set<() => void>();
 
