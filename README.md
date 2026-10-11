@@ -23,7 +23,7 @@
 ## 目录
 
 - [这是什么](#这是什么)
-- [3 步装上，30 秒跑通](#3-步装上30-秒跑通)
+- [2 步装上，30 秒跑通](#2-步装上30-秒跑通)
 - [界面导览](#界面导览)
 - [第一个工作流](#第一个工作流)
 - [看懂这 5 条就能用](#看懂这-5-条就能用)
@@ -57,23 +57,34 @@ dag-flow 把「写脚本干活」变成「在画布上连线」：
 
 ---
 
-## 3 步装上，30 秒跑通
+## 2 步装上，30 秒跑通
 
-### 1. 构建插件
-
-```bash
-cd dag-flow
-npm install
-npm run build          # 产出 dist/index.js（宿主）+ dist/client.js（界面）
-```
-
-### 2. 装进 DSH
+### 1. 装进 DSH
 
 ```bash
-dsh plugin add <dag-flow 的绝对路径>
+dsh plugin --profile web add github:lyx-git/dag-flow
+
+# 想固定到某个提交（可复现）：把 <sha> 换成仓库里的提交号
+dsh plugin --profile web add github:lyx-git/dag-flow#6bab0245a5ab5655cb5d2d63f5563bbcbcb18538
 ```
 
-### 3. 重启 DSH
+`--profile web` 就是 GUI（`dsh web`）用的那个档；桌面版 / TUI 请换成对应档名。
+
+**首次装会在安装时构建一次**：仓库不带构建产物（`dist/` 在 `.gitignore` 里），pnpm 会执行本包的 `prepare`（＝`npm run build`）现打 dist。pnpm 默认拦 git 包的构建脚本，第一次会失败并打印**要放行的完整 key**（形如 `dag-flow@git+https://github.com/lyx-git/dag-flow.git#<sha>`，**不是**裸包名）——把它原样抄进 `<DSH_HOME>/profiles/web/pnpm-workspace.yaml`，再**把上面那条命令原样跑一次**：
+
+```yaml
+allowBuilds:
+  dag-flow@git+https://github.com/lyx-git/dag-flow.git#<sha>: true
+```
+
+依赖走 npm 源；国内网络若卡在 `registry.npmjs.org`（DNS 污染 / 证书报错），在 `<DSH_HOME>/profiles/web/.npmrc` 里加一行 `registry=https://registry.npmmirror.com`。
+
+**更新**：把 `#<新 sha>` 换成要装的提交再跑一次 `add`；`dsh plugin --profile web update dag-flow` 会重新解析分支。
+**卸载**：`dsh plugin --profile web remove dag-flow`。
+
+> 从 GitHub 装会**替换** profile 里 `dag-flow` 那条依赖；想改代码、要"改完立刻生效"，见 [开发者](#开发者) 一节的本地源码装法。
+
+### 2. 重启 DSH
 
 **重启 `dsh web`**（宿主启动时才加载插件），然后刷新页面。
 侧栏出现 **「工作流」** 图标 = 装好了。
@@ -394,6 +405,13 @@ npm run fetch:runtime    # 按需下载内置运行时
 | 界面代码（`src/client/**`） | `npm run build:client` + **刷新页面** |
 | 只改工作流 JSON | 什么都不用做（刷新页面即可） |
 
+**装本地源码**（开发用：改完 `npm run build` 立刻生效）：
+
+```bash
+npm install && npm run build
+dsh plugin --profile web add link:D:\workspace\pluginspace\dag-flow
+```
+
 本地跑一个工作流 JSON（不需要 DSH 真机）：
 
 ```bash
@@ -415,7 +433,7 @@ MIT
 ## Table of contents
 
 - [What it is](#what-it-is)
-- [Install in 3 steps](#install-in-3-steps)
+- [Install in 2 steps](#install-in-2-steps)
 - [UI tour](#ui-tour)
 - [Your first workflow](#your-first-workflow)
 - [Five things to know](#five-things-to-know)
@@ -449,23 +467,34 @@ Highlights:
 
 ---
 
-## Install in 3 steps
+## Install in 2 steps
 
-### 1. Build
-
-```bash
-cd dag-flow
-npm install
-npm run build          # produces dist/index.js (host) + dist/client.js (client)
-```
-
-### 2. Install into DSH
+### 1. Install into DSH
 
 ```bash
-dsh plugin add <absolute path to dag-flow>
+dsh plugin --profile web add github:lyx-git/dag-flow
+
+# pin an exact commit (reproducible): replace <sha> with a commit id
+dsh plugin --profile web add github:lyx-git/dag-flow#6bab0245a5ab5655cb5d2d63f5563bbcbcb18538
 ```
 
-### 3. Restart DSH
+`--profile web` is the profile the GUI (`dsh web`) uses; use your own profile name for Desktop or the TUI.
+
+**It builds itself once, at install time**: the repo ships no build output (`dist/` is in `.gitignore`), so pnpm runs this package's `prepare` (= `npm run build`). pnpm blocks build scripts of git packages by default: the first attempt fails and prints the **exact key to allow** (shaped like `dag-flow@git+https://github.com/lyx-git/dag-flow.git#<sha>`, **not** the bare package name) — copy that printed line into `<DSH_HOME>/profiles/web/pnpm-workspace.yaml`, then **run the same command again**:
+
+```yaml
+allowBuilds:
+  dag-flow@git+https://github.com/lyx-git/dag-flow.git#<sha>: true
+```
+
+Dependencies come from the npm registry; behind a poisoned or slow `registry.npmjs.org`, add `registry=https://registry.npmmirror.com` to `<DSH_HOME>/profiles/web/.npmrc`.
+
+**Update**: re-run `add` with the ref you want; `dsh plugin --profile web update dag-flow` re-resolves the branch.
+**Uninstall**: `dsh plugin --profile web remove dag-flow`.
+
+> A GitHub install **replaces** the profile's `dag-flow` dependency line; to work on the code (edits take effect immediately), see the local-source install in [Development](#development).
+
+### 2. Restart DSH
 
 **Restart `dsh web`** (the host loads plugins at startup), then refresh the page.
 A **"Workflow"** icon appears in the sidebar — you're done.
@@ -665,7 +694,7 @@ Python / Bash nodes run inside that data root (empty `cwd` = `<DSH_HOME>/.dag-fl
 ```bash
 npm run typecheck        # TypeScript check
 npm run build            # build host + client bundles
-npm run test:offline     # offline regression suite (36 files)
+npm run test:offline     # offline regression suite (46 files)
 npm run fetch:runtime    # download bundled runtime on demand
 ```
 
@@ -674,6 +703,13 @@ npm run fetch:runtime    # download bundled runtime on demand
 | Host code | `npm run build:host` + **restart `dsh web`** |
 | Client code (`src/client/**`) | `npm run build:client` + **refresh the page** |
 | Workflow JSON only | nothing (just refresh) |
+
+**Install from local source** (development: takes effect right after `npm run build`):
+
+```bash
+npm install && npm run build
+dsh plugin --profile web add link:D:\workspace\pluginspace\dag-flow
+```
 
 Run a workflow JSON locally without a DSH instance:
 
