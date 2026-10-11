@@ -13,6 +13,7 @@
 //   set_var      vars 缺失/非对象/空对象（静默成功但什么都没写）
 //   subflow      workflowName 空白（not found 报错含糊）
 //   file_save    filename 空白（落到 saveAsset 才报含糊错误）
+//   doc_parse    path 与 url 都空白（节点自己会报 DOC_NO_PATH，但预检能更早拦住、并一次列全）
 //
 // 不在预检范围（已有专属错误码，语义被测试锁定，避免预检抢码）：
 //   subagent（MODEL_REQUIRED / SUBAGENT_EMPTY_PROMPT）、web_search（SEARCH_EMPTY_QUERY）、
@@ -67,6 +68,10 @@ const CHECKERS: Record<string, Checker> = {
   },
   subflow: (p) => (isBlank(p.workflowName) ? ['workflowName 为空——填写要调用的子工作流名称'] : []),
   file_save: (p) => (isBlank(p.filename) ? ['filename 为空——填写保存文件名（可含子目录）'] : []),
+  doc_parse: (p) =>
+    isBlank(p.path) && isBlank(p.url)
+      ? ['path 与 url 都为空——填本地文件路径（相对路径锚定 <DSH_HOME>/.dag-flow/）或下载地址']
+      : [],
 };
 
 /** 校验单个节点的 params；返回问题列表（空数组 = 通过） */

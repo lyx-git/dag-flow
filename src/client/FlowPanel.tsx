@@ -3379,7 +3379,7 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
     node.type === 'session_input' && createElement(SessionInputFields, { node, onParamsChange }),
     (node.type === 'image_generate' || node.type === 'video_generate' || node.type === 'file_save')
       && createElement(MediaFields, { node, onParamsChange }),
-    (node.type === 'web_search' || node.type === 'web_fetch')
+    (node.type === 'web_search' || node.type === 'web_fetch' || node.type === 'doc_parse')
       && createElement(WebFields, { node, onParamsChange }),
     createElement('div', { className: 'dsh-wf-panel-row' },
       createElement('label', { className: 'dsh-wf-panel-label' }, '显示名 (label)'),
@@ -3741,6 +3741,18 @@ function WebFields({ node, onParamsChange }: {
       )),
       createElement('div', { className: 'dsh-wf-panel-hint' },
         '内置 5 个免 key 引擎，任何 DSH 零配置可用；auto 模式下若宿主装有 dsh-free-search 会优先走宿主（自动继承你配置的付费引擎与密钥），失败自动回落内置引擎链（Bing→DDG Lite→DDG→SearXNG→AnySearch）。query 留空时节点不执行、流程在此中断。',
+      ),
+    );
+  }
+  if (node.type === 'doc_parse') {
+    return createElement('div', null,
+      row('!文件路径 (path)', text('path', 'documents/公告.pdf 或 D:\\文件\\报告.docx（可引用 {{u.out.path}}）'),
+        '相对路径锚定 <DSH_HOME>/.dag-flow/；支持 pdf / docx / xlsx / pptx / txt / md / csv / json / html'),
+      row('或：下载地址 (url)', text('url', 'https://…/公告.pdf'),
+        '填了 url 就忽略 path（会先下载再解析，60s 超时）'),
+      row('文本上限 (字符)', text('maxChars', '200000', 'number'), '默认 20 万；超出会截断并把 truncated 置为 true'),
+      createElement('div', { className: 'dsh-wf-panel-hint' },
+        '把 PDF / Office 文档抽成纯文本喂给下游（零依赖，不需要装任何库）。扫描版 PDF 没有文本层会明确报错（不做 OCR）；旧版 .doc/.xls/.ppt 请先另存为 docx/xlsx/pptx。path 与 url 都为空时节点不执行、流程在此中断。',
       ),
     );
   }

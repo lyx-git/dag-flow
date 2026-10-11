@@ -3,7 +3,7 @@ import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 
 // 可独立执行节点走 /run-node；依赖上游数据的节点（merge/loop.over 等）已在 api-e2e 覆盖。
 // 跑法：node test/node-matrix.test.mjs
 import * as http from 'node:http';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -51,8 +51,8 @@ const target = (r) => r.body?.summary?.results?.target;
 {
   const r = await fetch(base + '/nodes');
   const types = (await r.json())?.nodes ?? [];
-  const expected = ['start', 'end', 'python', 'bash', 'http', 'web_search', 'web_fetch', 'subagent', 'session_input', 'if', 'switch', 'merge', 'subflow', 'image_generate', 'video_generate', 'file_save', 'loop', 'set_var', 'log', 'manual'];
-  t('A. /nodes 返回全部 20 节点类型', expected.every((x) => types.includes(x)) && types.length === 20, JSON.stringify(types));
+  const expected = ['start', 'end', 'python', 'bash', 'http', 'web_search', 'web_fetch', 'doc_parse', 'subagent', 'session_input', 'if', 'switch', 'merge', 'subflow', 'image_generate', 'video_generate', 'file_save', 'loop', 'set_var', 'log', 'manual'];
+  t('A. /nodes 返回全部 21 节点类型', expected.every((x) => types.includes(x)) && types.length === 21, JSON.stringify(types));
 }
 
 // ===== B. 逐节点执行 =====
@@ -236,6 +236,43 @@ const target = (r) => r.body?.summary?.results?.target;
   const r = await runNode('web_search', { query: '' });
   const tg = target(r);
   t('16d. web_search query 留空 → 中断（SEARCH_EMPTY_QUERY，秒返）', tg?.status === 'failed' && tg?.error?.code === 'SEARCH_EMPTY_QUERY' && tg?.durationMs < 50, JSON.stringify(tg)?.slice(0, 140));
+}
+// 21. doc_parse（文档解析：真实读本地文件 + 三条错误路径）
+{
+  const md = join(process.cwd(), 'matrix-doc.md');
+  writeFileSync(md, '# 政策速览\n\n第一段正文。\n', 'utf8');
+  const r = await runNode('doc_parse', { path: md });
+  const out = target(r)?.out;
+  t('21. doc_parse 绝对路径 → success 且抽出文本', target(r)?.status === 'success' && out?.format === 'markdown' && String(out?.text).includes('第一段正文') && Number(out?.chars) > 0, JSON.stringify(out)?.slice(0, 180));
+
+  const rel = await runNode('doc_parse', { path: 'matrix-rel-doc.md' });   // 相对路径锚定 <DSH_HOME>/.dag-flow/
+  t('21b. doc_parse 相对路径不存在 → DOC_NOT_FOUND 且提示锚点', target(rel)?.error?.code === 'DOC_NOT_FOUND' && /\.dag-flow/.test(String(target(rel)?.error?.message)), JSON.stringify(target(rel)?.error)?.slice(0, 200));
+
+  const noPath = await runNode('doc_parse', {});
+  t('21c. doc_parse path/url 都空 → 被参数预检拦下（NODE_PARAMS_INVALID）', target(noPath)?.error?.code === 'NODE_PARAMS_INVALID' || noPath.body?.summary?.error?.code === 'NODE_PARAMS_INVALID', JSON.stringify(noPath.body?.summary?.error)?.slice(0, 160));
+
+  const bad = join(process.cwd(), 'matrix-doc.xyz');
+  writeFileSync(bad, 'x', 'utf8');
+  const un = await runNode('doc_parse', { path: bad });
+  t('21d. doc_parse 不支持的扩展名 → DOC_UNSUPPORTED', target(un)?.error?.code === 'DOC_UNSUPPORTED' && /pdf/.test(String(target(un)?.error?.message)), JSON.stringify(target(un)?.error)?.slice(0, 180));
+
+  // ★ 21e/21f（2026-10-11 审计出的真缺陷回归锁）：FlowPanel 的 text() 在 blur 时把 **字符串** 写进 params，
+  //   所以 maxChars 必须以字符串形态生效；否则用户设的上限被静默忽略（实测面板填 60 仍按默认 20 万跑）。
+  const longTxt = '正文行 '.repeat(120);
+  const longFile = join(process.cwd(), 'matrix-doc-long.md');
+  writeFileSync(longFile, longTxt, 'utf8');
+  const asStr = await runNode('doc_parse', { path: longFile, maxChars: '40' });
+  t('21e. doc_parse maxChars 以字符串传入（面板 blur 的形态）也生效', Number(target(asStr)?.out?.chars) === 40 && target(asStr)?.out?.truncated === true, `chars=${target(asStr)?.out?.chars} truncated=${target(asStr)?.out?.truncated}`);
+  const asNum = await runNode('doc_parse', { path: longFile, maxChars: 40 });
+  t('21f. doc_parse maxChars 以数字传入同样生效', Number(target(asNum)?.out?.chars) === 40 && target(asNum)?.out?.truncated === true, `chars=${target(asNum)?.out?.chars} truncated=${target(asNum)?.out?.truncated}`);
+
+  // 21g：面板文案承诺「相对路径锚定 <DSH_HOME>/.dag-flow/」——正例也要锁（此前只有"不存在"的反例）
+  const { ISOLATED_HOME } = await import('./_isolate-home.mjs');
+  const relDir = join(ISOLATED_HOME, '.dag-flow', 'documents');
+  mkdirSync(relDir, { recursive: true });
+  writeFileSync(join(relDir, 'matrix-rel-ok.md'), '相对路径正文\n', 'utf8');
+  const relOk = await runNode('doc_parse', { path: 'documents/matrix-rel-ok.md' });
+  t('21g. doc_parse 相对路径按 <DSH_HOME>/.dag-flow/ 锚定（正例）', target(relOk)?.status === 'success' && String(target(relOk)?.out?.text).includes('相对路径正文'), JSON.stringify(target(relOk)?.error ?? target(relOk)?.out)?.slice(0, 160));
 }
 
 // ===== C. 连接语义：if 双分支 + set_var→vars 引用（组合流）=====

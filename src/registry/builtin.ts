@@ -1,5 +1,5 @@
 // @ts-nocheck
-// src/registry/builtin.ts — 20 个内置节点
+// src/registry/builtin.ts — 21 个内置节点
 // ★ 所有节点 run 必须返回 NodeResult，不得抛非受控异常（用 safeNodeRun 包）
 
 import { spawn } from 'node:child_process';
@@ -19,6 +19,7 @@ import { readSessionContent } from '../adapter/sessions.js';
 import { saveAsset, downloadAsset } from '../adapter/assets.js';
 import { runWebSearch, runWebFetch } from '../adapter/search.js';
 import { humanizeFetchError } from '../adapter/fetch-errors.js';
+import { extractDocument, DocError, DOC_MAX_BYTES } from './doc-extract.js';
 import { waitForManual } from '../executor/awaiting.js';
 import { resolveParams } from '../executor/dataflow.js';
 
@@ -960,9 +961,87 @@ const webFetchDef: NodeDefinition<WebFetchNodeParams> = {
   describe: () => ({ label: '网页抓取', category: 'io' }),
 };
 
+// ---------- 21. doc_parse（文档解析：PDF / Office / 文本 → 纯文本） ----------
+//   零依赖（解析逻辑在 ./doc-extract.ts）。支持 pdf/docx/xlsx/pptx/txt/md/csv/json/html；
+//   扫描版 PDF（无文本层）明确报 DOC_NO_TEXT_LAYER（不做 OCR）；旧版 .doc/.xls/.ppt 提示另存。
+interface DocParseParams { path?: string; url?: string; maxChars?: number; timeoutMs?: number }
+async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeResult> {
+  const { startedAt, t0 } = startedEnded();
+  const fail = (code: string, message: string): NodeResult =>
+    ({ ...makeResult('failed', { error: { code, message } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() });
+
+  const rel = String(p.path ?? '').trim();
+  const url = String(p.url ?? '').trim();
+  if (!rel && !url) return fail('DOC_NO_PATH', 'path/url 都为空——填本地文件路径，或填下载地址（本地相对路径锚定 <DSH_HOME>/.dag-flow/）');
+  if (ctx.signal?.aborted) return fail('RUN_CANCELLED', '运行已由用户取消');
+
+  let buf: Buffer;
+  let name = rel;
+  if (url) {
+    // ★ 别信类型：面板 blur 写的是**字符串**（`e.target.value`），JSON 手写/AI 生成/`{{}}` 模板解析出来的
+    //   也可能是字符串。这里统一 Number() 强转再判——否则 `Number.isFinite('60')` 为 false，
+    //   用户设的上限会被**静默忽略**（2026-10-11 实测：面板填 60 仍按默认 20 万跑）。
+    const tmo = Number(p.timeoutMs);
+    const timeoutMs = Number.isFinite(tmo) && tmo > 0 ? tmo : 60_000;
+    const ac = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; ac.abort(); }, timeoutMs);
+    const onAbort = (): void => ac.abort();
+    ctx.signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      const resp = await fetch(url, { signal: ac.signal, redirect: 'follow' });
+      if (!resp.ok) return fail('DOC_URL_FAILED', `下载失败（HTTP ${resp.status}）——检查地址是否需要登录、是否有防盗链`);
+      const len = Number(resp.headers.get('content-length') ?? 0);
+      if (len > DOC_MAX_BYTES) return fail('DOC_TOO_LARGE', `文件过大（${(len / 1048576).toFixed(1)} MB，上限 ${DOC_MAX_BYTES / 1048576} MB）`);
+      const ab = await resp.arrayBuffer();
+      if (ab.byteLength > DOC_MAX_BYTES) return fail('DOC_TOO_LARGE', `文件过大（${(ab.byteLength / 1048576).toFixed(1)} MB，上限 ${DOC_MAX_BYTES / 1048576} MB）`);
+      buf = Buffer.from(ab);
+      const last = new URL(url).pathname.split('/').filter(Boolean).pop();
+      if (last) { try { name = decodeURIComponent(last); } catch { name = last; } }
+    } catch (e) {
+      if (timedOut) return fail('DOC_URL_FAILED', `下载超时（${timeoutMs}ms）——若文件较大可加大 timeoutMs`);
+      if (ctx.signal?.aborted || (e as Error).name === 'AbortError') return fail('RUN_CANCELLED', '下载期间运行被取消');
+      return fail('DOC_URL_FAILED', humanizeFetchError(e));
+    } finally {
+      clearTimeout(timer);
+      ctx.signal?.removeEventListener('abort', onAbort);
+    }
+  } else {
+    const abs = await resolveCodePath(rel);
+    try { buf = await readFile(abs); }
+    catch (e) {
+      const enoent = (e as NodeJS.ErrnoException).code === 'ENOENT';
+      return fail('DOC_NOT_FOUND', `读不到文件：${abs}${enoent ? '（文件不存在——相对路径锚定 <DSH_HOME>/.dag-flow/，也可填绝对路径）' : `（${(e as Error).message}）`}`);
+    }
+  }
+
+  try {
+    const mc = Number(p.maxChars);        // 同上：字符串形态（面板 blur / 模板 / 手写 JSON）也要生效
+    const r = extractDocument(buf, name, { maxChars: Number.isFinite(mc) && mc > 0 ? mc : undefined });
+    return finish(t0, startedAt, { out: r as never });
+  } catch (e) {
+    if (e instanceof DocError) return fail(e.code, e.message);
+    return fail('DOC_PARSE_FAILED', `解析失败：${(e as Error).message}`);
+  }
+}
+const docParseDef: NodeDefinition<DocParseParams> = {
+  type: 'doc_parse',
+  schema: {
+    type: 'object', additionalProperties: false,
+    properties: {
+      path: { type: 'string' },
+      url: { type: 'string' },
+      maxChars: { type: 'integer', minimum: 200, maximum: 2_000_000 },
+      timeoutMs: { type: 'integer', minimum: 1000, maximum: 300_000 },
+    },
+  },
+  run: async (ctx, p) => safeNodeRun(() => runDocParseNode(p as never, ctx)),
+  describe: () => ({ label: '文档解析', category: 'io' }),
+};
+
 // 注册
 export function registerBuiltinNodes(): void {
-  for (const d of [startDef, endDef, pythonDef, bashDef, subagentDef, sessionInputDef, httpDef, setVarDef, ifDef, switchDef, loopDef, logDef, manualDef, mergeDef, subflowDef, imageGenDef, videoGenDef, fileSaveDef, webSearchDef, webFetchDef]) {
+  for (const d of [startDef, endDef, pythonDef, bashDef, subagentDef, sessionInputDef, httpDef, setVarDef, ifDef, switchDef, loopDef, logDef, manualDef, mergeDef, subflowDef, imageGenDef, videoGenDef, fileSaveDef, webSearchDef, webFetchDef, docParseDef]) {
     WorkflowNodeRegistry.register(d as never);
   }
 }

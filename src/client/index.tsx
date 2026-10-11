@@ -5,6 +5,11 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261011-docparse：**新节点「📑 文档解析」（`doc_parse`）**——PDF / Office / 文本 → 纯文本，零依赖
+//   （解析内核 src/registry/doc-extract.ts，50 断言；节点在 builtin.ts，走纯加法）。
+//   客户端：调色板 + FlowGram 注册表 + 输出字段表各加一项，参数面板新增 path / url / maxChars 三行。
+//   扫描版 PDF（无文本层）明确报错、不做 OCR；旧版 .doc/.xls/.ppt 提示另存为 docx/xlsx/pptx。
+//
 // v20261011-auditfix：**2026-10-11 审计①②③ 三处一致性修复（对用户可见的两处）**。
 //   ① JSON 视图的 schema 此前 `onError: {type:['string','object']}` 比宿主宽松（宿主是严格 oneOf：
 //      goto 分支要求 `goto:string` 且不许有其它键）⇒ 右侧 ajv 报 ✅、一点运行才被拒。已与宿主逐字同形，
@@ -681,7 +686,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261011-auditfix · apply OK');
+    console.log('[dag-flow] client v20261011-docparse · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

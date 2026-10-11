@@ -57,7 +57,7 @@ export interface NodeMeta {
   defaultParams?: Record<string, JsonValue>;
 }
 
-/** 20 个内置节点（与 src/registry/builtin.ts 一一对应） */
+/** 21 个内置节点（与 src/registry/builtin.ts 一一对应） */
 export const NODE_PALETTE: NodeMeta[] = [
   { type: 'start', label: '开始', emoji: '🟢', color: '#10b981', bg: '#ecfdf5', text: '#065f46', category: 'control' },
   { type: 'end', label: '结束', emoji: '🔴', color: '#f43f5e', bg: '#fff1f2', text: '#9f1239', category: 'control' },
@@ -66,6 +66,7 @@ export const NODE_PALETTE: NodeMeta[] = [
   { type: 'http', label: 'HTTP', emoji: '🌐', color: '#3b82f6', bg: '#eff6ff', text: '#1e40af', category: 'io', defaultParams: { method: 'GET', url: '' } },
   { type: 'web_search', label: '网页搜索', emoji: '🔍', color: '#f59e0b', bg: '#fffbeb', text: '#92400e', category: 'io', defaultParams: { query: '', provider: 'auto', count: 8 } },
   { type: 'web_fetch', label: '网页抓取', emoji: '📄', color: '#14b8a6', bg: '#f0fdfa', text: '#0f766e', category: 'io', defaultParams: { url: '', maxChars: 8000 } },
+  { type: 'doc_parse', label: '文档解析', emoji: '📑', color: '#7c3aed', bg: '#f5f3ff', text: '#5b21b6', category: 'io', defaultParams: { path: '', maxChars: 200000 } },
   { type: 'subagent', label: 'AI 子代理', emoji: '🤖', color: '#06b6d4', bg: '#ecfeff', text: '#155e75', category: 'ai', defaultParams: { prompt: '' } },
   { type: 'session_input', label: '会话输入', emoji: '💬', color: '#14b8a6', bg: '#f0fdfa', text: '#0f766e', category: 'ai', defaultParams: { sessionId: '', limit: 10 } },
   { type: 'if', label: '条件分支', emoji: '🔀', color: '#ec4899', bg: '#fdf2f8', text: '#9d174d', category: 'control', hasTrueFalseHandle: true, defaultParams: { condition: 'count > 0' } },
@@ -140,6 +141,16 @@ export const NODE_OUT_SPECS: Record<string, NodeOutSpec> = {
       { path: 'chars', desc: '正文字符数' },
       { path: 'text', desc: '正文文本' },
       { path: 'json', desc: '解析后的 JSON（mode=json 时）' },
+    ],
+  },
+  doc_parse: {
+    kind: 'object',
+    fields: [
+      { path: 'text', desc: '抽取出的纯文本（可直接喂 AI 节点）' },
+      { path: 'format', desc: '识别到的格式（pdf / docx / xlsx / pptx / markdown / text / html…）' },
+      { path: 'chars', desc: '文本字符数' },
+      { path: 'truncated', desc: '是否被 maxChars 截断' },
+      { path: 'meta', desc: '附加信息（页数 / 工作表 / 幻灯片 / 原文件名等）' },
     ],
   },
   session_input: { kind: 'dynamic', note: '整份输出 = 读到的会话消息列表' },

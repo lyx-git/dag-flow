@@ -1,6 +1,6 @@
 // @ts-nocheck
 // src/client/flowgram/nodes.tsx
-// FlowGram 节点注册表：20 个内置节点 → FlowNodeRegistry。
+// FlowGram 节点注册表：21 个内置节点 → FlowNodeRegistry。
 // 节点卡视觉 = formMeta.render（nodeEngine 表单引擎渲染进节点体）；
 // 端口：start 只有 output，end 只有 input，if 双输出（true/false），其余 左入右出。
 
@@ -502,6 +502,7 @@ export const DSH_NODE_REGISTRIES: FlowNodeRegistry[] = [
   registry('http', { defaultPorts: [{ type: 'input' }, { type: 'output' }] }),
   registry('web_search', { defaultPorts: [{ type: 'input' }, { type: 'output' }] }),
   registry('web_fetch', { defaultPorts: [{ type: 'input' }, { type: 'output' }] }),
+  registry('doc_parse', { defaultPorts: [{ type: 'input' }, { type: 'output' }] }),
   registry('subagent', { defaultPorts: [{ type: 'input' }, { type: 'output' }] }),
   // ★ session_input 必须有 input 端口（2026-10-02 用户反馈：拖线创建会话输入节点后不连线）——
   //   buildLine 按 inputPorts.length>0 门控，此前只注册 output 端口导致拖线创建后静默不连线；
