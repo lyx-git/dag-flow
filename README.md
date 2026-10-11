@@ -61,23 +61,27 @@ dag-flow 把「写脚本干活」变成「在画布上连线」：
 
 ### 1. 装进 DSH
 
+先放行本包的构建脚本——仓库不带构建产物（`dist/` 在 `.gitignore` 里），装的时候要现场执行一次本包的 `prepare`（＝`npm run build`）打 dist。在 `<DSH_HOME>/profiles/web/pnpm-workspace.yaml` 里加这两行：
+
+```yaml
+allowBuilds:
+  'dag-flow@git+https://github.com/lyx-git/dag-flow.git': true
+```
+
+key 用「仓库 URL」形式（**不带到提交号的 `#<sha>`**），所以以后升级到任何提交都不用再改这一行。
+
+然后装（`--registry` 指向国内镜像，走 https 直连官方源也可以去掉它）：
+
 ```bash
-dsh plugin --profile web add github:lyx-git/dag-flow
+dsh plugin --profile web add github:lyx-git/dag-flow --registry=https://registry.npmmirror.com
 
 # 想固定到某个提交（可复现）：把 <sha> 换成仓库里的提交号
-dsh plugin --profile web add github:lyx-git/dag-flow#6bab0245a5ab5655cb5d2d63f5563bbcbcb18538
+dsh plugin --profile web add github:lyx-git/dag-flow#6bab0245a5ab5655cb5d2d63f5563bbcbcb18538 --registry=https://registry.npmmirror.com
 ```
 
 `--profile web` 就是 GUI（`dsh web`）用的那个档；桌面版 / TUI 请换成对应档名。
 
-**首次装会在安装时构建一次**：仓库不带构建产物（`dist/` 在 `.gitignore` 里），pnpm 会执行本包的 `prepare`（＝`npm run build`）现打 dist。pnpm 默认拦 git 包的构建脚本，第一次会失败并打印**要放行的完整 key**（形如 `dag-flow@git+https://github.com/lyx-git/dag-flow.git#<sha>`，**不是**裸包名）——把它原样抄进 `<DSH_HOME>/profiles/web/pnpm-workspace.yaml`，再**把上面那条命令原样跑一次**：
-
-```yaml
-allowBuilds:
-  dag-flow@git+https://github.com/lyx-git/dag-flow.git#<sha>: true
-```
-
-依赖走 npm 源；国内网络若卡在 `registry.npmjs.org`（DNS 污染 / 证书报错），在 `<DSH_HOME>/profiles/web/.npmrc` 里加一行 `registry=https://registry.npmmirror.com`。
+装的过程比普通包慢一点，因为它现场构建 dist；进度条走完就是装好了。万一手快直接装了、没先放行，pnpm 会报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 并打印它要求的那一行 key（形如 `dag-flow@https://codeload.github.com/lyx-git/dag-flow/tar.gz/<sha>`，**不是**裸包名）——把那行原样抄进同一个文件，再把同一条命令跑一次即可。
 
 **更新**：把 `#<新 sha>` 换成要装的提交再跑一次 `add`；`dsh plugin --profile web update dag-flow` 会重新解析分支。
 **卸载**：`dsh plugin --profile web remove dag-flow`。
@@ -471,23 +475,27 @@ Highlights:
 
 ### 1. Install into DSH
 
+Allow this package's build scripts first — the repo ships no build output (`dist/` is in `.gitignore`), so installing runs this package's `prepare` (= `npm run build`) once to produce `dist/`. Add these two lines to `<DSH_HOME>/profiles/web/pnpm-workspace.yaml`:
+
+```yaml
+allowBuilds:
+  'dag-flow@git+https://github.com/lyx-git/dag-flow.git': true
+```
+
+The key uses the repository-URL form (with **no `#<sha>`**), so later upgrades to any commit keep working without touching this line.
+
+Then install (`--registry` points at a China-friendly mirror; drop it if you can reach the official registry directly):
+
 ```bash
-dsh plugin --profile web add github:lyx-git/dag-flow
+dsh plugin --profile web add github:lyx-git/dag-flow --registry=https://registry.npmmirror.com
 
 # pin an exact commit (reproducible): replace <sha> with a commit id
-dsh plugin --profile web add github:lyx-git/dag-flow#6bab0245a5ab5655cb5d2d63f5563bbcbcb18538
+dsh plugin --profile web add github:lyx-git/dag-flow#6bab0245a5ab5655cb5d2d63f5563bbcbcb18538 --registry=https://registry.npmmirror.com
 ```
 
 `--profile web` is the profile the GUI (`dsh web`) uses; use your own profile name for Desktop or the TUI.
 
-**It builds itself once, at install time**: the repo ships no build output (`dist/` is in `.gitignore`), so pnpm runs this package's `prepare` (= `npm run build`). pnpm blocks build scripts of git packages by default: the first attempt fails and prints the **exact key to allow** (shaped like `dag-flow@git+https://github.com/lyx-git/dag-flow.git#<sha>`, **not** the bare package name) — copy that printed line into `<DSH_HOME>/profiles/web/pnpm-workspace.yaml`, then **run the same command again**:
-
-```yaml
-allowBuilds:
-  dag-flow@git+https://github.com/lyx-git/dag-flow.git#<sha>: true
-```
-
-Dependencies come from the npm registry; behind a poisoned or slow `registry.npmjs.org`, add `registry=https://registry.npmmirror.com` to `<DSH_HOME>/profiles/web/.npmrc`.
+It takes a little longer than a plain package because `dist/` is built on the spot; when the progress bar finishes, you are done. If you install without allowing the build first, pnpm fails with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` and prints the exact key it wants (shaped like `dag-flow@https://codeload.github.com/lyx-git/dag-flow/tar.gz/<sha>`, **not** the bare package name) — paste that printed line into the same file and run the same command once more.
 
 **Update**: re-run `add` with the ref you want; `dsh plugin --profile web update dag-flow` re-resolves the branch.
 **Uninstall**: `dsh plugin --profile web remove dag-flow`.
