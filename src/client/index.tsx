@@ -6,7 +6,15 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
-// v20261011-rfdead：**清掉 React Flow 时代的节点卡遗留类 `.dsh-wf-rf-node*`**（只删样式，宿主与逻辑零改动）。
+// v20261011-cssclean：**第三轮样式清理**（只删样式 + 修注释，宿主与逻辑零改动）——收掉上一轮列出的收尾项：
+//   ① 5 条零引用规则（旧 ghost 按钮变体 ×2、旧「打开下拉」选择器、ManageView 遗留类、定时弹窗被移除的
+//      第二行 actions）——判定用的是**加严审计**（读 ts/tsx 前先剥注释，否则我自己在变更说明里写的类名
+//      会把它们"救活"；这一坑本轮亲踩）；② 10 行零消费主题变量 `--wf-edge*`（深浅两套定义 + 别名，已无
+//      任何规则消费）；③ **7 行**"双重编码乱码"注释（上一轮漏判：旧脚本用写死行号 + 窄字符类，自检又复用
+//      同一窄正则 → 必然假阴性）。判定改成**生成式**（枚举 UTF-8 前导/续字节被 GBK 解码的映像集，
+//      阈值 ≥90%），实际是 7 行而不是手挑的 5 行。styles.css **1234 → 1206 行**；
+//   脚本 tmp-test/patch-css-round3.mjs + 审计 tmp-test/audit-css-strict.mjs（均含演练/自检）。
+// v20261011-rfdead：**清掉 React Flow 时代的节点卡遗留类**（只删样式，宿主与逻辑零改动）。
 //   FlowGram 化后节点卡是 `.dsh-wf-fg-card` 系列；这批 `rf-node` 类名在 src 全部 ts/tsx 里零引用，
 //   且在文件里**重复定义两处**（节点卡状态色 + 运行徽标色）——"换了画布引擎没清干净"的指纹。
 //   删 12 条规则 + 1 行前导注释 + 2 行空行 → styles.css **1266 → 1234 行**；
@@ -616,7 +624,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261011-rfdead · apply OK');
+    console.log('[dag-flow] client v20261011-cssclean · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

@@ -43,9 +43,6 @@
   --wf-accent-dark: #5574e8;
   --wf-accent-hover: #86a0ff;
   --wf-on-accent: #07111f;
-  --wf-edge: #7790b0;
-  --wf-edge-active: #35d39a;
-  --wf-edge-active-glow: rgba(53, 211, 154, 0.48);
   --wf-grid-dot: #28405e;
   --wf-focus: rgba(111, 143, 255, 0.18);
   --wf-shadow: rgba(0, 0, 0, 0.42);
@@ -69,8 +66,6 @@
   --dsh-wf-border2: var(--wf-border2);
   --dsh-wf-node-border: var(--wf-node-border);
   --dsh-wf-node-border2: var(--wf-node-border2);
-  --dsh-wf-edge: var(--wf-edge);
-  --dsh-wf-edge-active: var(--wf-edge-active);
 }
 /* 主题 B：浅色（参考 dsh-node-flow light） */
 [data-wf-theme="nodeflow-light"],
@@ -94,9 +89,6 @@
   --wf-accent-dark: #4164d1;
   --wf-accent-hover: #6a89ee;
   --wf-on-accent: #08101e;
-  --wf-edge: #8296b2;
-  --wf-edge-active: #149866;
-  --wf-edge-active-glow: rgba(20, 152, 102, 0.32);
   --wf-grid-dot: #cad5e4;
   --wf-focus: rgba(85, 120, 236, 0.16);
   --wf-shadow: rgba(36, 55, 88, 0.16);
@@ -119,8 +111,6 @@
   --dsh-wf-border2: var(--wf-border2);
   --dsh-wf-node-border: var(--wf-node-border);
   --dsh-wf-node-border2: var(--wf-node-border2);
-  --dsh-wf-edge: var(--wf-edge);
-  --dsh-wf-edge-active: var(--wf-edge-active);
 }
 /* 深空蓝面板背景光晕（对齐 dsh-node-flow .wf-shell） */
 .dsh-wf-root {
@@ -130,7 +120,7 @@
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 
-/* ========== 椤堕儴鏍?========== */
+/* ========== 顶部栏 ========== */
 /* ★ 2026-10-01 深夜紧凑图标模式：tab/按钮只留图标，整体高度收窄 */
 .dsh-wf-header {
   display: flex;
@@ -361,14 +351,6 @@
   border-color: rgba(190, 52, 82, 0.6);
   color: #ffffff;
 }
-/* 次要按钮（ghost） */
-.dsh-wf-btn-ghost {
-  background: transparent;
-  border-color: var(--wf-border3, #365173);
-  color: var(--wf-muted, #91a4bf);
-  padding: 3px 10px;
-}
-.dsh-wf-btn-ghost:hover:not(:disabled) { background: var(--wf-panel3, #172640); color: var(--wf-text, #dce7f8); border-color: #3a4f7a; }
 
 /* ========== 三栏布局 ========== */
 /* ========== 布局：画布全屏 + 浮层面板（对齐 dsh-node-flow） ========== */
@@ -480,7 +462,7 @@
   text-transform: uppercase;
 }
 
-/* ========== 鍙充晶鑺傜偣鍙傛暟闈㈡澘 ========== */
+/* ========== 右侧节点参数面板 ========== */
 .dsh-wf-panel-section {
   padding: 10px 8px 6px;
   font-size: 10px;
@@ -569,7 +551,7 @@
   font-weight: 500;
 }
 
-/* ========== JSON 瑙嗗浘 ========== */
+/* ========== JSON 视图 ========== */
 .dsh-wf-json-root {
   display: grid;
   grid-template-columns: 1fr 320px;
@@ -692,7 +674,7 @@
 
 
 
-/* 浼氳瘽杈撳叆鑺傜偣鎻愮ず */
+/* 会话输入节点提示 */
 .dsh-wf-panel-hint {
   font-size: 11px;
   color: var(--dsh-wf-muted, #64748b);
@@ -700,11 +682,6 @@
   line-height: 1.5;
 }
 
-/* 打开已保存工作流下拉 */
-.dsh-wf-open-select {
-  max-width: 140px;
-  font-size: 12px;
-}
 
 /* 运行状态徽标（现仅用于头部「⏸ 等待人工确认」） */
 .dsh-wf-run-result {
@@ -733,11 +710,11 @@
   --dsh-wf-font-md: 13px;
   --dsh-wf-font-lg: 14px;
   --dsh-wf-control-h: 28px;      /* 按钮/输入框统一高度 */
-  --dsh-wf-node-min-w: 150px;    /* 鑺傜偣鍗℃渶灏忓 */
+  --dsh-wf-node-min-w: 150px;    /* 节点卡最小宽 */
   --dsh-wf-node-max-w: 220px;
 }
 
-/* 鏁版嵁寮曠敤鎻愮ず */
+/* 数据引用提示 */
 .dsh-wf-panel-hint {
   font-size: 11px;
   color: var(--dsh-wf-muted);
@@ -747,10 +724,6 @@
   margin-bottom: 4px;
   line-height: 1.4;
 }
-
-
-.dsh-wf-manage-item-action { font-size: 12px; color: var(--dsh-wf-accent); }
-
 
 /* 顶部渐变 logo（对齐 wf-toolbar__logo） */
 .dsh-wf-logo {
@@ -766,7 +739,7 @@
   box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 4px 10px rgba(0,0,0,.25);
 }
 
-/* ===== #11 鍙橀噺 chips / #14-鈶?鐗堟湰鍒楄〃 / #1 璇曡窇缁撴灉 ===== */
+/* ===== #11 变量 chips / #14 版本列表 / #1 试跑结果 ===== */
 .dsh-wf-var-list { display: flex; flex-wrap: wrap; gap: 4px; }
 .dsh-wf-var-chip {
   display: inline-block; padding: 2px 7px; border-radius: 6px; font-size: 11px; cursor: pointer;
@@ -934,7 +907,6 @@
   margin-top: 5px; font-size: 11px; line-height: 1.6;
   color: var(--wf-muted, #8b9bb3); word-break: break-word;
 }
-.dsh-wf-sched-actions { margin-top: 6px; }
 /* 「立即运行一次」的应用内确认弹窗（替代 window.confirm，2026-10-04 用户反馈） */
 .dag-flow-picker.dsh-wf-sched-confirm { width: min(460px, 92vw); }
 .dsh-wf-sched-confirm .dsh-wf-sched-warn { margin-bottom: 8px; }
