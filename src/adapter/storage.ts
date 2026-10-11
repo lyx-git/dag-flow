@@ -42,11 +42,20 @@ export interface DshStorage {
   readVersion(name: string, ts: string): Promise<WorkflowDef | null>;
   listWorkflows(): Promise<string[]>;
   writeRunRecord(runId: string, summary: unknown): Promise<void>;
+  /** 运行记录保留策略（2026-10-11 用户选 A）：每个工作流保留最近 N 条 + 超过 D 天的删除；dryRun 只算不删 */
+  pruneRunRecords(opts?: { maxPerWorkflow?: number; maxAgeDays?: number; dryRun?: boolean }): Promise<{ deleted: string[]; kept: number }>;
   listRunRecords(workflowName?: string): Promise<string[]>;
   readRunRecord(runId: string): Promise<unknown | null>;
 }
 
 const USER_DIR = dshHome(); // 09-27 意见 2：DSH_HOME 统一（便携安装场景此前读不到）
+
+// ★ 2026-10-11 用户选定的「策略 A」——运行记录保留口径（此前 runs/ 只增不减，实测 252 文件/16.44 MB）：
+//   · 每个工作流保留**最近 200 条**；· 任何记录**超过 30 天**即删；· 两条谁先满足按谁（先到者为准）。
+//   硬边界：只删 <runs>/run-*.json（`*.json.tmp` 与其它文件一律不碰）；`workflow/` 与版本快照永不涉及；
+//   正在跑的运行**结束时才落盘**，所以不存在"删掉在跑的"；清理失败只记不报，绝不影响本次运行。
+export const RUN_KEEP_MAX_PER_WORKFLOW = 200;
+export const RUN_KEEP_MAX_AGE_DAYS = 30;
 // ★ 2026-10-11 起：所有运行数据锚定 **<DSH_HOME>/.dag-flow/**（与工作区无关）——
 //   工作流定义 .dag-flow/workflow/、运行记录 .dag-flow/runs/、临时 .dag-flow/tmp/、日志 .dag-flow/logs/。
 //   （原 `DIR_NAME = '.dag-flow/workflow'` 常量随四级解析链一起废弃：路径现在由 dagFlowHome() 拼。）
@@ -491,6 +500,62 @@ export function createStorage(): DshStorage {
       const tmp = `${file}.tmp`;
       await fs.writeFile(tmp, JSON.stringify(summary, null, 2), 'utf8');
       await fs.rename(tmp, file);
+      // ★ 2026-10-11（策略 A）：新记录落盘后顺手清理旧记录。**不 await**——不让清理拖慢/拖垮本次运行。
+      void this.pruneRunRecords().catch(() => { /* 清理失败不影响运行 */ });
+    },
+    async pruneRunRecords(opts) {
+      const maxPer = opts?.maxPerWorkflow ?? RUN_KEEP_MAX_PER_WORKFLOW;
+      const maxAgeMs = (opts?.maxAgeDays ?? RUN_KEEP_MAX_AGE_DAYS) * 86_400_000;
+      const dryRun = opts?.dryRun === true;
+      const dir = await this.runsDir();
+      let names: string[] = [];
+      try { names = await fs.readdir(dir); } catch { return { deleted: [], kept: 0 }; }
+
+      type Entry = { file: string; name: string; group: string; t: number };
+      const entries: Entry[] = [];
+      for (const f of names) {
+        if (!/^run-.*\.json$/.test(f)) continue;   // 只认运行记录；.tmp 与其它文件一律不碰
+        const full = path.join(dir, f);
+        // 时间戳优先取「文件名里的 epoch ms」（run-<ms>-<rand>.json），其次记录里的 finishedAt/endedAt/startedAt，最后 mtime
+        let t = Number(/-(\d{10,})-[^.]*\.json$/.exec(f)?.[1] ?? 0);
+        let group = '(未命名)';
+        try {
+          const fh = await fs.open(full, 'r');
+          try {
+            const buf = Buffer.alloc(256);
+            const { bytesRead } = await fh.read(buf, 0, 256, 0);
+            const head = buf.subarray(0, bytesRead).toString('utf8');
+            const g = /"workflowName"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(head)?.[1];
+            if (g !== undefined) group = JSON.parse(`"${g}"`) as string;
+            const fin = /"(?:finishedAt|endedAt|startedAt)"\s*:\s*"([^"]+)"/.exec(head)?.[1];
+            const parsed = fin ? Date.parse(fin) : NaN;
+            if (Number.isFinite(parsed)) t = parsed;
+          } finally { await fh.close(); }
+        } catch { /* 读不到就退化成文件名/mtime */ }
+        if (!t) { try { t = (await fs.stat(full)).mtimeMs; } catch { t = 0; } }
+        entries.push({ file: full, name: f, group, t });
+      }
+
+      const byGroup = new Map<string, Entry[]>();
+      for (const e of entries) {
+        const arr = byGroup.get(e.group);
+        if (arr) arr.push(e); else byGroup.set(e.group, [e]);
+      }
+      const now = Date.now();
+      const doomed: Entry[] = [];
+      for (const arr of byGroup.values()) {
+        arr.sort((a, b) => b.t - a.t);            // 新的在前：排名 ≥ maxPer 的淘汰
+        arr.forEach((e, i) => {
+          const tooMany = i >= maxPer;
+          // t=0（既无时间戳也无 mtime）不按年龄淘汰，避免"读不到时间就误删"
+          const tooOld = e.t > 0 && now - e.t > maxAgeMs;
+          if (tooMany || tooOld) doomed.push(e);
+        });
+      }
+      if (!dryRun) {
+        for (const e of doomed) { try { await fs.rm(e.file, { force: true }); } catch { /* 单个失败忽略 */ } }
+      }
+      return { deleted: doomed.map((e) => e.name).sort(), kept: entries.length - doomed.length };
     },
     async listRunRecords(workflowName) {
       const dir = await this.runsDir();

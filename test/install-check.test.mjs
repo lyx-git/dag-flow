@@ -1,8 +1,12 @@
-// 交付自检：构建产物 + DSH 插件清单校验（不执行安装）
-import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+// 交付自检：构建产物 + DSH 插件清单校验（不执行安装、不写任何文件）
+// ★ 2026-10-11（审计⑥⑫）：文件名从 install-check.mjs 改为 *.test.mjs 并挂进 test:offline 链——
+//   此前它躺在链外（手跑 22/22 绿，但没人跑），而且 tmp-test/audit-todos.mjs 的孤儿判据只认
+//   `*.test.mjs`，所以"孤儿：无"是假安心。同时补两条**产物标记一致性**断言，专治
+//   「改了 src 忘了重建 dist」——那会让真机继续跑旧代码，且看不出任何异常。
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
-const ROOT = 'D:/workspace/pluginspace/dag-flow';
+const ROOT = resolve(import.meta.dirname, '..');   // 不再写死机器绝对路径
 let pass = 0, fail = 0;
 const t = (name, cond, detail = '') => {
   if (cond) { pass++; console.log(`  ✓ ${name}`); }
@@ -55,6 +59,20 @@ t('client 无 reactflow 残留', !/reactflow\/dist|from\s*['"]reactflow['"]/.tes
   };
   walk(join(ROOT, 'dist'));
   t('dist 全目录无旧名残留（含子目录/.d.ts/.map）', leaked.length === 0, leaked.join(', '));
+}
+
+// 3.6 ★ 产物标记一致性（2026-10-11 审计⑫）：src 里的版本标记必须出现在对应产物里。
+//     「改了 src 忘了重建」不会报任何错，但真机会一直跑旧代码——这两条把它变成红灯。
+{
+  const srcHost = readFileSync(join(ROOT, 'src/index.ts'), 'utf8');
+  const hostMarker = /loaded \(host (v[\w.-]+)\)/.exec(srcHost)?.[1];
+  t('src/index.ts 能取到宿主版本标记', !!hostMarker, String(hostMarker));
+  t(`dist/index.js 含该标记 ${hostMarker ?? ''}（防改了 src 没重建）`, !!hostMarker && h.includes(hostMarker), String(hostMarker));
+
+  const srcClient = readFileSync(join(ROOT, 'src/client/index.tsx'), 'utf8');
+  const clientMarker = /client (v[\w.-]+) · apply OK/.exec(srcClient)?.[1];
+  t('src/client/index.tsx 能取到客户端版本标记', !!clientMarker, String(clientMarker));
+  t(`dist/client.js 含该标记 ${clientMarker ?? ''}（防改了 src 没重建）`, !!clientMarker && c.includes(clientMarker), String(clientMarker));
 }
 
 // 4. 宿主/客户端模块加载冒烟

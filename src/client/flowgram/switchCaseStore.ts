@@ -1,4 +1,3 @@
-// @ts-nocheck
 // src/client/flowgram/switchCaseStore.ts
 // switch「当前选中的分支 chip」存储（2026-10-03 用户拍板 B）。
 //

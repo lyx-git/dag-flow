@@ -1,4 +1,3 @@
-// @ts-nocheck
 // src/client/flowgram/failPolicyStore.ts
 // 「失败策略」在画布上的**显形**（2026-10-04 轮 7 用户要的可选增强）。
 //

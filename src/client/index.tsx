@@ -1,10 +1,16 @@
-// @ts-nocheck
 // src/client/index.tsx
 // DSH 客户端入口：暴露 apply(ctx)。
 //
 // bundle 协议：window.__ModuleLoader__.load({ id, factory: (require) => ... })
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
+//
+// v20261011-auditfix：**2026-10-11 审计①②③ 三处一致性修复（对用户可见的两处）**。
+//   ① JSON 视图的 schema 此前 `onError: {type:['string','object']}` 比宿主宽松（宿主是严格 oneOf：
+//      goto 分支要求 `goto:string` 且不许有其它键）⇒ 右侧 ajv 报 ✅、一点运行才被拒。已与宿主逐字同形，
+//      并加了可反复跑的一致性探针 tmp-test/verify-schema-parity.mjs（带阳性对照）。
+//   ② 同上文件里 `name.pattern` 原是自己抄的硬编码副本 → 改引唯一源 src/name-rule.ts。
+//   ③ 用户可见文案不再让人去改已被 dsh 0.2.0 移除的 settings.yaml，改指 profile 的 cordis.patch.yml。
 //
 // v20261011-testrunmsg：**单节点试跑失败时，面板要给出原因**（2026-10-11 用户要求修 ③）。
 //   症状：参数里引用了上游节点（如 `over: '{{web_search1.out.items}}'`），而单节点试跑没有上游 →
@@ -675,7 +681,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261011-testrunmsg · apply OK');
+    console.log('[dag-flow] client v20261011-auditfix · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

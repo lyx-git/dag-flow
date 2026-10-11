@@ -1,4 +1,3 @@
-// @ts-nocheck
 // src/client/dsh-gate.ts — 客户端防腐层（Anti-Corruption Layer）
 //
 // ★ 客户端侧所有「接触 DSH 宿主」的形状假设收敛在本文件：

@@ -112,7 +112,7 @@ console.log('== 4. 四层嵌套：对象→数组→对象→列表 ==');
   assert(item.config?.enabled === true, '数组项下的子对象（config.enabled）');
   assert(Array.isArray(item.config?.models) && item.config.models.length === 1, 'config.models 是数组');
   assert(Array.isArray(item.config.models[0]?.input) && item.config.models[0].input.join(',') === 'text,image', `再深一层的列表：${J(item.config.models[0]?.input)}`);
-  assert(item.config.models[0]?.tags === '[x, y]', '现状：行内 flow 数组按字符串保留（不解析）');
+  assert(J(item.config.models[0]?.tags) === J(['x', 'y']), `行内 flow 数组真解析（2026-10-11 审计⑩ 起）：${J(item.config.models[0]?.tags)}`);
   assert(item.after === 1, '回到数组项层的后续键仍归本项（栈没串层）');
 }
 
@@ -158,7 +158,7 @@ console.log('== 5c. - insert: + 嵌套 - id:（官方 base patch 形状） ==');
   assert(ids.join(',') === 'tool-plugin-manager,hmr,llm', `嵌套 - id 全部读到：${ids.join(',')}`);
   assert(r[0].insert[0]?.disabled === true, '嵌套项的子字段（disabled: true）');
   assert(r[0].insert[0]?.name === '@deepseek-ai/dsh-plugin-manager/tools', '嵌套项的 name 归本项');
-  assert(r[0].insert[1]?.config?.root === '[]', '嵌套项下的子对象（config.root；行内 flow 数组仍按字符串保留）');
+  assert(Array.isArray(r[0].insert[1]?.config?.root) && r[0].insert[1].config.root.length === 0, `嵌套项下的子对象（config.root = 空数组）：${J(r[0].insert[1]?.config?.root)}`);
   assert(r[0].insert[2]?.id === 'llm', '注释行不打乱后续项的归属');
 
   // 同一份文件里并列的第二条顶层 `- insert:` 各自成项（dsh-web-app 的 patch 就是这个形状）
@@ -254,6 +254,55 @@ console.log('== 5d. 块状字符串（literal | / folded >） ==');
   const r7 = parse(['x: |2', '    a', 'y: 1'].join('\n'));
   assert(r7.x === '  a\n', `|2 显式缩进指示符（正文缩进 = key 缩进 + 2，多出来的空格保留）：${J(r7.x)}`);
   assert(r7.y === 1, '|2 块后的同级键仍归本层');
+}
+
+// ===== 5e. 行内 flow 数组/对象（2026-10-11 审计⑩：以前一律原样存字符串） =====
+console.log('== 5e. 行内 flow 数组/对象 ==');
+{
+  const r = parse([
+    'models:',
+    '  - id: kimi-vision',
+    '    input: [text, image]',
+    '    fallbacks: []',
+    '  - id: plain',
+    '    input: [text]',
+  ].join('\n'));
+  assert(J(r.models[0]?.input) === J(['text', 'image']), `[text, image] → 数组：${J(r.models[0]?.input)}`);
+  assert(Array.isArray(r.models[0]?.fallbacks) && r.models[0].fallbacks.length === 0, `[] → 空数组（真机 patch 里 fallbacks: [] 是真实用例）：${J(r.models[0]?.fallbacks)}`);
+  assert(J(r.models[1]?.input) === J(['text']), '第二项的 flow 数组同样解析');
+  // 数字/布尔/引号元素与"引号内的逗号不切分"
+  const r2 = parse(['a: [1, true, "x, y", \'z\']'].join('\n'));
+  assert(J(r2.a) === J([1, true, 'x, y', 'z']), `flow 元素按标量解析、引号内逗号不切分：${J(r2.a)}`);
+  // 嵌套 flow + 对象形式
+  const r3 = parse(['m: {a: 1, b: [x, y]}'].join('\n'));
+  assert(r3.m?.a === 1 && J(r3.m?.b) === J(['x', 'y']), `flow 对象 + 嵌套数组：${J(r3.m)}`);
+  // 顶层数组项直接是 flow 数组
+  const r4 = parse(['- [a, b]', '- c'].join('\n'));
+  assert(J(r4) === J([['a', 'b'], 'c']), `数组项直接写 flow：${J(r4)}`);
+  // 普通字符串里带方括号但不成对/不在首尾 → 仍是字符串（不误伤）
+  const r5 = parse(['note: see [1', 'path: a]b'].join('\n'));
+  assert(r5.note === 'see [1' && r5.path === 'a]b', `不配对的方括号仍是字符串：${J(r5)}`);
+}
+
+// ===== 5f. `+` chomping 与「数组项里的块状字符串」（2026-10-11 审计⑩） =====
+console.log('== 5f. + chomping / - key: |（数组项块） ==');
+{
+  const r = parse(['a: |+', '  x', '', ''].join('\n'));
+  assert(r.a === 'x\n\n\n', `|+ keep：保留尾部空行（clip 会收成一个换行）：${J(r.a)}`);
+
+  const r2 = parse([
+    'steps:',
+    '  - name: s1',
+    '    section: |',
+    '      line1',
+    '      line2',
+    '  - name: s2',
+    '    section: |-',
+    '      only',
+  ].join('\n'));
+  assert(r2.steps[0]?.section === 'line1\nline2\n', `数组项里的 \`- key: |\` 现在能解析（此前存成字符串 "|"）：${J(r2.steps[0]?.section)}`);
+  assert(r2.steps[0]?.name === 's1', '块不影响同项的其它字段');
+  assert(r2.steps[1]?.section === 'only', `数组项里的 |- strip：${J(r2.steps[1]?.section)}`);
 }
 
 // ===== 6. 深缩进三层对象 =====

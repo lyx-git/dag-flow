@@ -1,7 +1,7 @@
 # dag-flow 错误码与提示信息对照表
 
 > 约定：**错误码（code）为英文大写**（机器标识，前端逻辑与测试断言依赖），**提示消息（message）一律中文**。
-> 更新提示文案时同步本表。最后更新：2026-10-03（新增 `MANUAL_CANCELLED` 与 run/status、run/resume 的 202/404/409）。
+> 更新提示文案时同步本表。最后更新：**2026-10-11**（补全「自检码」整章；loop 增 `LOOP_COND_ERROR`；`dsh 配置` 的措辞改指 profile 的 `cordis.patch.yml`——dsh 0.2.0 已移除 `settings.yaml`）。
 
 ## 一、参数与结构校验（执行前）
 
@@ -57,8 +57,8 @@ python/bash（code 纯空白）、http（url）、if（condition）、switch（v
 | subagent | `MODEL_REQUIRED` | 未选择执行模型——在节点配置的「选择模型」中选择 dsh 已配置的模型后重试 |
 | subagent | `SUBAGENT_EMPTY_PROMPT` | prompt 为空——AI 节点未执行，流程已在此中断 |
 | subagent | `SUBAGENT_EMPTY_OUTPUT` | AI 节点返回空内容（模型没有输出）——不再按成功处理，请换可用模型或检查上游数据 |
-| subagent | `SUBAGENT_UNAVAILABLE` | AI 节点超时（Xms）／AI 节点调用失败: …／dsh settings.yaml 中没有配置可用的 LLM 端点 |
-| subagent | `MODEL_MODALITY_MISMATCH` | 所选模型 &lt;显示名，缺失时回退 providerName/model&gt; 不支持图片输入（能力: text）——prompt 中引用了图片文件。请换支持对应模态的模型（如 kimi-k3），或在 dsh settings.yaml 标注 input: [text, image] |
+| subagent | `SUBAGENT_UNAVAILABLE` | AI 节点超时（Xms）／AI 节点调用失败: …／dsh 配置（profile 的 cordis.patch.yml；旧版 settings.yaml）中没有可用的 LLM 端点 |
+| subagent | `MODEL_MODALITY_MISMATCH` | 所选模型 &lt;显示名，缺失时回退 providerName/model&gt; 不支持图片输入（能力: text）——prompt 中引用了图片文件。请换支持对应模态的模型（如 kimi-k3），或在 dsh 配置（profile 的 cordis.patch.yml，旧版 settings.yaml）里为该模型标注 input: [text, image] |
 | session_input | `SESSION_INPUT_NO_ID` / `SESSION_INPUT_NOT_FOUND` / `SESSION_INPUT_READ` | sessionId 为空／会话不存在: xxx／读取失败 |
 | http | `HTTP_TIMEOUT` / `HTTP_ERROR` | 超时（Xms）／请求失败（附原因） |
 | web_search | `SEARCH_EMPTY_QUERY` | query 为空——搜索节点未执行，流程已在此中断 |
@@ -103,3 +103,34 @@ python/bash（code 纯空白）、http（url）、if（condition）、switch（v
 - expr：`表达式解析失败`／`表达式求值失败`／`作用域 X 中的函数引用不被允许`
 - external：`注册节点失败：缺少 def.type`／`def.run 必须是函数`／节点重复注册警告
 - subagent 双协议探测：`chat/completions 接口返回 X: …`／`responses 接口返回 X（路径 …）`／`… 请求异常`（均接 humanizeFetchError）
+
+## 七、自检门（`POST /selfcheck`）错误码与告警
+
+> **2026-10-11 补录**（此前整段未登记）。`level: error` 会**拦住运行**——弹「自检未通过」（弹窗里只有「✕ 去修改」，没有任何运行按钮），`/run` 也会被 409 拦下；`level: warn` 只提示、不拦。每条都带 `fix`（界面上显示的"怎么改"）。来源：`src/executor/selfcheck.ts`。触发条件列是机制描述，界面文案以代码为准。
+
+| 错误码 | 级别 | 触发条件 |
+|---|---|---|
+| `STRUCT_INVALID` | error | 结构校验失败（自检内部预跑 schema，透出第一条错误） |
+| `REF_UNKNOWN` | error | 节点参数里引用了**不存在的节点**（`{{xxx.out…}}`） |
+| `REF_NO_EDGE` | error | 引用了某节点的输出（`{{ref.out…}}`），但两者之间**没有连线路径**（判据＝可达性/祖先，不是直接边） |
+| `NEXT_EDGES_MISMATCH` | warn | def 同时写了 `next` 与 `edges` 且不一致（引擎 edges 优先，next 里多出的那几条不生效） |
+| `UNREACHABLE` | warn | 节点从 start 不可达——运行时它会被当作**独立入口直接执行**（不是"跳过"） |
+| `DEAD_END` | warn | 非 end 节点没有出边（支路到此结束） |
+| `CYCLE` | error | 工作流存在环路（执行期同码为 `DAG_CYCLE`） |
+| `PARAM_REQUIRED` | error | 节点缺必填参数（与运行前预检 `NODE_PARAMS_INVALID` 同源判据，提前在自检里报） |
+| `BRANCH_KEY_MISSING` | error | if/switch 的出边没有分支键——执行器会把它当"恒激活" |
+| `SWITCH_CASE_NO_EDGE` | warn | 分支设置里有 case，但没有对应的出边（该取值时不会走任何分支） |
+| `SWITCH_EDGE_NOT_IN_CASES` | warn | 有分支键的出边，但分支设置里没有这个 case（画布端口挂不上、面板也看不到） |
+| `GOTO_BACKWARD` | warn | 失败后跳转的目标在源之前（或同层）已执行过——目标**不会再执行一次**，按 stop 生效 |
+| `LOOP_NO_BOUND` | error | 循环没有边界（count / while / over 至少一个）——与运行时同码 |
+| `LOOP_BODY_MISSING` | error | 循环体指定的子工作流不存在——运行时每轮都会失败（`WORKFLOW_NOT_FOUND`） |
+| `MERGE_NO_UPSTREAM` | error | merge 上游连线不足 2 条——与运行时同码 |
+| `SUBFLOW_MISSING` | error | 子工作流节点要调的流程在工作区里不存在 |
+| `MANUAL_AUTOPASS` | warn | 挂了定时任务且含人工确认节点——定时触发那次会**自动放行**（不是失败，也不代表有人确认过） |
+| `SOURCE_SKIP_SILENT` | warn | 节点设了「跳过这条支路」，但它的输出被下游若干节点引用——它一旦失败，下游会因取不到数据而失败 |
+| `MEDIA_COST` | warn | 含图片/视频生成节点——每次运行都会真实调用付费接口 |
+| `BIG_LOOP` | warn | 循环规模较大（按有无循环体给不同文案） |
+| `MODEL_UNRESOLVED` | warn | 节点存值的模型这次没解析到（模型下架／换机器／宿主 LLM 服务此刻不可用）——运行时该节点可能失败 |
+| `SELFCHECK_INTERNAL` | warn | 自检自身抛异常（不拦运行，但说明这次自检没跑完） |
+
+★ 自检条目里的 `SUBFLOW_MISSING`（节点级，只管被 subflow 节点直接调用的流程）与 `UNREACHABLE` 的语义容易混：前者是"目标不存在"，后者是"没连到 start"。两者都会在**运行前**给出，不必等跑一遍。

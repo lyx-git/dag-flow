@@ -3360,7 +3360,7 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
         : '⚠ 必须选择执行模型后，本节点才能试跑与保存。',
     ),
     node.type === 'subagent' && createElement('div', { className: 'dsh-wf-panel-hint' },
-      '模型自动发现自 dsh 配置（settings.yaml），密钥由 dsh 统一管理，无需在此录入。必须选择执行模型（必选）；prompt 留空（或上游输出为空）时本节点不执行，流程在此中断。',
+      '模型自动发现自 dsh 配置（dsh 存在 profile 的 cordis.patch.yml 里，旧版是 settings.yaml），密钥由 dsh 统一管理，无需在此录入。必须选择执行模型（必选）；prompt 留空（或上游输出为空）时本节点不执行，流程在此中断。',
     ),
     // ★ 保底不丢 id（用户 2026-10-03：下拉显示模型显示名，不用 id；但对照 JSON/排查时要能看到真实 id）
     node.type === 'subagent' && selectedModel && createElement('div', { className: 'dsh-wf-panel-hint' },
@@ -3374,7 +3374,7 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
         return createElement('div', { className: 'dsh-wf-panel-hint' }, `✓ 所选模型支持图片输入（能力: ${caps}）`);
       }
       return createElement('div', { className: 'dsh-wf-panel-hint' },
-        `⚠️ 所选模型不支持图片输入（能力: ${caps}，仅文本）——prompt 中引用图片/视频/文件时，运行会直接提示模型能力不足（MODEL_MODALITY_MISMATCH）。需要处理图片请换带 📷 的模型，或在 dsh settings.yaml 为该模型标注 input: [text, image] 后刷新。`);
+        `⚠️ 所选模型不支持图片输入（能力: ${caps}，仅文本）——prompt 中引用图片/视频/文件时，运行会直接提示模型能力不足（MODEL_MODALITY_MISMATCH）。需要处理图片请换带 📷 的模型，或在 dsh 配置（profile 的 cordis.patch.yml，旧版 settings.yaml）里为该模型标注 input: [text, image] 后刷新。`);
     })(),
     node.type === 'session_input' && createElement(SessionInputFields, { node, onParamsChange }),
     (node.type === 'image_generate' || node.type === 'video_generate' || node.type === 'file_save')

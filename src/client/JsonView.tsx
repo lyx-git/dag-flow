@@ -1,4 +1,3 @@
-// @ts-nocheck
 // src/client/JsonView.tsx
 // JSON 编辑视图：优先 Monaco Editor，不可用时回退 textarea；
 // 右侧 ajv 实时 schema 校验。改动时双向同步到 FlowPanel 状态。
@@ -6,19 +5,25 @@
 import { useEffect, useMemo, useState, createElement } from 'react';
 import type { WorkflowDef } from './types';
 import { getThemeMode } from './theme';
+// ★ 2026-10-11（审计②）：名字规则的唯一事实源是 src/name-rule.ts（client 另外 4 处都引它），
+//   这里此前把 pattern 抄了一份硬编码副本——两处当前恰好相同，改规则时必漂移（症状会是
+//   「保存得了、JSON 页报错」这类反向不一致）。改为一律引唯一源。
+import { WORKFLOW_NAME_PATTERN } from '../name-rule';
 
 interface JsonViewProps {
   def: WorkflowDef;
   onChange: (def: WorkflowDef) => void;
 }
 
-const WORKFLOW_SCHEMA = {
+// ★ 2026-10-11：改为 export —— 仅供一致性探针（tmp-test/verify-schema-parity.mjs）与将来的一致性
+//   测试对比 host src/types.ts 的 WORKFLOW_SCHEMA；对 bundle 无影响（index.tsx 才是入口）。
+export const WORKFLOW_SCHEMA = {
   $id: 'https://dag-flow/schemas/workflow.json',
   type: 'object',
   required: ['name', 'version', 'nodes'],
   additionalProperties: false,
   properties: {
-    name: { type: 'string', pattern: '^[\\p{L}\\p{N}][\\p{L}\\p{N}_-]{0,63}$' },
+    name: { type: 'string', pattern: WORKFLOW_NAME_PATTERN },
     version: { const: 1 },
     description: { type: 'string' },
     inputs: { type: 'object', additionalProperties: true },
@@ -43,7 +48,21 @@ const WORKFLOW_SCHEMA = {
               { type: 'null' },
             ],
           },
-          onError: { type: ['string', 'object'] },
+          // ★ 2026-10-11（审计①）：此前写的是宽松的 { type: ['string','object'] }——任何 object 都放行，
+          //   而 host WORKFLOW_SCHEMA 是严格 oneOf（goto 分支要求 goto:string 且不许有其它键）。
+          //   结果：JSON 页显示 ✅、一点运行才被 host 拒（用户视角＝「这里说没问题，一运行就报错」）。
+          //   下面与 host src/types.ts 的 onError **逐字同形**，改一边必须改另一边。
+          onError: {
+            oneOf: [
+              { enum: ['stop', 'continue'] },
+              {
+                type: 'object',
+                required: ['goto'],
+                additionalProperties: false,
+                properties: { goto: { type: 'string' } },
+              },
+            ],
+          },
           tolerate: { type: 'boolean' },
           label: { type: 'string' },
         },

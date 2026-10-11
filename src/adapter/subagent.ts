@@ -152,7 +152,7 @@ export function checkModelModality(endpoint: Pick<LlmEndpoint, 'input' | 'model'
   const suggest = missing.includes('image') ? '（如 dsh:custom-model:kimi-k3 / minimax-m3）' : '';
   // ★ 错误消息用**显示名**（2026-10-03 用户要求「不用模型id，不容易分辨」，与下拉文案同口径）：
   //   modelLabel（宿主显示名 / settings 的 name）→ providerName → model 三级回退。
-  return `所选模型 ${endpoint.modelLabel ?? endpoint.providerName ?? endpoint.model} 不支持${missingLabel}输入（能力: ${caps.join(', ')}）——prompt 中引用了${missingLabel}。请换支持对应模态的模型${suggest}，或在 dsh settings.yaml 为该模型标注 input: [text, image]`;
+  return `所选模型 ${endpoint.modelLabel ?? endpoint.providerName ?? endpoint.model} 不支持${missingLabel}输入（能力: ${caps.join(', ')}）——prompt 中引用了${missingLabel}。请换支持对应模态的模型${suggest}，或在 dsh 配置（profile 的 cordis.patch.yml，旧版 settings.yaml）里为该模型标注 input: [text, image]`;
 }
 
 function parseOpenAICompat(endpoint: LlmEndpoint): { baseURL: string; apiKey: string; model: string } {
@@ -291,7 +291,7 @@ export async function resolveLlmEndpoint(modelId?: string): Promise<LlmEndpoint>
   const envEp = envFallbackEndpoint();
   if (envEp) return envEp;
 
-  throw new SubagentUnavailableError('dsh 配置（settings.yaml / profile cordis.patch.yml）中没有可用的 LLM 端点（可设 DAG_FLOW_LLM_BASEURL / DAG_FLOW_LLM_KEY / DAG_FLOW_LLM_MODEL 环境变量兜底）');
+  throw new SubagentUnavailableError('dsh 配置（profile 的 cordis.patch.yml；旧版 settings.yaml）中没有可用的 LLM 端点（可设 DAG_FLOW_LLM_BASEURL / DAG_FLOW_LLM_KEY / DAG_FLOW_LLM_MODEL 环境变量兜底）');
 }
 
 // ==================== 调用 ====================

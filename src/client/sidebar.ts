@@ -1,4 +1,3 @@
-// @ts-nocheck
 // src/client/sidebar.ts
 // DSH 左侧栏入口（"新会话"按钮正下方）：自愈式 DOM 注入。
 // ★ 2026-10-01 依据宿主权威样式对齐（@deepseek-ai/dsh-client-ui-sidebar
