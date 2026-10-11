@@ -6,6 +6,43 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261011-fitenter：**进画布改成「按整图适配显示」**（2026-10-11 用户原话：「现在点工作流进右侧画布的时候，
+//   画布是按照75%展示，改成按照整理后的比例展示」→ 从 A（进画布按整图适配，不动节点位置）/ B（进画布先自动
+//   「整理」再适配，会重排并持久化节点位置）里**选 A**）。
+//   改动：`pickInitialZoom` 现在与「适应画布」**同一套夹取 [50%,100%]**（`fitZoomClamped`）；固定 75% 的
+//   `READABLE_MIN_ZOOM` 常量删除（进画布不再硬抬到 75%，大图不再"右半边看不见"）。
+//   ★ 副作用：进画布那一刻的缩放不再保证落在档位上（可能是 62% 这种连续值）——工具栏按实际值显示，
+//     档位只用于 ＋/− 跳档。
+//
+// v20261011-runstop：**运行收尾后关掉光点动画**（2026-10-11 用户真机反馈原话：「运行中的工作流取消了，
+//   能不能关闭这个光点动画」）。根因：「源节点成功、目标还没成功」这个条件在**取消/失败收尾之后依然成立**
+//   ⇒ 光点会永远转下去。修法＝把"正在走"收进"运行仍在进行"这个前提里：
+//   新增 `runActive`（`running && !cancelling`）由 FlowPanel 传入 → `runPathStore` 多存一个 running 标志 →
+//   `stateFor` 在 !running 时把该边判成 **'stalled'（静态绿、无光点）**，已走通的边照旧常亮。
+//   验证：CDP `run-path` 用夹具新控制口 `POST /__host-run {stage:3, terminal:'failed'}` 造"收尾但没走完"的
+//   中间态 → 断言光点 0 个、该边是 `is-runpath-stalled`、已走通的仍是 `is-runpath-done`。
+//
+// v20261011-runcomet：**运行路径高亮改成方案 C ＋「正在走」的光点跑**（2026-10-11 用户拍板——
+//   真机原话：「现在是节点运行结束，线变成绿色，而不是运行中的时候，变成绿色，这个效果是对的吗」
+//   → 从 A 保持 / B 源成功即亮 / C B+流动动画 里**选 C**，动效三候选里**选 ② 光点跑**）。
+//   ① **时机改 B**：`activeEdges` 现在是「源节点 status === 'success'」的边 ⇒ 绿线紧跟执行前沿，
+//      不再等目标节点也跑完（原来落后一拍）。
+//   ② **三态**：已走通（两端都成功）＝常亮绿 + 外发光；正在走（只源成功）＝绿 + 光点沿边跑；
+//      还没到＝淡化 0.4。类名 `is-runpath-done` / `is-runpath-moving` / `is-runpath-dim`。
+//   ③ **光点实现**：挂在 free-lines-plugin `renderInsideLine` 上的 `CometDots`——从同一条线的
+//      `<svg><path>` 上读 `d`，用 CSS `offset-path: path(...)` + `offset-distance` 动画跑 3 个递减尾巴；
+//      定位父级就是线的包装 div，与那条 path 同一坐标系。不支持 `offset-path` 的浏览器整块隐藏（@supports）。
+//   诊断钩子 `window.__df_runPath` 增加 `done` 边数；回归锁 CDP 用例 `run-path`（已按新语义重写）。
+//
+// v20261011-runpath：**恢复「运行路径高亮」**（2026-10-11 用户拍板「实现这个功能」）。
+//   reactflow 时代的能力：两端节点都成功的边标绿光、其余边淡化；FlowGram 化后 `activeEdges`
+//   一直是**悬空 prop**（FlowPanel 算了并传，Canvas 只声明从不读取）→ 本轮补齐。
+//   落点三条通路：① `customLineProps`（free-lines-plugin 的线样式扩展点，对颜色有最终裁决权，
+//   还能覆写 `version` 强制失效它自己的渲染缓存——否则「只换颜色」可能被缓存命中不重渲染）；
+//   ② 线实体 `highlightColor`（`getLineColor` 优先取它）+ `uiState.style`（外发光 / 淡化，落到线容器）；
+//   ③ 类名（CSS 与 CDP 断言的稳定抓手）。配色 `#35d39a`（与 reactflow 时代同色）。
+//   诊断钩子：`window.__df_runPath`。回归锁：CDP 用例 `run-path`。
+//
 // v20261011-cssclean：**第三轮样式清理**（只删样式 + 修注释，宿主与逻辑零改动）——收掉上一轮列出的收尾项：
 //   ① 5 条零引用规则（旧 ghost 按钮变体 ×2、旧「打开下拉」选择器、ManageView 遗留类、定时弹窗被移除的
 //      第二行 actions）——判定用的是**加严审计**（读 ts/tsx 前先剥注释，否则我自己在变更说明里写的类名
@@ -624,7 +661,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261011-cssclean · apply OK');
+    console.log('[dag-flow] client v20261011-fitenter · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

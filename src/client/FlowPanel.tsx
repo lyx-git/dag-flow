@@ -1687,6 +1687,11 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       selectedNode,
       ctx,
       runResults, // 运行状态可视化（画布节点徽标）
+      // ★ 2026-10-11（用户真机反馈「运行中的工作流取消了，能不能关闭这个光点动画」）：
+      //   运行**是否仍在进行**。"正在走"的光点只在此期间跑；一旦结束/被取消，
+      //   那条没走完的边转成静态绿（is-runpath-stalled），不再有动画。
+      //   取消中用 `!cancelling`：点了取消就立刻停动画（头部这时显示「取消中…」）。
+      runActive: running && !cancelling,
       // 上次运行的真实输出（results.<id>.out）——面板用它反推「实际有哪些变量」，含用户自定义键
       runOuts: ((runResult?.summary as { results?: Record<string, unknown> } | undefined)?.results ?? {}),
       // A4 失败策略（onError：节点失败时的行为）
@@ -2403,6 +2408,8 @@ function renderBody(p: {
   selectedNode: import('./types').ClientNode | null | undefined;
   ctx: MountContext;
   runResults?: Record<string, { status: string; durationMs?: number; count?: number; out?: unknown; error?: { code?: string; message?: string }; tolerated?: boolean }>;
+  /** 运行是否仍在进行（false＝已结束/正在取消）：画布"正在走"的光点只在此期间跑 */
+  runActive?: boolean;
   /** 上次运行的真实输出（results.<id>），用于把「用户自定义键/动态节点」的实际字段列出来 */
   runOuts?: Record<string, { status?: string; durationMs?: number; out?: unknown }>;
   onDefChange: (d: WorkflowDef) => void;
@@ -2422,6 +2429,8 @@ function renderBody(p: {
   onRightGeom?: (g: RightGeom) => void;
   rightRef?: { current: HTMLElement | null };
 }) {
+  // 有没有"节点级运行结果"：runResults 初值是 `{}`（truthy），必须数 key（见下面 activeEdges 处注释）
+  const hasRun = !!p.runResults && Object.keys(p.runResults).length > 0;
   const center =
     p.tab === 'canvas'
       ? createElement(Canvas, {
@@ -2432,8 +2441,19 @@ function renderBody(p: {
             return rs ? { ...n, data: { ...n.data, runStatus: rs } } : n;
           }) : p.rfNodes,
           edges: p.rfEdges,
-          // 运行路径高亮：两端节点都成功的边标绿光
-          activeEdges: p.runResults
+          // 运行路径高亮（用户 2026-10-11 拍板方案 C）：**源节点已成功**的边就算进运行路径，
+          //   绿线紧跟执行前沿（不再等两端都完成）。
+          // ★ 判据必须看「有没有节点级运行结果」，不能只看 `p.runResults` 是否真值：
+          //   runResults 的**初始值就是 `{}`（truthy）**——只判真值会得到一个**空 Set**，
+          //   于是画布把"所有边都不在运行路径上"当成事实、进画布就把全部线淡化
+          //   （2026-10-11 实现本功能时 CDP 首跑即抓到这个：没跑过也 on=true）。
+          //   语义：没有运行结果 → `undefined`（保持原样、一条都不淡）；正在跑但还没有
+          //   "源节点成功"的边 → 空 Set（该淡的就该淡）。
+          activeEdges: hasRun
+            ? new Set(p.rfEdges.filter((e) => p.runResults?.[e.source]?.status === 'success').map((e) => e.id))
+            : undefined,
+          // 其中"两端都成功"的那部分＝已走通（常亮绿 + 外发光）；差集＝正在走（绿 + 光点跑）
+          doneEdges: hasRun
             ? new Set(
                 p.rfEdges
                   .filter((e) => p.runResults?.[e.source]?.status === 'success' && p.runResults?.[e.target]?.status === 'success')
@@ -2447,6 +2467,8 @@ function renderBody(p: {
           selectedNodeId: p.selectedNode?.id ?? null,
           // 运行状态走外置 store（FlowGram 节点卡订阅，不进 document 数据）
           runResults: p.runResults,
+          // 运行是否仍在进行 → 决定"正在走"是光点跑（进行中）还是静态绿（已结束/已取消）
+          runActive: p.runActive,
           // 缩略图右避让：右面板右偏移+宽（或最小化竖条）+ 面板边距 14 + 间隙 12
           rightInset: p.rightMin ? 66 : (p.rightGeom ? p.rightGeom.r + p.rightGeom.w + 12 : 366),
         })

@@ -1,7 +1,9 @@
-// test/view-zoom.test.mjs — 画布缩放策略单测（2026-10-03 用户需求）
-//   用户原话：「适应画布的按钮现在没啥用，现在刚进工作流画布的时候，画布上的节点太小了，无法看清，
+// test/view-zoom.test.mjs — 画布缩放策略单测（2026-10-03 用户需求；2026-10-11 改「进画布」策略）
+//   2026-10-03 原话：「适应画布的按钮现在没啥用，现在刚进工作流画布的时候，画布上的节点太小了，无法看清，
 //             最好可以一键放大缩小，方便修改」。
-// 覆盖：进画布默认缩放夹取 [75%,100%] / 适应画布夹取 [50%,100%] / 一键放大缩小的档位跳变与端点。
+//   ★2026-10-11 改口：「现在点工作流进右侧画布的时候，画布是按照75%展示，改成按照整理后的比例展示」
+//     → 进画布与「适应画布」统一成同一套夹取 [50%,100%]（固定 75% 的 READABLE_MIN_ZOOM 已删除）。
+// 覆盖：进画布默认缩放 = 整图适配夹取 [50%,100%] / 适应画布同策略 / 一键放大缩小的档位跳变与端点。
 // 手段：esbuild 即时打包 src/client/viewZoom.ts → 临时 mjs → 断言（纯函数，无 React/无 IO/无 CDP）
 import { build } from 'esbuild';
 import { mkdtempSync } from 'node:fs';
@@ -16,18 +18,19 @@ const eq = (a, b, msg) => ok(a === b, `${msg}（actual=${JSON.stringify(a)} expe
 const dir = mkdtempSync(join(tmpdir(), 'df-view-zoom-'));
 const OUT = join(dir, 'viewZoom.mjs');
 await build({ entryPoints: ['src/client/viewZoom.ts'], bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent' });
-const { pickInitialZoom, fitZoomClamped, nextZoomStep, zoomStepLabel, ensureVisibleShift, READABLE_MIN_ZOOM, FIT_MIN_ZOOM, ZOOM_STEPS } = await import(pathToFileURL(OUT).href);
+const { pickInitialZoom, fitZoomClamped, nextZoomStep, zoomStepLabel, ensureVisibleShift, FIT_MIN_ZOOM, ZOOM_STEPS } = await import(pathToFileURL(OUT).href);
 
-console.log('== A. 进画布默认缩放：自适应但夹在 [75%,100%] ==');
+console.log('== A. 进画布默认缩放：整图适配夹在 [50%,100%]（2026-10-11 用户拍板）==');
 {
-  eq(pickInitialZoom(0.45), 0.75, 'A1. 大图 fit 只有 0.45 → 抬到 75%（看得清优先，不再塞成一片小点）');
-  eq(pickInitialZoom(0.75), 0.75, 'A2. 正好 0.75 → 保持');
-  eq(pickInitialZoom(1.2), 1, 'A3. 小图 fit 到 1.2 → 压到 100%（不放大糊掉）');
-  eq(pickInitialZoom(1), 1, 'A4. 正好 1 → 保持');
-  eq(pickInitialZoom(NaN), READABLE_MIN_ZOOM, 'A5. 量不到内容尺寸 → 用下限（不返回 NaN 把画布弄坏）');
-  eq(pickInitialZoom(0), READABLE_MIN_ZOOM, 'A6. 非法值 0 → 用下限');
-  eq(pickInitialZoom(-3), READABLE_MIN_ZOOM, 'A7. 负值 → 用下限');
-  eq(READABLE_MIN_ZOOM, 0.75, 'A8. 下限常量就是 75%');
+  eq(pickInitialZoom(0.45), 0.5, 'A1. 大图 fit 只有 0.45 → 兜到 50%（按整图适配显示，不再固定抬到 75%）');
+  eq(pickInitialZoom(0.5), 0.5, 'A2. 正好 0.5 → 保持');
+  eq(pickInitialZoom(0.85), 0.85, 'A3. 0.85 在区间内 → 原样（能看全就用适配值，不硬抬）');
+  eq(pickInitialZoom(1.2), 1, 'A4. 小图 fit 到 1.2 → 压到 100%（不放大糊掉）');
+  eq(pickInitialZoom(1), 1, 'A5. 正好 1 → 保持');
+  eq(pickInitialZoom(NaN), FIT_MIN_ZOOM, 'A6. 量不到内容尺寸 → 用下限（不返回 NaN 把画布弄坏）');
+  eq(pickInitialZoom(0), FIT_MIN_ZOOM, 'A7. 非法值 0 → 用下限');
+  eq(pickInitialZoom(-3), FIT_MIN_ZOOM, 'A8. 负值 → 用下限');
+  eq(pickInitialZoom(0.62), fitZoomClamped(0.62), 'A9. 与「适应画布」逐值一致（两个入口同一策略，用户不必猜差别）');
 }
 
 console.log('== B. 「⤢ 适应画布」：夹在 [50%,100%] ==');
@@ -36,9 +39,9 @@ console.log('== B. 「⤢ 适应画布」：夹在 [50%,100%] ==');
   eq(fitZoomClamped(0.5), 0.5, 'B2. 正好 0.5 → 保持');
   eq(fitZoomClamped(0.85), 0.85, 'B3. 0.85 在区间内 → 原样（能全图可见就优先全图）');
   eq(fitZoomClamped(1.6), 1, 'B4. 小图 1.6 → 压到 100%');
-  eq(fitZoomClamped(NaN), READABLE_MIN_ZOOM, 'B5. 非法值 → 用可读下限兜底');
-  eq(FIT_MIN_ZOOM, 0.5, 'B6. 适应画布下限常量就是 50%');
-  ok(pickInitialZoom(0.45) > fitZoomClamped(0.32), 'B7. 默认视图比「适应画布」更"看得清"（75% > 50%）');
+  eq(fitZoomClamped(NaN), FIT_MIN_ZOOM, 'B5. 非法值 → 用下限兜底');
+  eq(FIT_MIN_ZOOM, 0.5, 'B6. 下限常量就是 50%');
+  eq(pickInitialZoom(0.32), fitZoomClamped(0.32), 'B7. 进画布与「适应画布」同策略（都兜在 50%）');
 }
 
 console.log('== C. 一键放大/缩小：按档位跳 ==');

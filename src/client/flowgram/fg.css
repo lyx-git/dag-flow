@@ -936,3 +936,36 @@ button.dsh-wf-fg-zoom:hover {
 .dsh-wf-fg-failchip.is-skip { color: #38bdf8; }     /* 跳过支路：青 */
 .dsh-wf-fg-failchip.is-ignore { color: #34d399; }   /* 忽略失败：绿（与「已容错」同色系） */
 .dsh-wf-fg-failchip.is-goto { color: #a78bfa; }     /* 失败跳转：紫（与循环标同色系） */
+
+/* ★ 运行路径高亮（2026-10-11 用户拍板方案 C）：**源节点成功即算运行路径**——
+   已走通（两端都成功）＝常亮绿 + 外发光；正在走（只源成功）＝绿 + 光点跑；还没到＝淡化。
+   与 JS 侧的分工：`customLineProps` 给的是线的「画色」，而 stroke 实际是 `url(#渐变)` —— 这里用 CSS 的
+   stroke 直接覆盖（CSS 属性优先于 SVG 的呈现属性）。淡化与外发光在实体 `uiState.style` 里也设了一份：
+   inline style 是重渲染后依然生效的兜底，这里的类名是 CSS 与 CDP 断言的稳定抓手。
+   ★ 选择器都限定在 `.dsh-wf-fg-root` 下，避免影响别的 FlowGram 画布。 */
+.dsh-wf-fg-root .gedit-flow-activity-edge.is-runpath-done { filter: drop-shadow(0 0 3px rgba(53, 211, 154, .78)); }
+.dsh-wf-fg-root .gedit-flow-activity-edge.is-runpath-done svg path { stroke: #35d39a; }
+.dsh-wf-fg-root .gedit-flow-activity-edge.is-runpath-moving svg path { stroke: #35d39a; }
+/* 没走完就停了（运行结束/被取消/失败收尾）：绿线留着，但没有光点、也不给外发光
+   ★ 2026-10-11 用户反馈「运行中的工作流取消了，能不能关闭这个光点动画」 */
+.dsh-wf-fg-root .gedit-flow-activity-edge.is-runpath-stalled svg path { stroke: #35d39a; }
+.dsh-wf-fg-root .gedit-flow-activity-edge.is-runpath-stalled { opacity: .82; }
+.dsh-wf-fg-root .gedit-flow-activity-edge.is-runpath-dim { opacity: .4; }
+
+/* 「正在走」的光点（候选 ② 光点跑）：沿这条线自己的贝塞尔路径跑，尾巴用负延迟错开。
+   定位父级＝线的包装 div（它的 left/top 已经是这条线的 bounding box），`offset-path` 用的就是同一条
+   path 的 `d` —— 两者同一个坐标系，不需要自己再算一遍曲线。 */
+.dsh-wf-fg-comet { position: absolute; left: 0; top: 0; pointer-events: none; }
+.dsh-wf-fg-comet .dot {
+  position: absolute; left: 0; top: 0; border-radius: 50%;
+  background: #eafff6;
+  box-shadow: 0 0 6px rgba(53, 211, 154, 1), 0 0 2px rgba(255, 255, 255, .9);
+  animation-name: dsh-wf-comet-run;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes dsh-wf-comet-run { from { offset-distance: 0%; } to { offset-distance: 100%; } }
+/* 兜底：不支持 offset-path 的浏览器干脆不画光点（否则它们会全部堆在线的左上角） */
+@supports not (offset-path: path("M0 0 L1 1")) {
+  .dsh-wf-fg-comet { display: none; }
+}
