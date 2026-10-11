@@ -6,6 +6,14 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261011-sfhint：**subflow 卡片加「双击卡片进入子工作流」提示行**（2026-10-11 用户原话：「子工作流节点上
+//   加个提示信息，双击跳转子工作流，如果子工作流不存在的话，双击提示子工作流不存在」）。
+//   · 卡片：副标题仍是「↳ 子工作流名」（实测内容宽 168px，提示拼在副标题里会把「双击进入」自己挤掉
+//     → 另起一行 `.dsh-wf-fg-card-hint`，交互色 9.5px，卡片高约 +16px）；
+//   · 双击：沿用 2026-10-03 就做好的 enterSubWorkflow（loop 循环体 / subflow 目标都能进，header 有返回胶囊+面包屑）；
+//   · 目标不存在：navStack 现在按 HTTP 404 单独出文案「子工作流「X」不存在——双击没有跳转，检查名字或先新建它」
+//     （与执行器 WORKFLOW_NOT_FOUND 同口径），不再只报 HTTP 码。
+//
 // v20261011-fitenter：**进画布改成「按整图适配显示」**（2026-10-11 用户原话：「现在点工作流进右侧画布的时候，
 //   画布是按照75%展示，改成按照整理后的比例展示」→ 从 A（进画布按整图适配，不动节点位置）/ B（进画布先自动
 //   「整理」再适配，会重排并持久化节点位置）里**选 A**）。
@@ -661,7 +669,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261011-fitenter · apply OK');
+    console.log('[dag-flow] client v20261011-sfhint · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

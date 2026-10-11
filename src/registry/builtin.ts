@@ -39,6 +39,11 @@ function scriptEnv(exe: string): NodeJS.ProcessEnv {
   const sep = process.platform === 'win32' ? ';' : ':';
   env.PATH = `${dirname(exe)}${sep}${env.PATH ?? ''}`;
   if (!env.HOME) env.HOME = env.USERPROFILE ?? env.HOMEPATH ?? '';
+  // ★ 2026-10-11：禁止 python 往磁盘写 .pyc —— `runtime/` 是**被 git 跟踪**的目录，Python 每次
+  //   导入标准库（csv / xml.etree / json …）都可能重写 `Lib/**/__pycache__/*.pyc`，把仓库弄脏
+  //   （实测：跑一次采集/解析子工作流，git status 就出现若干 modified 的 .pyc）。
+  //   只影响本次 spawn 的子进程；已编译的 stdlib 缓存仍在 runtime 里，导入速度不受影响。
+  env.PYTHONDONTWRITEBYTECODE = '1';
   return env;
 }
 
@@ -644,6 +649,9 @@ const subflowDef: NodeDefinition = {
     const { summary } = await runWorkflow(sub, {
       logger: createLogger(),
       cwd: process.cwd(),
+      // ★ 模板解析由**执行器统一**负责（run.ts 对每个节点的 params 走 resolveParams），
+      //   这里拿到的 inputs 已经是解析后的值 —— 与其它节点同语义，**不要**在这里再解析一遍
+      //   （第二遍会把"解析结果里恰好含 {{...}} 的字符串"当模板再解，与其它节点行为不一致）。
       inputs: (q.inputs ?? {}) as Record<string, JsonValue>,
       _depth: depth + 1,
       signal: ctx.signal,

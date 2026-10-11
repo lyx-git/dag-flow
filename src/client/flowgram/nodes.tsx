@@ -48,6 +48,9 @@ function pickSubtitle(type: string, data: Record<string, unknown>): string {
     case 'manual': return (data.prompt as string) ?? 'awaiting user';
     case 'session_input': return `session ${(data.sessionId as string) || 'current'} · limit ${(data.limit as number) ?? 10}`;
     case 'merge': return '合流上游输出';
+    // ★ 2026-10-11 用户要求「子工作流节点上加个提示信息」：名字照旧显示在副标题，
+    //   「双击进入」另起一行（见 subHint）——实测内容宽只有 168px，拼在副标题里
+    //   会把「双击进入」自己挤掉（子工作流-采集 就有 17 单位宽）。
     case 'subflow': return `↳ ${(data.workflowName as string) || '（未命名子工作流）'}`;
     case 'image_generate': return `${(data.model as string) || 'wanx-v1'} · ${(data.size as string) || '1024*1024'}`;
     case 'video_generate': return `轮询 ${(data.pollIntervalMs as number) ?? 5000}ms · max ${Math.round(((data.maxWaitMs as number) ?? 600000) / 1000)}s`;
@@ -359,6 +362,17 @@ function NodeCardBody({ type }: { type: string }) {
     ? SWITCH_CARD_MIN_H
     : (ifLabels.length ? 22 + (ifLabels.length - 1) * 30 + 24 : 0);
   const subText = type === 'switch' ? switchSubtitle(values, caseSel, caseKeys.length) : sub;
+  // ★ 2026-10-11：subflow 卡片的提示行 + 悬浮说明——把「双击能进子工作流」这件事写在卡片上
+  //   （2026-10-03 用户拍板过双击进入；但卡片上一直只有名字，没人看得出来能双击）。
+  const wfName = String(values.workflowName ?? '').trim();
+  const subHint = type === 'subflow'
+    ? createElement('div', {
+        className: 'dsh-wf-fg-card-hint',
+        title: wfName
+          ? `双击卡片进入子工作流「${wfName}」（不存在时会给出提示、不跳转）`
+          : '还没选子工作流——在右侧参数里选一个，之后双击卡片即可进入',
+      }, wfName ? '双击卡片进入子工作流' : '还没选子工作流 · 右侧选一个')
+    : null;
   return createElement(
     'div',
     {
@@ -389,6 +403,7 @@ function NodeCardBody({ type }: { type: string }) {
       ),
     ),
     createElement('div', { className: 'dsh-wf-fg-card-sub', title: subText }, subText),
+    subHint,
     failChip,
     switchChips,
     switchNote,

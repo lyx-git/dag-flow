@@ -63,9 +63,19 @@ export function parse(yaml: string): unknown {
         const key = rest.slice(0, colonIdx).trim().replace(/^['"]|['"]$/g, '');
         const rawVal = rest.slice(colonIdx + 1).trim();
         if (rawVal === '') {
-          // - key: （下一行是子字段）→ 当前 obj 入栈
+          // - key: （下一行是更深缩进的子字段/子数组）→ 建立 key 这一层，并把该层入栈
+          //
+          // ★ 2026-10-11 修复第三个同族 bug：原实现只 `arr.push(obj)` 就把 **obj 本身**入栈，
+          //   从未建立 `obj[key]`。于是官方 patch 的标准形状
+          //     - insert:
+          //         - id: x
+          //   解析出来 insert 层完全不存在（实测 dsh-base 的 529 行 patch 里 94 行嵌套 - id 全丢）。
+          //   现在 `obj[key] = child` 并把 child 入栈，且带上 parentContainer/parentKey —— 下一行
+          //   若是更深缩进的 `- `，就走上面那条既有的「对象→数组」惰性转换，把 obj[key] 换成数组。
+          const child: Record<string, unknown> = {};
+          obj[key] = child;
           arr.push(obj);
-          stack.push({ indent, container: obj, isArray: false, parentContainer: arr as unknown as Record<string, unknown>, parentKey: undefined });
+          stack.push({ indent, container: child, isArray: false, parentContainer: obj, parentKey: key });
         } else {
           obj[key] = parseScalar(rawVal);
           arr.push(obj);

@@ -200,7 +200,42 @@ let s1 = null;   // 场景 2 要拿它的 effect disposer 模拟 fiber 卸载
 
   t('apply(ctx) 注册 21 条路由（15 条既有 + 4 条定时任务 + 1 条自检 + 1 条运行日志；无一条静默失败）', state.routes.length === 21, `routes=${state.routes.length} ${routeKeys().join(' | ')}`);
   t('路由清单与源码一致', JSON.stringify(routeKeys()) === JSON.stringify([...EXPECTED].sort()), routeKeys().join(' | '));
-  t('workflow 工具注册成功', state.tools.length === 1 && state.tools[0].name === 'workflow', JSON.stringify(state.tools.map((x) => x.name)));
+  t('dagflow 工具注册成功', state.tools.length === 1 && state.tools[0].name === 'dagflow', JSON.stringify(state.tools.map((x) => x.name)));
+  // ★ 2026-10-11：工具名不能再叫 `workflow`——宿主自带 @deepseek-ai/dsh-tool-workflow 就叫这个
+  //   （多智能体编排），dsh-tools 的 ToolLayer 同层重名直接抛 `tool "workflow" is already registered`。
+  t('★ 工具名避开宿主自带的 workflow（同层重名会抛 already registered）', state.tools[0]?.name !== 'workflow', state.tools[0]?.name);
+
+  // ★ 2026-10-11：/workflow 工具的**宿主注册契约**（真机上一直注册失败的根因就在这里）
+  //   伪造 ctx 的 register 只捕获、不校验，所以真机抛 TypeError 时离线上仍显示"注册成功"。
+  //   这里逐字复刻 dsh-tools register() 的守卫，并补阳性对照（旧形状必须被判不合格）。
+  {
+    const tool = state.tools[0]?.tool;
+    const guard = (def) => {   // 逐字复刻 dsh-tools/lib/index.js register() 的 output 守卫
+      const output = def?.output;
+      if (output === undefined || typeof output !== 'object'
+        || typeof output.render !== 'function'
+        || (output.presentationMeta !== undefined && typeof output.presentationMeta !== 'function')) {
+        throw new TypeError(`tool "${def?.name}" must declare output { schema, render, presentationMeta? }`);
+      }
+    };
+    let guarded = true, guardErr = '';
+    try { guard(tool); } catch (e) { guarded = false; guardErr = e.message; }
+    t('★ 能过宿主 register() 的形状守卫（修复前这里抛 TypeError）', guarded, guardErr);
+    t('守卫是灵敏的：旧的 output:{schema} 形状会被判不合格（阳性对照）', (() => {
+      try { guard({ name: 'workflow', output: { schema: { type: 'string' } } }); return false; } catch { return true; }
+    })());
+
+    const ps = tool?.parameters ?? {};
+    t('★ parameters 是 JSON Schema 本体（type=object + properties）', ps.type === 'object' && typeof ps.properties === 'object' && ps.properties.type === undefined, JSON.stringify(ps).slice(0, 140));
+    t('必填走 required 数组（不再是 defineTool 入参里的 required:true）', Array.isArray(ps.required) && ps.required.includes('action') && ps.properties.action?.required === undefined, JSON.stringify(ps.required));
+    t('action 的 enum 与 description 仍在（模型侧能看懂）', Array.isArray(ps.properties?.action?.enum) && ps.properties.action.enum.length === 5 && !!ps.properties.action.description);
+
+    const value = await tool.execute({ action: 'list' }, { cwd: WS });
+    t('execute 返回字符串（与 output.schema 声明的 string 一致）', typeof value === 'string' && value.includes('工作流列表'), String(value).slice(0, 80));
+    t('output.schema 声明为 string', tool?.output?.schema?.type === 'string', JSON.stringify(tool?.output?.schema));
+    const rendered = tool?.output?.render?.({ action: 'list' }, value);
+    t('★ render 把「值」转成 content 块 {type:text,text}', Array.isArray(rendered) && rendered[0]?.type === 'text' && rendered[0]?.text === value, String(JSON.stringify(rendered)).slice(0, 100));
+  }
 
   const drift = mod.getDriftReport();
   const core = ['tools.register', 'webServer.register', 'fs.resolve', 'effect'];
@@ -212,7 +247,7 @@ let s1 = null;   // 场景 2 要拿它的 effect disposer 模拟 fiber 卸载
   t('effect 标签可辨识', effects.some((e) => /tool/i.test(e.label ?? '')) && effects.some((e) => /api/i.test(e.label ?? '')) && effects.some((e) => /schedul/i.test(e.label ?? '')), JSON.stringify(effects.map((e) => e.label)));
 
   const infoLine = logs.filter((l) => l.level === 'info').map((l) => String(l.msg)).find((m) => m.includes('[dag-flow] loaded')) ?? '';
-  t('加载日志同时报告 tool / api 的注册结果', /workflow tool registered/.test(infoLine) && /api registered/.test(infoLine), infoLine);
+  t('加载日志同时报告 tool / api 的注册结果', /dagflow tool registered/.test(infoLine) && /api registered/.test(infoLine), infoLine);
   t('加载日志不再声称 safe mode', !/safe mode active/.test(infoLine), infoLine);
 
   // 文件日志（<DSH_HOME>/.dag-flow/logs/）——修复前这条证据完全缺失
@@ -311,7 +346,7 @@ console.log('\n[4] 旧宿主兼容：普通对象 ctx（无 get / effect）');
   t('旧宿主仍注册 workflow 工具', state.tools.length === 1, `tools=${state.tools.length}`);
   t('无 ctx.effect 时不抛错（disposer 无处挂，降级为不注销）', true);
   const infoLine = logs.map((l) => String(l.msg)).find((m) => m.includes('[dag-flow] loaded')) ?? '';
-  t('旧宿主加载日志报告全部 registered', /workflow tool registered/.test(infoLine) && /api registered/.test(infoLine), infoLine);
+  t('旧宿主加载日志报告全部 registered', /dagflow tool registered/.test(infoLine) && /api registered/.test(infoLine), infoLine);
   for (const r of state.routes.splice(0)) { void r; }
   for (const x of state.tools.splice(0)) { void x; }
 }
@@ -326,7 +361,7 @@ console.log('\n[5] 极端降级：空 ctx');
   t('apply 绝不抛错（fail-soft）', threw === null, String(threw?.message ?? ''));
   t('无宿主能力时 0 路由 0 工具', state.routes.length === 0 && state.tools.length === 0);
   const infoLine = logs.map((l) => String(l.msg)).find((m) => m.includes('[dag-flow] loaded')) ?? '';
-  t('两个能力各自报告 skipped 原因', /workflow tool skipped \(tools\.register 不可用/.test(infoLine) && /api skipped \(webServer\.register 不可用\)/.test(infoLine), infoLine);
+  t('两个能力各自报告 skipped 原因', /dagflow tool skipped \(tools\.register 不可用/.test(infoLine) && /api skipped \(webServer\.register 不可用\)/.test(infoLine), infoLine);
   t('空 ctx 下 safeMode = true（核心能力缺失）', mod.isSafeMode() === true);
 }
 

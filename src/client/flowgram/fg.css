@@ -906,6 +906,19 @@ button.dsh-wf-fg-zoom:hover {
   text-overflow: ellipsis;
 }
 
+/* 卡片内的操作提示（与上面 note 同排版，但用交互色而不是警告色——
+   例：subflow 卡片的「双击卡片进入子工作流」，2026-10-11 用户要求） */
+.dsh-wf-fg-card-hint {
+  margin-top: 3px;
+  font-size: 9.5px;
+  line-height: 1.4;
+  color: var(--wf-accent, #4f8cff);
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ===== 面板八向拖拽调大小（2026-10-01 夜）——把手全在盒内（palette overflow:hidden 会裁剪外伸部分） =====
    2026-10-02 用户反馈「不要这种线」：与右面板同款删除 hover/active 高亮条，边缘光标语义保留。 */
 .dsh-wf-fg-palette-resize { position: absolute; z-index: 30; }

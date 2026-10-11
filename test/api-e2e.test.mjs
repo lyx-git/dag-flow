@@ -203,20 +203,48 @@ const del = async (p, body) => { const r = await fetch(url(p), { method: 'DELETE
   t('merge 合流输出含上游键', res.mg?.status === 'success' && res.mg?.out && 'la' in res.mg.out && 'lb' in res.mg.out, JSON.stringify(res.mg)?.slice(0, 200));
 
   // subflow：先保存子工作流，再在主流程里调用
+  //   ★ 2026-10-11：子工作流把收到的 inputs 回显到 end 输出，用来锁「inputs 走模板解析」这条新语义
   const sub = { name: 'e2e-sub', version: 1, nodes: [
     { id: 'start', type: 'start', next: 'log' },
     { id: 'log', type: 'log', params: { level: 'info', message: 'from-sub' }, next: 'end' },
-    { id: 'end', type: 'end' },
+    { id: 'end', type: 'end', params: { outputs: {
+      kw: '{{inputs.kw}}', mixed: '{{inputs.mixed}}', plain: '{{inputs.plain}}', num: '{{inputs.num}}',
+    } } },
   ] };
   await post('/workflows/save', { name: 'e2e-sub', def: sub });
   const main = { name: 'e2e-main', version: 1, nodes: [
-    { id: 'start', type: 'start', next: 'sf' },
-    { id: 'sf', type: 'subflow', params: { workflowName: 'e2e-sub' }, next: 'end' },
+    { id: 'start', type: 'start', next: 'sv' },
+    { id: 'sv', type: 'set_var', params: { vars: { kw: '央行' } }, next: 'sf' },
+    { id: 'sf', type: 'subflow', params: { workflowName: 'e2e-sub', inputs: {
+      kw: '{{vars.kw}}',              // 纯引用：保持值
+      mixed: '前缀-{{vars.kw}}-后缀',  // 混合模板：字符串拼接
+      plain: 'abc',                   // 纯字面量：原样透传（行为不变）
+      num: 3,                         // 非字符串：原样透传
+    } }, next: 'end' },
     { id: 'end', type: 'end' },
   ] };
   const r2 = await post('/run', { def: main });
   const sf = r2.body?.summary?.results?.sf;
   t('subflow 调用子工作流成功且带 output', r2.status === 200 && sf?.status === 'success' && sf?.out?.output != null, JSON.stringify(sf)?.slice(0, 200));
+  const echo = sf?.out?.output ?? {};
+  t('subflow inputs 纯引用 {{vars.kw}} 被解析', echo.kw === '央行', JSON.stringify(echo)?.slice(0, 200));
+  t('subflow inputs 混合模板被替换', echo.mixed === '前缀-央行-后缀', JSON.stringify(echo)?.slice(0, 200));
+  t('subflow inputs 纯字面量原样透传', echo.plain === 'abc', JSON.stringify(echo)?.slice(0, 200));
+  t('subflow inputs 非字符串原样透传', echo.num === 3, JSON.stringify(echo)?.slice(0, 200));
+
+  // 引用不存在 → 与其它节点同语义：**节点引用**无法解析时明确失败（strict）；
+  //   （注意 `{{vars.不存在}}` 是另一码事：vars 缺失一律解析成 null，全仓都是这个语义，不报错）
+  const bad = { name: 'e2e-subbad', version: 1, nodes: [
+    { id: 'start', type: 'start', next: 'sf' },
+    { id: 'sf', type: 'subflow', params: { workflowName: 'e2e-sub', inputs: { kw: '{{根本没有这个节点.out}}' } }, next: 'end' },
+    { id: 'end', type: 'end' },
+  ] };
+  const r3 = await post('/run', { def: bad, skipSelfcheck: true });
+  // ★ 引用不存在的节点在**归一化/拓扑层**就被拦下（整体 ok:false + DATAFLOW_UNKNOWN），压根不进执行
+  //   —— 比"某个节点 failed"更响亮：连 runId 都建了但 results 为空、error 说明是哪个节点引用了谁。
+  t('subflow inputs 引用不存在的节点 → 整体明确失败（DATAFLOW_UNKNOWN，不静默）',
+    r3.body?.ok === false && r3.body?.summary?.error?.code === 'DATAFLOW_UNKNOWN',
+    `http=${r3.status} err=${JSON.stringify(r3.body?.summary?.error)?.slice(0, 200)}`);
 }
 
 // ===== 7. 删除 + 运行历史列表 =====
@@ -630,6 +658,10 @@ const del = async (p, body) => { const r = await fetch(url(p), { method: 'DELETE
 
   const py2 = await post('/run-node', { nodeType: 'python', params: { code: 'import os\nprint(os.getcwd())', cwd: fakeWorkspace } });
   t('15.2 显式 params.cwd 完全覆盖默认值', outOf(py2.body) === fakeWorkspace, outOf(py2.body));
+
+  // ★ 2026-10-11：python 子进程不许写 .pyc —— runtime/ 被 git 跟踪，写字节码会把仓库弄脏
+  const pyEnv = await post('/run-node', { nodeType: 'python', params: { code: 'import os\nprint(os.environ.get("PYTHONDONTWRITEBYTECODE"))' } });
+  t('15.2b python 子进程带 PYTHONDONTWRITEBYTECODE=1（不再往 runtime/ 写 .pyc）', outOf(pyEnv.body) === '1', outOf(pyEnv.body));
 
   // bash 用"相对路径产物落在哪"来断言（不依赖 MSYS 的 /c/... 路径格式）
   const bs = await post('/run-node', { nodeType: 'bash', params: { code: 'echo hello-from-bash > cwd-probe.txt' } });

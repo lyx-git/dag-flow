@@ -53,7 +53,10 @@ export async function enterSubWorkflow(workflowName: string, fromNodeId: string)
   let child: WorkflowDef;
   try {
     const r = await fetch(`/api/dag-flow/workflows/${encodeURIComponent(name)}`, { credentials: 'include' });
-    if (!r.ok) return { error: `子工作流「${name}」不存在或读取失败（HTTP ${r.status}）` };
+    // ★ 2026-10-11 用户要求：目标不存在时，双击要**明说「子工作流不存在」**（与执行器
+    //   WORKFLOW_NOT_FOUND 的文案同口径），并给出下一步动作，而不是只报一个 HTTP 码。
+    if (r.status === 404) return { error: `子工作流「${name}」不存在——双击没有跳转，检查名字或先新建它` };
+    if (!r.ok) return { error: `读取子工作流「${name}」失败（HTTP ${r.status}）` };
     child = ((await r.json()) as { workflow?: WorkflowDef })?.workflow as WorkflowDef;
   } catch (e) {
     return { error: `读取子工作流「${name}」失败：${(e as Error).message}` };
