@@ -6,6 +6,12 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261011-testrunmsg：**单节点试跑失败时，面板要给出原因**（2026-10-11 用户要求修 ③）。
+//   症状：参数里引用了上游节点（如 `over: '{{web_search1.out.items}}'`），而单节点试跑没有上游 →
+//   执行器在**模板解析阶段**就拦下（整轮 error.code=DATAFLOW_UNKNOWN），`results.target` **根本不存在**；
+//   旧代码只读 `target.*` ⇒ 面板只剩一句「✗ 节点状态: failed」，一个字的原因都没有。
+//   现在把节点级错误、或整轮错误的原因带进试跑结果区（服务端同样给这类失败补了"单节点试跑"的说明）。
+//
 // v20261011-sfhint：**subflow 卡片加「双击卡片进入子工作流」提示行**（2026-10-11 用户原话：「子工作流节点上
 //   加个提示信息，双击跳转子工作流，如果子工作流不存在的话，双击提示子工作流不存在」）。
 //   · 卡片：副标题仍是「↳ 子工作流名」（实测内容宽 168px，提示拼在副标题里会把「双击进入」自己挤掉
@@ -669,7 +675,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261011-sfhint · apply OK');
+    console.log('[dag-flow] client v20261011-testrunmsg · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

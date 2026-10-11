@@ -210,6 +210,52 @@ console.log('== 5b. 扁平 patch 行（llm-config 依赖） ==');
   assert(dm?.config?.model === 'deepseek-chat', 'agent-default-model.config.model 可读');
 }
 
+// ===== 5d. 块状字符串 `|` 与 `>`（2026-10-11 新增：以前会把 key 变成 {}，静默给错值） =====
+console.log('== 5d. 块状字符串（literal | / folded >） ==');
+{
+  const r = parse([
+    'config:',
+    '  section: |',
+    '    第一行',
+    '',
+    '    第二行',
+    '  after: 1',
+  ].join('\n'));
+  assert(typeof r.config?.section === 'string', `| 解析成字符串（不再是对象）：${J(r.config?.section)}`);
+  assert(r.config.section === '第一行\n\n第二行\n', `| 保留换行、末尾按 clip 补一个换行：${J(r.config?.section)}`);
+  assert(r.config?.after === 1, '块结束后的同级键仍归本层（缩进回到 key 同级即结束）');
+
+  // 真实形状：dsh-base 的 `- id: plan-mode` → `config.section: |`（缩进 10 的长提示词）
+  const r2 = parse([
+    '- id: plan-mode',
+    '  config:',
+    '    section: |',
+    '          You are in plan mode.',
+    '          Stay in plan mode.',
+    '    keep: true',
+    '- id: next-row',
+  ].join('\n'));
+  assert(r2[0]?.config?.section === 'You are in plan mode.\nStay in plan mode.\n', `嵌套在数组项里也对：${J(r2[0]?.config?.section)}`);
+  assert(r2[0]?.config?.keep === true, '块后的同级键仍归 config');
+  assert(r2[1]?.id === 'next-row', '块后的下一个数组项没被吞掉');
+
+  const r3 = parse(['note: >', '  aaa', '  bbb', '', '  ccc'].join('\n'));
+  assert(r3.note === 'aaa bbb\nccc\n', `> 折叠成空格、空行成段落分隔：${J(r3.note)}`);
+
+  const r4 = parse(['a: |', 'b: 1'].join('\n'));
+  assert(r4.a === '' && r4.b === 1, `key: | 后面直接同级 → 空串且不吞下一行：${J(r4)}`);
+
+  // ★ chomping / 缩进指示符：真实文件里用到的是 `|-` 与 `>-`（实测 4+4+4 处）
+  const r5 = parse(['description: |-', '  一行', '  二行', 'next: 1'].join('\n'));
+  assert(r5.description === '一行\n二行', `|- strip：不补末尾换行：${J(r5.description)}`);
+  assert(r5.next === 1, '|- 块后的同级键仍归本层');
+  const r6 = parse(['personaPrefix: >-', '  You are a coding agent', '  powered by test.', 'k: 2'].join('\n'));
+  assert(r6.personaPrefix === 'You are a coding agent powered by test.', `>- 折叠且 strip：${J(r6.personaPrefix)}`);
+  const r7 = parse(['x: |2', '    a', 'y: 1'].join('\n'));
+  assert(r7.x === '  a\n', `|2 显式缩进指示符（正文缩进 = key 缩进 + 2，多出来的空格保留）：${J(r7.x)}`);
+  assert(r7.y === 1, '|2 块后的同级键仍归本层');
+}
+
 // ===== 6. 深缩进三层对象 =====
 console.log('== 6. 三层对象嵌套 ==');
 {

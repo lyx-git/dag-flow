@@ -2,8 +2,8 @@
 //
 // 为什么不用 js-yaml：R3 零依赖约束，npm 包体积最小化。
 // 支持：缩进嵌套对象、数组（- item / - key: value 对象项）、字符串/数字/布尔/null、
-//       key: value、引号字符串（单/双）、# 注释。
-// 不支持：锚点/别名、复杂 flow 语法、多文档、块状字符串（| 与 >）。够用即可。
+//       key: value、引号字符串（单/双）、# 注释、**块状字符串（`|` 字面 / `>` 折叠）**。
+// 不支持：锚点/别名、复杂 flow 语法、多文档。够用即可。
 
 export function parse(yaml: string): unknown {
   const lines = yaml.split(/\r?\n/);
@@ -24,8 +24,8 @@ export function parse(yaml: string): unknown {
   };
   const stack: Frame[] = [{ indent: -1, container: root, isArray: rootIsArray }];
 
-  for (const rawLine of lines) {
-    const line = rawLine.replace(/\t/g, '  ');
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li].replace(/\t/g, '  ');
     if (!line.trim() || line.trim().startsWith('#')) continue;
     const indent = line.length - line.trimStart().length;
 
@@ -101,7 +101,45 @@ export function parse(yaml: string): unknown {
 
     if (!parent.isArray && parent.container) {
       const obj = parent.container as Record<string, unknown>;
-      if (rawVal === '' || rawVal === '|' || rawVal === '>') {
+      // 块状字符串的**头部规格**：`|` / `>` 后面还能跟缩进指示数字与 chomping 指示符（`|-` / `>-` / `|2-`，顺序可互换）。
+      // ★ 实测本机 dsh 自带 patch 里真实用到三种：`section: |`（4 处）、`description: |-`（4 处）、`personaPrefix: >-`（4+1 处）
+      //   —— 只认裸 `|`/`>` 的话，`|-` / `>-` 会被当成普通标量、原样存成字符串 "|-"，同样是**静默给错值**。
+      const blockSpec = /^([|>])(\d?)([+-]?)$/.exec(rawVal) ?? /^([|>])([+-]?)(\d?)$/.exec(rawVal);
+      if (blockSpec) {
+        const style = blockSpec[1];
+        const opt = blockSpec.slice(2) as string[];
+        const indentDigit = opt.find((x) => /^\d$/.test(x)) ?? '';
+        const chomp = opt.find((x) => x === '-' || x === '+') ?? '';
+        // ★ 2026-10-11 新增（用户要求修 ①）：块状字符串（literal `|` / folded `>`）。
+        //   旧实现把它当"进入子层级"→ 正文行没有冒号被整段丢弃，`key` 变成一个空对象 {}：
+        //   **静默给错值**（实测 dsh-base 与三个 preset patch 共 4 处 `config.section` 命中，
+        //   section 本来是长提示词，被解析成 {}）。
+        //   规则（够用即止，不做 YAML 全套）：正文缩进以**第一条非空行**为准（给了数字指示符就按 key 缩进 + N）；
+        //   缩进回到 key 同级或更浅即块结束；`|` 保留换行、`>` 折叠成空格（空行 = 段落分隔）；
+        //   尾部空行去掉；chomping：默认 clip 补一个换行、`-` strip 不补、`+` 同 clip（无实际用例）。
+        const collected: Array<string | null> = [];   // null = 空行
+        let blockIndent = indentDigit ? indent + Number(indentDigit) : -1;
+        let bi = li + 1;
+        for (; bi < lines.length; bi++) {
+          const bl = lines[bi].replace(/\t/g, '  ');
+          const bt = bl.trim();
+          const bind = bl.length - bl.trimStart().length;
+          if (bt === '') { collected.push(null); continue; }
+          if (blockIndent < 0) {
+            if (bind <= indent) break;      // `key: |` 后面直接是同级内容 → 空块
+            blockIndent = bind;
+          }
+          if (bind < blockIndent) break;    // 回到父层级 → 块结束
+          collected.push(bl.slice(blockIndent));
+        }
+        while (collected.length && collected[collected.length - 1] === null) collected.pop();
+        const block = style === '|'
+          ? collected.map((c) => c ?? '').join('\n')
+          : foldBlock(collected);
+        obj[key] = collected.length ? block + (chomp === '-' ? '' : '\n') : '';
+        li = bi - 1;                        // 主循环接着处理块后面的那一行
+        (parent as { lastKey?: string }).lastKey = key;
+      } else if (rawVal === '') {
         // 进入子层级（暂建对象；若下一行是 - 数组项，上面会惰性转数组）
         const child: Record<string, unknown> = {};
         obj[key] = child;
@@ -113,6 +151,18 @@ export function parse(yaml: string): unknown {
     }
   }
   return rootIsArray ? (root as unknown as unknown[]) : root;
+}
+
+/** 折叠块（`>`）：相邻非空行用空格连成一行；空行保留为换行（段落分隔）。 */
+function foldBlock(collected: Array<string | null>): string {
+  let out = '';
+  let prevBlank = true;   // 块首不补空格
+  for (const c of collected) {
+    if (c === null) { out += '\n'; prevBlank = true; continue; }
+    out += (prevBlank ? '' : ' ') + c.trim();
+    prevBlank = false;
+  }
+  return out;
 }
 
 function findColon(s: string): number {

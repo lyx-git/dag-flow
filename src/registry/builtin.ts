@@ -455,14 +455,23 @@ async function runLoop(p: LoopParams, ctx: Context): Promise<NodeResult> {
     for (let i = 0; i < n; i++) iterations.push(i);
   } else if (typeof p.while === 'string') {
     let i = 0;
-    while (i < maxIter) {
-      const keepGoing = evaluateBool(p.while, ctxToScope(ctx));
-      if (!keepGoing) break;
-      iterations.push(i);
-      i++;
-      if (i >= maxIter && !p.dangerouslyAllowInfinite) {
-        return { ...makeResult('failed', { error: { code: 'LOOP_MAX_ITER', message: `达到最大迭代次数 ${maxIter}——如确认要继续，设置 dangerouslyAllowInfinite: true` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
+    // ★ 2026-10-11（用户要求修 ②）：while 条件求值抛错（写错变量名 / 引用自身 / 引用循环体内部状态）
+    //   以前会冒到 safeNodeRun 被兜成 `UNCAUGHT`——错误码没有信息量，用户只看到"undefined variable"。
+    //   这里就地接住，给专属码 + 人话 + 出路。
+    //   ★ 仍然保持**失败**（不学 if 的"静默 false"）：while 静默变 false 就等于「0 轮 + 整轮成功」，
+    //     那正是本项目最忌讳的静默成功；而 if 的静默 false 是用户拍板过的既有语义（另有笔误告警）。
+    try {
+      while (i < maxIter) {
+        const keepGoing = evaluateBool(p.while, ctxToScope(ctx));
+        if (!keepGoing) break;
+        iterations.push(i);
+        i++;
+        if (i >= maxIter && !p.dangerouslyAllowInfinite) {
+          return { ...makeResult('failed', { error: { code: 'LOOP_MAX_ITER', message: `达到最大迭代次数 ${maxIter}——如确认要继续，设置 dangerouslyAllowInfinite: true` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
+        }
       }
+    } catch (e) {
+      return { ...makeResult('failed', { error: { code: 'LOOP_COND_ERROR', message: `循环条件求值失败——${(e as Error).message}。条件里只能引用「运行前已完成」的节点；循环体内部的状态进不了条件——按固定次数循环请改用 count，遍历上游数组请改用 over。` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
     }
   } else {
     return { ...makeResult('failed', { error: { code: 'LOOP_NO_BOUND', message: '缺少循环边界——count / while / over 至少配置一个' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };

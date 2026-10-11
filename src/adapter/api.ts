@@ -553,7 +553,20 @@ export function registerApiRoutes(): { registered: boolean; reason?: string; dis
             ],
           };
           const result = await runWorkflow(def, { logger, cwd: process.cwd(), inputs: (body.inputs ?? {}) as Record<string, JsonValue> });
-          sendJson(res, 200, { ok: result.summary.status === 'success', summary: result.summary });
+          let summary = result.summary;
+          // ★ 2026-10-11（用户要求修 ③）：单节点试跑最容易踩的坑——参数里引用了上游节点
+          //   （如 over: '{{web_search1.out.results}}'）。试跑的 def 只有 start→target→end，那个上游
+          //   根本不在图里，引擎会报 DATAFLOW_UNKNOWN「引用了不存在的节点」——读起来像工作流坏了，
+          //   其实是「单节点测试没有上游」。这里补一句人话 + 出路。
+          //   ★ 只改 message，**不动错误码**：引擎说的"引用了不存在的节点"在同一份 def 里是正确判据；
+          //     也不要在这里 fail-fast，保持"真跑一遍再报"的既有行为，免得改坏客户端失败详情面板。
+          if (summary?.status !== 'success' && summary?.error?.code === 'DATAFLOW_UNKNOWN') {
+            summary = {
+              ...summary,
+              error: { ...summary.error, message: `${summary.error.message}——这是「单节点试跑」的固有限制：试跑只跑这一个节点，参数里引用的上游节点不在图里，所以解析不到。要看真实数据请整图运行；只想给这个节点喂数据，可以用 {{inputs.xxx}}（试跑面板能填输入）。` },
+            };
+          }
+          sendJson(res, 200, { ok: summary.status === 'success', summary });
         } catch (e) {
           sendJson(res, 500, { error: (e as Error).message });
         }

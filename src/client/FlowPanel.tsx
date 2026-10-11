@@ -2933,7 +2933,18 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
       const target = data.summary?.results?.target;
-      setTestResult({ ok: data.ok, status: target?.status ?? data.summary?.status, ms: target?.durationMs, output: target?.out ?? target?.output, debug: target?.debug });
+      setTestResult({
+        ok: data.ok,
+        status: target?.status ?? data.summary?.status,
+        ms: target?.durationMs,
+        output: target?.out ?? target?.output,
+        debug: target?.debug,
+        // ★ 2026-10-11（用户要求修 ③）：失败发生在**节点跑起来之前**时（最典型：参数里引用了上游
+        //   {{节点.out.x}}，而单节点试跑没有上游 → 执行器在解析阶段就拦下，`results.target` 根本不存在），
+        //   旧代码只读 target.*，面板只剩一句「✗ 节点状态: failed」，**一个字的原因都不给**。
+        //   这里把节点级错误、或整轮错误的原因带出来（API 侧同样会给这类失败补一句"单节点试跑"的说明）。
+        error: target?.error?.message ?? (data.ok ? undefined : data.summary?.error?.message),
+      });
     } catch (e) {
       setTestResult({ error: (e as Error).message });
     } finally {

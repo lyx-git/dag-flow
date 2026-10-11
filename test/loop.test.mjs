@@ -194,12 +194,16 @@ console.log('\n== D. while 条件 ==');
   });
   // ★ 实测（2026-10-03）：自引用 while 不是静默 0 次，而是以 UNCAUGHT 收场，
   //   消息 "表达式求值失败: undefined variable: lp" 且夹带完整 stack。
-  //   这是体验缺口（用户写「循环到 3 次」很自然）：建议后续换成专属错误码
-  //   LOOP_WHILE_EXPR + 一句「while 只能引用运行前已完成的节点」。改进后同步改本断言。
+  //   ★ 2026-10-11 已修（用户要求 ②）：换成专属码 LOOP_COND_ERROR + 人话 + 出路（count / over）。
   info('while 自引用实测：' + JSON.stringify({ status: results.lp?.status, code: results.lp?.error?.code }));
   t('while 引用自身 out → failed（能力边界已锁定）', results.lp?.status === 'failed', JSON.stringify(results.lp?.out));
-  t('while 自引用错误码当前为 UNCAUGHT（待改进为专属码）', results.lp?.error?.code === 'UNCAUGHT', JSON.stringify(results.lp?.error?.code));
-  t('错误消息点明 undefined variable', /undefined variable/.test(String(results.lp?.error?.message)), String(results.lp?.error?.message));
+  t('★ while 条件求值失败 → 专属码 LOOP_COND_ERROR（不再是无信息量的 UNCAUGHT）', results.lp?.error?.code === 'LOOP_COND_ERROR', JSON.stringify(results.lp?.error?.code));
+  t('错误消息仍带出原始原因（undefined variable）', /undefined variable/.test(String(results.lp?.error?.message)), String(results.lp?.error?.message));
+  {
+    const m = String(results.lp?.error?.message ?? '');
+    t('★ 消息给出出路：count（固定次数）/ over（遍历数组）', /count/.test(m) && /over/.test(m), m.slice(0, 160));
+    t('★ 消息不含 Markdown 星号（纯文本会被原样渲染）', !/\*\*/.test(m));
+  }
   info('while 只能看运行前已完成的节点；循环体内部状态无法反映到条件里（v0.1 限制）');
 }
 
@@ -226,10 +230,23 @@ console.log('\n== E2. /run-node 单节点测试通路（客户端「测试节点
   const bad = await post('/run-node', { nodeType: 'loop', params: { maxIterations: 5 } });
   t('/run-node 无边界 loop → ok:false + LOOP_NO_BOUND', bad.status === 200 && bad.body?.ok === false && bad.body?.summary?.results?.target?.error?.code === 'LOOP_NO_BOUND', JSON.stringify(bad.body?.summary?.results?.target?.error?.code));
 
-  // 已知边界：单节点测试没有上游，over 里的 {{...}} 解析不到
+  // ★ 2026-10-11（用户要求 ③）真机诊断结论：失败发生在**执行器解析模板**那一步（不在 loop 节点里）——
+  //   整轮 error.code = DATAFLOW_UNKNOWN、message「节点 "target" 引用了不存在的节点 "web_search1"」，
+  //   而 target 节点**根本没有结果**（它在解析阶段就被拦下、没跑起来）。
+  //   现在 /run-node 会给这句补上「单节点试跑没有上游」+ 出路（只改文案，错误码不动）。
   const up = await post('/run-node', { nodeType: 'loop', params: { over: '{{web_search1.out.results}}' } });
-  t('/run-node 的 over 引用上游 → 失败（单节点无上游，已知边界）', up.body?.ok === false, JSON.stringify(up.body?.summary?.status));
-  info('单节点测试的 over 引用上游：' + JSON.stringify(up.body?.summary?.results?.target?.error?.code));
+  t('/run-node 的 over 引用上游 → 失败（试跑没有上游）', up.body?.ok === false, JSON.stringify(up.body?.summary?.status));
+  t('★ 错误码仍是 DATAFLOW_UNKNOWN（引擎判据未改）', up.body?.summary?.error?.code === 'DATAFLOW_UNKNOWN', JSON.stringify(up.body?.summary?.error?.code));
+  {
+    const m = String(up.body?.summary?.error?.message ?? '');
+    t('★ 消息补上「单节点试跑」的固有限制', /单节点试跑/.test(m), m.slice(0, 170));
+    t('★ 消息给出出路：整图运行 / {{inputs.xxx}}', /整图运行/.test(m) && /inputs/.test(m));
+    t('★ 消息不含 Markdown 星号', !/\*\*/.test(m));
+  }
+  info('单节点试跑 over 引用上游：' + JSON.stringify(up.body?.summary?.error?.code));
+  // 合法的喂数据方式：{{inputs.xxx}}（试跑面板支持填输入）——锁住它别被上面的"顺手一拦"误伤
+  const viaInputs = await post('/run-node', { nodeType: 'loop', params: { over: '{{inputs.list}}' }, inputs: { list: [1, 2, 3] } });
+  t('★ 用 {{inputs.list}} 给试跑喂数组 → 成功且逐项迭代 3 次', viaInputs.body?.ok === true && viaInputs.body?.summary?.results?.target?.out?.count === 3, JSON.stringify(viaInputs.body?.summary?.results?.target?.out));
 }
 
 console.log('\n== G. 循环体 = 子工作流（方案 A，2026-10-03 用户拍板）==');

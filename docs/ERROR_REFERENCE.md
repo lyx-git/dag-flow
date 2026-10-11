@@ -65,7 +65,7 @@ python/bash（code 纯空白）、http（url）、if（condition）、switch（v
 | web_search | `SEARCH_FAILED` | 所有搜索引擎均失败：bing: …；或 宿主 web_search 工具不可用（未安装 dsh-free-search 插件或调用失败） |
 | web_fetch | `FETCH_NO_URL` / `FETCH_TIMEOUT` / `FETCH_FAILED` | url 为空——…／网页抓取超时（Xms）／HTTP 404（…）等原始原因 |
 | if / switch | （表达式错误经 ExprError） | 表达式解析失败／表达式求值失败：… |
-| loop | `LOOP_NO_BOUND` / `LOOP_MAX_ITER` / `LOOP_BODY_FAILED` | 缺少循环边界——count / while / over 至少配置一个／达到 maxIterations=1000 上限／第 N/M 轮循环体（子工作流）以 failed 结束（已完成轮次保留在 out.items；要跳过失败轮设 onIterationError: "continue"） |
+| loop | `LOOP_NO_BOUND` / `LOOP_MAX_ITER` / `LOOP_COND_ERROR` / `LOOP_BODY_FAILED` | 缺少循环边界——count / while / over 至少配置一个／达到 maxIterations=1000 上限／while 条件求值失败（写错变量名、引用自身、引用循环体内部状态——条件里只能引用运行前已完成的节点，按次数用 count、遍历数组用 over）／第 N/M 轮循环体（子工作流）以 failed 结束（已完成轮次保留在 out.items；要跳过失败轮设 onIterationError: "continue"） |
 | merge | `MERGE_NO_UPSTREAM` | merge 需要至少 2 条上游连线（当前 0 条）——把多个分支的输出连入 merge 节点 |
 | subflow | `SUBFLOW_DEPTH` / `WORKFLOW_NOT_FOUND` / `SUBFLOW_FAILED` | 嵌套超过 5 层／工作流不存在: xxx（先在面板保存）／子工作流以 failed 结束 |
 | image_generate | `IMAGE_NO_PROMPT` / `IMAGE_NO_BASEURL` / `IMAGE_NO_KEY` / `IMAGE_API_ERROR` / `IMAGE_EMPTY` / `IMAGE_SAVE_FAILED` / `IMAGE_TIMEOUT` | prompt 为空／baseURL 为空／缺少 API Key／HTTP 错误（附响应）／API 未返回图片／图片无法落盘／超时 |
