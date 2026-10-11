@@ -6,6 +6,13 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261011-rfdead：**清掉 React Flow 时代的节点卡遗留类 `.dsh-wf-rf-node*`**（只删样式，宿主与逻辑零改动）。
+//   FlowGram 化后节点卡是 `.dsh-wf-fg-card` 系列；这批 `rf-node` 类名在 src 全部 ts/tsx 里零引用，
+//   且在文件里**重复定义两处**（节点卡状态色 + 运行徽标色）——"换了画布引擎没清干净"的指纹。
+//   删 12 条规则 + 1 行前导注释 + 2 行空行 → styles.css **1266 → 1234 行**；
+//   脚本 tmp-test/patch-dead-css-rfnode.mjs（演练/--write + 规则集合等价自检）。
+//   ★同批但**不属于本族**、本轮刻意没动的：零消费主题变量 `--wf-edge*`（5 个 / 10 行，已无任何规则消费）
+//   与 4 条零引用规则（`.dsh-wf-btn-ghost`×2 / `.dsh-wf-open-select` / `.dsh-wf-manage-item-action`）。
 // v20261011-norfcss：**清掉 styles.css 里 React Flow 时代的死 CSS**（只删样式，宿主与逻辑零改动）。
 //   画布引擎换成 FlowGram free-layout 后，DOM 里不再有 `.react-flow*` 元素 → 11 条以 `.react-flow` 起头的规则
 //   （节点 hover / `.dsh-wf-root .react-flow*` 主题覆盖 / 运行路径高亮边）永远不可能命中；src 的 ts/tsx 与
@@ -609,7 +616,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261011-norfcss · apply OK');
+    console.log('[dag-flow] client v20261011-rfdead · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

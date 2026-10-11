@@ -480,31 +480,6 @@
   text-transform: uppercase;
 }
 
-/* 节点图标：--kind 背景方块 */
-.dsh-wf-rf-node-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--wf-on-accent, #07111f);
-  flex-shrink: 0;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 8px 16px rgba(0, 0, 0, 0.25);
-}
-.dsh-wf-rf-node.selected {
-  outline: 2px solid var(--wf-accent, #6f8fff);
-  outline-offset: 3px;
-  border-color: color-mix(in srgb, var(--wf-accent, #6f8fff) 60%, var(--wf-node-border, #314966));
-  box-shadow: 0 0 0 5px var(--wf-focus, rgba(111,143,255,.18)), 0 18px 40px rgba(0, 0, 0, 0.42);
-}
-.dsh-wf-rf-node.is-ok { border-color: #34d399; }
-.dsh-wf-rf-node.is-err { border-color: #fb7185; }
-.dsh-wf-rf-node.is-skip { opacity: 0.55; }
-.dsh-wf-rf-node.running { border-color: #fbbf24; box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.09); }
-
 /* ========== 鍙充晶鑺傜偣鍙傛暟闈㈡澘 ========== */
 .dsh-wf-panel-section {
   padding: 10px 8px 6px;
@@ -743,13 +718,6 @@
 }
 /* ★ 2026-10-11 清理：is-ok / is-fail / is-err 三条已随"右侧运行结果条撤掉"变成死规则 → 已删除。
    基类 .dsh-wf-run-result 保留：头部「⏸ 等待人工确认」徽标（.is-wait，见下方）仍在使用。 */
-
-.dsh-wf-rf-node.is-ok { border-color: var(--dsh-wf-success); }
-.dsh-wf-rf-node.is-err { border-color: var(--dsh-wf-danger); }
-.dsh-wf-rf-node.is-skip { opacity: 0.55; }
-.dsh-wf-rf-node-run.is-ok { background: rgba(16,185,129,.12); color: var(--dsh-wf-success); }
-.dsh-wf-rf-node-run.is-err { background: rgba(244,63,94,.12); color: var(--dsh-wf-danger); }
-.dsh-wf-rf-node-run.is-skip { background: rgba(100,116,139,.12); color: var(--dsh-wf-muted); }
 
 /* ========== 组件大小 token 体系（8px 基数） ========== */
 :root {
