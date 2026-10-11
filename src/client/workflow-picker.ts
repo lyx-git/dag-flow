@@ -175,7 +175,6 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
   let storageDir = '';
   let hlIndex = -1; // 键盘高亮行
   let busy = false;
-  let listLoadFailed = false; // 列表拉取失败时无法本地判断「已存在」，创建前需探测
 
   const setOpenErr = (msg: string): void => { err.textContent = msg; };
   // 2026-10-01 晚：底部「取消/打开/创建」按钮行整体移除（用户反馈没用）——
@@ -201,16 +200,19 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
     if (!name) { setOpenErr('名称为空（支持中文/字母/数字/连字符）'); return; }
     busy = true;
     try {
-      // 列表拉取失败时本地无法判断「已存在」——先探测：已存在则直接打开，
-      // 防止最小模板把已有工作流覆盖掉（save 是覆盖语义）
-      if (listLoadFailed) {
-        const probe = await fetch(`${API}/${encodeURIComponent(name)}`, { credentials: 'include' });
-        if (probe.ok) {
-          const data = await probe.json();
-          close();
-          onOpen(data.workflow);
-          return;
-        }
+      // ★★ 2026-10-11 修「覆盖竞态」（真 bug）：**每次都向服务端确认这个名字是否存在**。
+      //   旧实现只在 `listLoadFailed` 时探测 → **列表还在拉取中**的那一瞬间，`workflows` 还是空数组，
+      //   renderList 判定"无精确匹配" → 照样给出 ➕创建 行 → 此时输入一个**已存在**的名字回车，
+      //   就会用最小 start→end 模板把已有工作流**覆盖**掉（`/save` 是覆盖语义）。
+      //   根因认知：**"列表是否就绪"属于加载时机，不能拿它当存在性依据**——存在性判断必须走权威源
+      //   （服务端）。已存在 → 直接打开它（与点列表行同一语义），绝不覆盖；读取失败则**明确报错不写盘**。
+      const probe = await fetch(`${API}/${encodeURIComponent(name)}`, { credentials: 'include' });
+      if (probe.ok) {
+        const data = await probe.json().catch(() => null);
+        if (data?.workflow) { close(); onOpen(data.workflow); return; }
+        busy = false;
+        setOpenErr(`「${name}」已存在但读取失败——换个名字，或先在上面的列表里打开它`);
+        return;
       }
       const def = minimalWorkflow(name);
       const data = await fetchJson(`${API}/save`, {
@@ -399,7 +401,6 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
       listBox.style.display = 'block';
     })
     .catch((e) => {
-      listLoadFailed = true;
       setOpenErr(`查询失败：${(e as Error).message}（仍可输入名称创建）`);
     });
 }

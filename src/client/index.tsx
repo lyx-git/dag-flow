@@ -6,6 +6,12 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261011-norfcss：**清掉 styles.css 里 React Flow 时代的死 CSS**（只删样式，宿主与逻辑零改动）。
+//   画布引擎换成 FlowGram free-layout 后，DOM 里不再有 `.react-flow*` 元素 → 11 条以 `.react-flow` 起头的规则
+//   （节点 hover / `.dsh-wf-root .react-flow*` 主题覆盖 / 运行路径高亮边）永远不可能命中；src 的 ts/tsx 与
+//   tmp-test、test 的 .mjs 对它零引用。共删 11 条规则 + 2 行前导区块注释 + 2 行多余空行 → **1314 → 1266 行**；
+//   脚本 tmp-test/patch-dead-css-reactflow.mjs（演练/--write 双模 + 结构等价自检）。
+//   ★ 同族但选择器里**不含** react-flow 的遗留类（`.dsh-wf-rf-node*` / `.wf-edge--active` 等）本轮**未动**，留作下一轮。
 // v20261004-sched-cleanup：**定时任务弹窗交互改造**（2026-10-04 用户原话：「定时任务弹窗里面，修改cron表达式
 //   是自动生效的，增加一个保存，修改按钮，手动确认生效，启用按钮不要使用勾选的方式，一些我能筛选的方案，让我自己选」）。
 //   ① **cron 改手动确认**：敲键只改**草稿**（输入框描黄边 + 行内「● cron 已修改，点「保存」才生效」+「保存」高亮），
@@ -603,7 +609,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261011-utf8fix · apply OK');
+    console.log('[dag-flow] client v20261011-norfcss · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }
