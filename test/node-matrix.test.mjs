@@ -273,6 +273,82 @@ const target = (r) => r.body?.summary?.results?.target;
   writeFileSync(join(relDir, 'matrix-rel-ok.md'), '相对路径正文\n', 'utf8');
   const relOk = await runNode('doc_parse', { path: 'documents/matrix-rel-ok.md' });
   t('21g. doc_parse 相对路径按 <DSH_HOME>/.dag-flow/ 锚定（正例）', target(relOk)?.status === 'success' && String(target(relOk)?.out?.text).includes('相对路径正文'), JSON.stringify(target(relOk)?.error ?? target(relOk)?.out)?.slice(0, 160));
+
+  // ★ 21h–21l（2026-10-11 轮 2：图片 OCR）。用**假引擎**（DAGFLOW_OCR_* 逃生舱 + node 冒充解释器）
+  //   ⇒ 链路完整、但整链仍然**离线**、不依赖真引擎装没装。
+  const fakeEngine = join(process.cwd(), 'matrix-ocr-engine');
+  mkdirSync(join(fakeEngine, 'rapidocr_onnxruntime'), { recursive: true });
+  writeFileSync(join(fakeEngine, 'rapidocr_onnxruntime', '__init__.py'), '# fake engine\n', 'utf8');
+  const fakeStub = join(process.cwd(), 'matrix-ocr-stub.mjs');
+  writeFileSync(fakeStub, `for await (const _ of process.stdin) { /* 吃掉落参 */ }\nconsole.log('__OCR_JSON__ ' + JSON.stringify({ ok: true, text: '假引擎识别出来的公告正文', lines: 1, confidence: 0.88, durationMs: 5 }));\n`, 'utf8');
+  process.env.DAGFLOW_OCR_ENGINE_DIR = fakeEngine;
+  process.env.DAGFLOW_OCR_PYTHON = process.execPath;
+  process.env.DAGFLOW_OCR_SCRIPT = fakeStub;
+
+  const png = join(process.cwd(), 'matrix-img.png');
+  writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));   // 假引擎不真读图，内容随意
+
+  const imgOff = await runNode('doc_parse', { path: png });
+  t('21h. 图片 + OCR 关（缺省）→ OCR_DISABLED，明确告诉去开', target(imgOff)?.error?.code === 'OCR_DISABLED' && /OCR/.test(String(target(imgOff)?.error?.message)), String(target(imgOff)?.error?.code));
+
+  const imgAuto = await runNode('doc_parse', { path: png, ocr: 'auto' });
+  const imgOut = target(imgAuto)?.out;
+  t('21i. 图片 + OCR 自动 → success、format=image、文本来自引擎', target(imgAuto)?.status === 'success' && imgOut?.format === 'image' && String(imgOut?.text).includes('假引擎'), JSON.stringify(imgOut)?.slice(0, 160));
+  t('21i-2. OCR 结果带来源标记（meta.ocr / ocrConfidence / ocrEngine / ocrMs）', imgOut?.meta?.ocr === true && imgOut?.meta?.ocrConfidence === 0.88 && /rapidocr/.test(String(imgOut?.meta?.ocrEngine)) && typeof imgOut?.meta?.ocrMs === 'number', JSON.stringify(imgOut?.meta));
+
+  const imgJunk = await runNode('doc_parse', { path: png, ocr: '乱填的值' });
+  t('21j. ocr 填了乱值 → 当 off（不偷偷跑引擎）', target(imgJunk)?.error?.code === 'OCR_DISABLED', String(target(imgJunk)?.error?.code));
+
+  const imgStr = await runNode('doc_parse', { path: png, ocr: 'true' });   // 面板/JSON 传字符串的形态
+  t('21k. ocr 以字符串 "true" 传入 → auto 生效（面板形态）', target(imgStr)?.status === 'success' && target(imgStr)?.out?.format === 'image', JSON.stringify(target(imgStr)?.error)?.slice(0, 120));
+
+  // 扫描版 PDF（无文本层）：auto 会**真的**去栅格化 + OCR（轮 3）；off 才明确报错
+  const scanPdf = join(process.cwd(), 'matrix-scan.pdf');
+  const scanContent = 'q 100 0 0 100 50 600 cm Q';
+  writeFileSync(scanPdf, ['%PDF-1.4',
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj',
+    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj',
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << >> /Contents 5 0 R >>\nendobj',
+    `5 0 obj\n<< /Length ${scanContent.length} >>\nstream\n${scanContent}\nendstream\nendobj`,
+    'trailer\n<< /Root 1 0 R >>\n%%EOF',
+  ].join('\n'), 'latin1');
+
+  const scanOff = await runNode('doc_parse', { path: scanPdf });
+  t('21l. 扫描版 PDF + OCR 关 → DOC_NO_TEXT_LAYER（不静默）', target(scanOff)?.error?.code === 'DOC_NO_TEXT_LAYER', String(target(scanOff)?.error?.code));
+
+  // 假「栅格化 + OCR」脚本（契约与 runtime/ocr/pdf_ocr.py 一致），链保持离线
+  const fakePdfStub = join(process.cwd(), 'matrix-pdf-ocr-stub.mjs');
+  writeFileSync(fakePdfStub, `let raw=''; for await (const c of process.stdin) raw += c; const req = JSON.parse(raw||'{}');\nconsole.log('__OCR_JSON__ ' + JSON.stringify({ ok: true, text: '扫描件识别结果：第1页\\n第2页', pages: 2, ocrPages: req.maxPages > 2 ? 2 : req.maxPages, truncated: false, confidence: 0.93, durationMs: 30, perPage: [{ page: 1, lines: 1, chars: 9 }] }));\n`, 'utf8');
+  process.env.DAGFLOW_OCR_PDF_SCRIPT = fakePdfStub;
+
+  const scanOn = await runNode('doc_parse', { path: scanPdf, ocr: 'auto' });
+  const scanOut = target(scanOn)?.out;
+  t('21m. 扫描版 PDF + OCR 自动 → 栅格化 + OCR 成功（format=pdf、文本来自引擎）', target(scanOn)?.status === 'success' && scanOut?.format === 'pdf' && String(scanOut?.text).includes('扫描件识别结果'), JSON.stringify(scanOut)?.slice(0, 140));
+  t('21m-2. 扫描件结果带页数与来源标记（pages / ocrPages / ocr / ocrConfidence）', scanOut?.meta?.ocr === true && scanOut?.meta?.pages === 2 && scanOut?.meta?.ocrPages === 2 && scanOut?.meta?.ocrConfidence === 0.93, JSON.stringify(scanOut?.meta));
+
+  // 有文本层的 PDF：auto 走原生文本（不做无用功），force 才重新识别
+  const textPdf = join(process.cwd(), 'matrix-text.pdf');
+  const native = 'BT /F1 12 Tf 72 720 Td (Native layer text) Tj ET';
+  writeFileSync(textPdf, ['%PDF-1.4',
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj',
+    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj',
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj',
+    '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj',
+    `5 0 obj\n<< /Length ${native.length} >>\nstream\n${native}\nendstream\nendobj`,
+    'trailer\n<< /Root 1 0 R >>\n%%EOF',
+  ].join('\n'), 'latin1');
+
+  const pdfAuto = await runNode('doc_parse', { path: textPdf, ocr: 'auto' });
+  const autoOut = target(pdfAuto)?.out;
+  t('21n. 有文本层 PDF + OCR 自动 → 读原生文本、不触发 OCR（meta.ocr 不存在）', target(pdfAuto)?.status === 'success' && String(autoOut?.text).includes('Native layer text') && autoOut?.meta?.ocr === undefined, JSON.stringify(autoOut)?.slice(0, 140));
+
+  const pdfForce = await runNode('doc_parse', { path: textPdf, ocr: 'force' });
+  t('21o. 有文本层 PDF + OCR 强制 → 跳过文本层、重新识别（来自引擎）', target(pdfForce)?.status === 'success' && String(target(pdfForce)?.out?.text).includes('扫描件识别结果') && target(pdfForce)?.out?.meta?.ocr === true, JSON.stringify(target(pdfForce)?.out)?.slice(0, 140));
+
+  delete process.env.DAGFLOW_OCR_PDF_SCRIPT;
+  delete process.env.DAGFLOW_OCR_ENGINE_DIR;
+  delete process.env.DAGFLOW_OCR_PYTHON;
+  delete process.env.DAGFLOW_OCR_SCRIPT;
 }
 
 // ===== C. 连接语义：if 双分支 + set_var→vars 引用（组合流）=====

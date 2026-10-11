@@ -5,6 +5,19 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261011-ocrhint：**doc_parse 面板底部 hint 与新增的 OCR 行对齐**（2026-10-11 审计 B）。
+//   旧 hint 写着「扫描版 PDF 没有文本层会明确报错」——轮 3 起 OCR 开着就会自动转图片识别，同一面板两句话打架。
+//   现文案：PDF / Office 零依赖；图片与扫描版 PDF 走 OCR；有文本层就直接读、没有才转图片；OCR 关时才报错。
+//
+// v20261011-ocrpdf：**扫描版 PDF 也能 OCR 了**（2026-10-11 轮 3）——逐页栅格化（pypdfium2，避开 AGPL 的 PyMuPDF）
+//   + RapidOCR；`ocr` 语义：off 关 / **auto＝没有文本层才识别** / **force＝有文本层也重新识别**；ocrMaxPages 限页数。
+//   客户端：三档下拉文案改为「图片 + 扫描版 PDF」，说明写清 auto 不做无用功。
+//
+// v20261011-ocr：**「文档解析」支持图片 OCR**（2026-10-11 轮 2）——图片（png/jpg/webp/bmp/tif）→ 纯文本，
+//   引擎 RapidOCR（适配层 src/adapter/ocr.ts，引擎装在插件 runtime/rapidocr/ 与 python/bash 并列）。
+//   客户端：doc_parse 参数面板新增「OCR（图片识别）」三档下拉 + 输出字段说明补 OCR 元信息。
+//   关（默认）＝图片直接报 OCR_DISABLED；自动/强制＝图片走引擎。
+//
 // v20261011-docparse：**新节点「📑 文档解析」（`doc_parse`）**——PDF / Office / 文本 → 纯文本，零依赖
 //   （解析内核 src/registry/doc-extract.ts，50 断言；节点在 builtin.ts，走纯加法）。
 //   客户端：调色板 + FlowGram 注册表 + 输出字段表各加一项，参数面板新增 path / url / maxChars 三行。
@@ -686,7 +699,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261011-docparse · apply OK');
+    console.log('[dag-flow] client v20261011-ocrhint · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

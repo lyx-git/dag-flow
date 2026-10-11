@@ -309,7 +309,7 @@ A：这是设计如此。自检未通过时**不提供「仍然运行」**，请
 A：你引用了某个节点的输出，但**没有连线**连到它。从那个节点拖一条线过来（直连或经合流汇合）。
 
 **Q：Python / Bash 节点报错找不到命令？**
-A：插件自带运行时（Windows 内置；macOS/Linux 首次使用时自动下载）。首次运行请保持联网；也可手动 `npm run fetch:runtime`。
+A：插件自带运行时（Windows 内置）。万一自带的读不到（精简安装等），会**自动从国内镜像下载**到用户运行区，下完还会校验版本是否配套；首次运行请保持联网，也可手动 `npm run fetch:runtime`。详见 [`RUNTIME_SETUP.md`](RUNTIME_SETUP.md)。
 
 **Q：AI 节点报 `MODEL_REQUIRED`？**
 A：`AI 子代理` 节点的**模型是必填**的。在右侧参数里选一个 DSH 已配置的模型。
@@ -382,7 +382,7 @@ registerNode({
 ```bash
 npm run typecheck        # TypeScript 类型检查
 npm run build            # 构建 host + client 两个产物
-npm run test:offline     # 离线回归套件（36 个文件）
+npm run test:offline     # 离线回归套件（46 个文件）
 npm run fetch:runtime    # 按需下载内置运行时
 ```
 

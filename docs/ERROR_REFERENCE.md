@@ -71,7 +71,8 @@ python/bash（code 纯空白）、http（url）、if（condition）、switch（v
 | image_generate | `IMAGE_NO_PROMPT` / `IMAGE_NO_BASEURL` / `IMAGE_NO_KEY` / `IMAGE_API_ERROR` / `IMAGE_EMPTY` / `IMAGE_SAVE_FAILED` / `IMAGE_TIMEOUT` | prompt 为空／baseURL 为空／缺少 API Key／HTTP 错误（附响应）／API 未返回图片／图片无法落盘／超时 |
 | video_generate | `VIDEO_NO_SUBMIT` / `VIDEO_NO_POLL` / `VIDEO_SUBMIT_ERROR` / `VIDEO_NO_TASK` / `VIDEO_NOT_READY` / `VIDEO_ERROR` | submitUrl 为空／pollUrl 为空／HTTP 错误／未找到任务 ID／轮询超时（附最后状态）／其他错误 |
 | file_save | `FILE_NO_URL` / `FILE_NO_CONTENT` / `FILE_SAVE_ERROR` | url 为空／content 为空／保存失败（检查文件名非法字符） |
-| doc_parse | `DOC_NO_PATH` / `DOC_NOT_FOUND` / `DOC_UNSUPPORTED` / `DOC_NO_TEXT_LAYER` / `DOC_ENCRYPTED` / `DOC_PARSE_FAILED` / `DOC_TOO_LARGE` / `DOC_URL_FAILED` | path/url 都为空／读不到文件（相对路径锚定 `<DSH_HOME>/.dag-flow/`）／不支持的格式（旧版 `.doc/.xls/.ppt` 会提示另存为 docx/xlsx/pptx）／**该 PDF 没有文本层（疑似扫描版）——不做 OCR**／**PDF 带密码保护（/Encrypt）——请先去密码另存**／文件损坏或缺关键部件／超过 100 MB／下载失败或超时（附 HTTP 状态或人性化原因） |
+| doc_parse | `DOC_NO_PATH` / `DOC_NOT_FOUND` / `DOC_UNSUPPORTED` / `DOC_NO_TEXT_LAYER` / `DOC_ENCRYPTED` / `DOC_PARSE_FAILED` / `DOC_TOO_LARGE` / `DOC_URL_FAILED` | path/url 都为空／读不到文件（相对路径锚定 `<DSH_HOME>/.dag-flow/`）／不支持的格式（旧版 `.doc/.xls/.ppt` 会提示另存为 docx/xlsx/pptx）／**该 PDF 没有文本层（疑似扫描版）**／**PDF 带密码保护（/Encrypt）——请先去密码另存**／文件损坏或缺关键部件／超过 100 MB／下载失败或超时（附 HTTP 状态或人性化原因） |
+| doc_parse（OCR 图片识别 / 扫描版 PDF） | `OCR_DISABLED` / `OCR_ENGINE_MISSING` / `OCR_DOWNLOAD_FAILED` / `OCR_INIT_FAILED` / `OCR_PDF_FAILED` / `OCR_FAILED` / `OCR_TIMEOUT` / `OCR_NO_TEXT` / `OCR_NO_IMAGE` | 图片但「OCR（图片识别）」关着（把参数设为自动/强制）／找不到内置 Python 解释器或 OCR 脚本缺失／引擎按需安装失败（附源与镜像提示）／引擎导入或初始化失败／**PDF 打不开或某页渲染失败**／识别过程出错／超过 `ocrTimeoutMs`（图片默认 120s、扫描版 PDF 默认 300s）／没识别出文字（纯图形/太糊/空白页）／没有可识别的图片 |
 
 ## 五、HTTP API（/api/dag-flow/*）
 

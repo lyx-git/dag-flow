@@ -3751,8 +3751,17 @@ function WebFields({ node, onParamsChange }: {
       row('或：下载地址 (url)', text('url', 'https://…/公告.pdf'),
         '填了 url 就忽略 path（会先下载再解析，60s 超时）'),
       row('文本上限 (字符)', text('maxChars', '200000', 'number'), '默认 20 万；超出会截断并把 truncated 置为 true'),
+      row('OCR（图片识别）', createElement('select', {
+        className: 'dsh-wf-input',
+        value: (p.ocr === 'auto' || p.ocr === 'force') ? String(p.ocr) : 'off',
+        onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onParamsChange({ ocr: e.target.value }),
+      },
+        createElement('option', { value: 'off' }, '关（默认）'),
+        createElement('option', { value: 'auto' }, '自动 —— 图片识别；扫描版 PDF 自动转图片识别'),
+        createElement('option', { value: 'force' }, '强制 —— 连有文本层的 PDF 也重新识别'),
+      ), '图片（png / jpg / webp / bmp / tif）与扫描版 PDF（没有文本层的）都走 OCR 引擎；有文本层的 PDF 默认直接读文本、不做无用功（想强制重识别选「强制」）。扫描版 PDF 按页栅格化，最多 20 页（参数 ocrMaxPages 可调），页多会慢。'),
       createElement('div', { className: 'dsh-wf-panel-hint' },
-        '把 PDF / Office 文档抽成纯文本喂给下游（零依赖，不需要装任何库）。扫描版 PDF 没有文本层会明确报错（不做 OCR）；旧版 .doc/.xls/.ppt 请先另存为 docx/xlsx/pptx。path 与 url 都为空时节点不执行、流程在此中断。',
+        '把 PDF / Office 文档 / 图片抽成纯文本喂给下游（PDF / Office 零依赖，不需要装任何库；图片和扫描版 PDF 走 OCR 引擎）。扫描版 PDF 有文本层就直接读、没有文本层才转图片识别（OCR 选「关」时它会明确报错告诉你怎么开）；旧版 .doc/.xls/.ppt 请先另存为 docx/xlsx/pptx。path 与 url 都为空时节点不执行、流程在此中断。',
       ),
     );
   }

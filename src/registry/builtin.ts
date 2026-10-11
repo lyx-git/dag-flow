@@ -3,7 +3,7 @@
 // ★ 所有节点 run 必须返回 NodeResult，不得抛非受控异常（用 safeNodeRun 包）
 
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, rm } from 'node:fs/promises';
 import { join, dirname, isAbsolute } from 'node:path';
 import type { Context, NodeDefinition, NodeResult, JsonValue } from '../types.js';
 import {
@@ -15,11 +15,14 @@ import {
 import { evaluateBool, evaluateExpr } from './expr.js';
 import { runSubagentNode } from '../adapter/subagent.js';
 import { resolvePython, resolveBash, detectPlatform } from '../adapter/runtime.js';
+import { ensureTool } from '../adapter/runtime-ensure.js';
 import { readSessionContent } from '../adapter/sessions.js';
 import { saveAsset, downloadAsset } from '../adapter/assets.js';
 import { runWebSearch, runWebFetch } from '../adapter/search.js';
 import { humanizeFetchError } from '../adapter/fetch-errors.js';
 import { extractDocument, DocError, DOC_MAX_BYTES } from './doc-extract.js';
+import { ocrImages, ocrPdf, normalizeOcrMode, OcrError } from '../adapter/ocr.js';
+import { dagFlowTmpDir } from '../adapter/workspace.js';
 import { waitForManual } from '../executor/awaiting.js';
 import { resolveParams } from '../executor/dataflow.js';
 
@@ -114,10 +117,18 @@ async function runPython(p: PythonParams, signal?: AbortSignal): Promise<NodeRes
   const code = p.codePath ? await readFile(await resolveCodePath(p.codePath), 'utf8') : (p.code ?? '');
   if (!code) return { ...makeResult('failed', { error: { code: 'PYTHON_NO_CODE', message: 'code/codePath 为空——填写要执行的 Python 代码' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
 
-  // R3: 优先用插件内置/下载的 python；都不可用才报错（不再回退系统）
-  const { exe, source } = resolvePython();
+  // R3: 优先用插件内置/下载的 python；★ 2026-10-11 用户要求：读不到就**自动下载**（下载后立即验兼容性）
+  let exe = '';
+  try {
+    const r = resolvePython();
+    exe = r.exe;
+    if (!exe) exe = (await ensureTool('python', { log: (m) => console.info(m) })).exe;
+  } catch (e) {
+    const err = e as { code?: string; message?: string };
+    return { ...makeResult('failed', { error: { code: err.code ?? 'PYTHON_UNAVAILABLE', message: `Python 运行时不可用：${err.message ?? String(e)}` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
+  }
   if (!exe) {
-    return { ...makeResult('failed', { error: { code: 'PYTHON_UNAVAILABLE', message: `Python 运行时未找到。执行：node scripts/download-runtime.mjs --platform=${detectPlatform()}` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
+    return { ...makeResult('failed', { error: { code: 'PYTHON_UNAVAILABLE', message: 'Python 运行时未找到，且自动下载失败' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
   }
   const timeoutMs = p.timeoutMs ?? 30_000;
   const workDir = await scriptCwd(p);   // ★ 默认 <DSH_HOME>/.dag-flow（见 scriptCwd 注释）
@@ -199,10 +210,18 @@ async function runBash(p: BashParams, signal?: AbortSignal): Promise<NodeResult>
   if (DESTRUCTIVE.test(code) && !p.dangerouslyAllowDestructive) {
     return { ...makeResult('failed', { error: { code: 'BASH_DESTRUCTIVE', message: '检测到高危命令——如确认要执行，请在节点参数中设置 dangerouslyAllowDestructive: true' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
   }
-  // R3: 优先用插件内置/下载的 bash；都不可用才报错（Windows 不再 fallback 系统 bash）
-  const { exe, source } = resolveBash();
+  // R3: 优先用插件内置/下载的 bash；★ 2026-10-11 用户要求：读不到就**自动下载**
+  let exe = '';
+  try {
+    const r = resolveBash();
+    exe = r.exe;
+    if (!exe) exe = (await ensureTool('bash', { log: (m) => console.info(m) })).exe;
+  } catch (e) {
+    const err = e as { code?: string; message?: string };
+    return { ...makeResult('failed', { error: { code: err.code ?? 'BASH_UNAVAILABLE', message: `bash 运行时不可用：${err.message ?? String(e)}` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
+  }
   if (!exe) {
-    return { ...makeResult('failed', { error: { code: 'BASH_UNAVAILABLE', message: `bash 运行时未找到。执行：node scripts/download-runtime.mjs --platform=${detectPlatform()}` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
+    return { ...makeResult('failed', { error: { code: 'BASH_UNAVAILABLE', message: 'bash 运行时未找到，且自动下载失败' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
   }
   const timeoutMs = p.timeoutMs ?? 30_000;
   const workDir = await scriptCwd(p);   // ★ 默认 <DSH_HOME>/.dag-flow（见 scriptCwd 注释）
@@ -961,10 +980,12 @@ const webFetchDef: NodeDefinition<WebFetchNodeParams> = {
   describe: () => ({ label: '网页抓取', category: 'io' }),
 };
 
-// ---------- 21. doc_parse（文档解析：PDF / Office / 文本 → 纯文本） ----------
+// ---------- 21. doc_parse（文档解析：PDF / Office / 图片 → 纯文本） ----------
 //   零依赖（解析逻辑在 ./doc-extract.ts）。支持 pdf/docx/xlsx/pptx/txt/md/csv/json/html；
-//   扫描版 PDF（无文本层）明确报 DOC_NO_TEXT_LAYER（不做 OCR）；旧版 .doc/.xls/.ppt 提示另存。
-interface DocParseParams { path?: string; url?: string; maxChars?: number; timeoutMs?: number }
+//   **图片（png/jpg/webp/bmp/tif）走 OCR**（引擎 RapidOCR，适配层 ../adapter/ocr.ts；需把「OCR」设为自动/强制）；
+//   扫描版 PDF（无文本层）明确报 DOC_NO_TEXT_LAYER（扫描版栅格化待后续轮次，本轮只支持图片）；
+//   旧版 .doc/.xls/.ppt 提示另存为 docx/xlsx/pptx。
+interface DocParseParams { path?: string; url?: string; maxChars?: number; timeoutMs?: number; ocr?: unknown; ocrMaxPages?: unknown; ocrTimeoutMs?: unknown }
 async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeResult> {
   const { startedAt, t0 } = startedEnded();
   const fail = (code: string, message: string): NodeResult =>
@@ -1015,15 +1036,108 @@ async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeRes
     }
   }
 
+  // ★ OCR（2026-10-11 轮 2 图片 / 轮 3 扫描版 PDF）
+  //   · 图片：一律走 OCR（off 时明确拒绝，并告诉他去开）
+  //   · PDF：auto ＝ 先读原生文本层，**没有文本层才**栅格化 + OCR；force ＝ 不管有没有都栅格化
+  const ocrMode = normalizeOcrMode(p.ocr);
+  const ext = (name.match(/\.[^./\\]+$/) ?? [''])[0]!.toLowerCase();
+  const isPdf = ext === '.pdf';
+  let tmpPath = '';
+  // OCR 引擎只吃**磁盘上的文件**：本地路径直接用；url 下载来的先落临时文件，用完删掉
+  const localPathForOcr = async (suffix: string): Promise<string> => {
+    if (!url) return await resolveCodePath(rel);
+    const tmpDir = await dagFlowTmpDir();
+    tmpPath = join(tmpDir, `ocr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${suffix}`);
+    await writeFile(tmpPath, buf);
+    return tmpPath;
+  };
+  // maxChars 对 OCR 出来的文本同样生效（与原生文本层一致）
+  const applyMaxChars = (text: string): { text: string; truncated: boolean } => {
+    const mc = Number(p.maxChars);
+    if (!Number.isFinite(mc) || mc <= 0 || text.length <= mc) return { text, truncated: false };
+    return { text: text.slice(0, mc), truncated: true };
+  };
+  const pdfOcrOut = (r: Awaited<ReturnType<typeof ocrPdf>>): Record<string, unknown> => {
+    const cut = applyMaxChars(r.text);
+    return {
+      text: cut.text,
+      format: 'pdf',
+      chars: cut.text.length,
+      truncated: cut.truncated,
+      meta: {
+        file: name, bytes: buf.length,
+        pages: r.pages, ocrPages: r.ocrPages, ocrPagesTruncated: r.truncated,
+        ocr: true, ocrEngine: r.engine, ocrConfidence: Number(r.confidence.toFixed(3)), ocrMs: r.durationMs,
+      },
+    };
+  };
+  const runPdfOcr = async (): Promise<NodeResult> => {
+    try {
+      const r = await ocrPdf(await localPathForOcr('.pdf'), { maxPages: p.ocrMaxPages, timeoutMs: p.ocrTimeoutMs, signal: ctx.signal });
+      return finish(t0, startedAt, { out: pdfOcrOut(r) as never });
+    } catch (e) {
+      if (e instanceof OcrError) return fail(e.code, e.message);
+      return fail('OCR_FAILED', `扫描版 PDF 识别失败：${(e as Error).message}`);
+    }
+  };
+
   try {
-    const mc = Number(p.maxChars);        // 同上：字符串形态（面板 blur / 模板 / 手写 JSON）也要生效
-    const r = extractDocument(buf, name, { maxChars: Number.isFinite(mc) && mc > 0 ? mc : undefined });
-    return finish(t0, startedAt, { out: r as never });
-  } catch (e) {
-    if (e instanceof DocError) return fail(e.code, e.message);
-    return fail('DOC_PARSE_FAILED', `解析失败：${(e as Error).message}`);
+    // A. 图片 → OCR
+    if (OCR_IMAGE_EXTS.has(ext)) {
+      if (ocrMode === 'off') {
+        return fail('OCR_DISABLED', `这是图片（${ext}），要用「文档解析」读里面的文字得开 OCR——把节点参数里的「OCR（图片识别）」设为「自动」或「强制」`);
+      }
+      try {
+        const r = await ocrImages([await localPathForOcr(ext)], { timeoutMs: p.ocrTimeoutMs, signal: ctx.signal });
+        const cut = applyMaxChars(r.text);
+        return finish(t0, startedAt, {
+          out: {
+            text: cut.text,
+            format: 'image',
+            chars: cut.text.length,
+            truncated: cut.truncated,
+            meta: {
+              file: name, bytes: buf.length,
+              ocr: true, ocrEngine: r.engine, ocrConfidence: Number(r.confidence.toFixed(3)),
+              ocrLines: r.lines, ocrMs: r.durationMs,
+            },
+          } as never,
+        });
+      } catch (e) {
+        if (e instanceof OcrError) return fail(e.code, e.message);
+        return fail('OCR_FAILED', `OCR 失败：${(e as Error).message}`);
+      }
+    }
+
+    // B. PDF + 强制 → 不看文本层，直接栅格化识别
+    if (isPdf && ocrMode === 'force') return await runPdfOcr();
+
+    // C. 其它（含 PDF 自动）：先抽原生文本层
+    try {
+      const mc = Number(p.maxChars);        // 同上：字符串形态（面板 blur / 模板 / 手写 JSON）也要生效
+      const r = extractDocument(buf, name, { maxChars: Number.isFinite(mc) && mc > 0 ? mc : undefined });
+      return finish(t0, startedAt, { out: r as never });
+    } catch (e) {
+      if (e instanceof DocError) {
+        // 扫描版 PDF：没有文本层 → 栅格化 + OCR（轮 3 起真做，不再只是提示）
+        if (e.code === 'DOC_NO_TEXT_LAYER' && ocrMode !== 'off' && isPdf) return await runPdfOcr();
+        // OCR 关着：这句话的原版说「本节点不做 OCR」——轮 3 起已经不成立，必须说清怎么开
+        if (e.code === 'DOC_NO_TEXT_LAYER' && isPdf && ocrMode === 'off') {
+          return fail(e.code, '这是扫描版 PDF（没有文本层）。本节点开了 OCR 就能识别：把参数「OCR（图片识别）」设为「自动」或「强制」，它会逐页转成图片再识别；不开 OCR 就只能拿到空文本。');
+        }
+        if (e.code === 'DOC_NO_TEXT_LAYER' && ocrMode !== 'off') {
+          return fail(e.code, `${e.message}（OCR 已开启，但这个格式没有栅格化通路——只有 PDF 和图片能走 OCR）`);
+        }
+        return fail(e.code, e.message);
+      }
+      return fail('DOC_PARSE_FAILED', `解析失败：${(e as Error).message}`);
+    }
+  } finally {
+    if (tmpPath) { try { await rm(tmpPath, { force: true }); } catch { /* 临时文件删不掉不影响结果 */ } }
   }
 }
+/** 图片扩展名（走 OCR 的那一类） */
+const OCR_IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tif', '.tiff']);
 const docParseDef: NodeDefinition<DocParseParams> = {
   type: 'doc_parse',
   schema: {
@@ -1033,6 +1147,9 @@ const docParseDef: NodeDefinition<DocParseParams> = {
       url: { type: 'string' },
       maxChars: { type: 'integer', minimum: 200, maximum: 2_000_000 },
       timeoutMs: { type: 'integer', minimum: 1000, maximum: 300_000 },
+      ocr: { type: 'string', enum: ['off', 'auto', 'force'], description: '图片 OCR：off 关 / auto 自动（图片就识别）/ force 强制' },
+      ocrMaxPages: { type: 'integer', minimum: 1, maximum: 200 },
+      ocrTimeoutMs: { type: 'integer', minimum: 1000, maximum: 1_800_000 },
     },
   },
   run: async (ctx, p) => safeNodeRun(() => runDocParseNode(p as never, ctx)),

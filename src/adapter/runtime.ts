@@ -28,6 +28,19 @@ const __dirname = path.dirname(__filename);
 // bundledPath 逐候选探测存在性，不依赖固定层级。
 const PLUGIN_ROOT_CANDIDATES: string[] = ['..', '../..'].map((rel) => path.resolve(__dirname, rel));
 
+/** 自带运行时的根目录候选。
+ *  ★ `DAGFLOW_RUNTIME_BUNDLED_DIR` 一设就**只用它**（不再回落到真实插件目录）——
+ *    这样"自带没有 → 自动下载"这条路可以被**彩排/单测**真实走一遍（2026-10-11 用户要求改造时加的逃生舱）。 */
+export function bundledRoots(): string[] {
+  const override = (process.env.DAGFLOW_RUNTIME_BUNDLED_DIR ?? '').trim();
+  return override ? [override] : PLUGIN_ROOT_CANDIDATES;
+}
+
+/** 用户级运行时缓存根：<DSH_HOME>/runtime（按需下载落这里） */
+export function userRuntimeDir(): string {
+  return path.join(dshHome(), 'runtime');
+}
+
 const USER_RUNTIME_DIR = path.join(dshHome(), 'runtime');  // 09-27 意见 2：DSH_HOME 统一走 dshHome()
 
 // ---------- 平台检测 ----------
@@ -109,9 +122,10 @@ export interface RuntimePaths {
 }
 
 function bundledPath(tool: string, version: string, platform: Platform, sub: string): string {
-  // 逐候选探测（tsc 形态 / esbuild 形态），返回第一个真实存在的路径；
+  // 逐候选探测（tsc 形态 / esbuild 形态 / 覆盖根），返回第一个真实存在的路径；
   // 全不存在时返回首选候选（调用方 existsSync 判定后走 user-cache/system 兜底）
-  for (const root of PLUGIN_ROOT_CANDIDATES) {
+  const roots = bundledRoots();
+  for (const root of roots) {
     const p = path.join(root, 'runtime', tool, version, platform, sub);
     if (existsSync(p)) return p;
   }
