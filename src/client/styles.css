@@ -772,12 +772,9 @@
   padding: 6px 9px; font-size: 11.5px; font-family: inherit;
 }
 .dsh-wf-var-search:focus { outline: none; border-color: var(--wf-accent, #4c8dff); }
-/* ★ 2026-10-09 变量面板改成**独立弹窗**（用户：「变量面板不是弹窗，最好改成弹窗格式，现在还是在编辑面板
-   里面，导致编辑面板还是乱」）——宽度必须写成 `.dag-flow-picker.<自己的类>`（两段，权重 0,2,0），
-   否则会被运行时注入的 `.dag-flow-picker{width:680px}` 同权重压掉 ✗（本项目踩过"四条全失效"）。 */
-.dag-flow-picker.dsh-wf-var-dlg { width: 760px; }
-.dsh-wf-var-dlg-body { max-height: 68vh; overflow: auto; }
-.dsh-wf-var-dlg-body > .dsh-wf-panel-row:first-child .dsh-wf-var-search { margin-top: 0; }
+/* ★ 2026-10-11（用户拍板）：「删掉画布右侧编辑画板里面的变量引用」→ 独立变量弹窗 `.dsh-wf-var-dlg`
+   （连同它的 760px 宽度规则）与「已复制」浮窗 `.dsh-wf-copy-toast` 整套已删除；变量只在
+   「🧪 参数与试跑」弹窗的变量抽屉里出现（抽屉样式见文件末尾 `.dsh-wf-varpick`）。 */
 /* 字段说明行（2026-10-03：每个变量是干什么的，写在 chips 下面一行） */
 .dsh-wf-var-legend {
   margin-top: 5px;
@@ -790,40 +787,6 @@
 .dsh-wf-var-chip.is-out {
   background: color-mix(in srgb, var(--wf-success, #34d399) 14%, var(--wf-panel, #101a2b));
   border-color: color-mix(in srgb, var(--wf-success, #34d399) 45%, transparent);
-}
-/* ===== 变量复制反馈浮窗（2026-10-03 用户要求：「上游变量复制和输出变量复制，提示信息，改为浮窗提示：已复制xxxx」）
-   原来是在面板里补一行行内小字；现在改成 Portal 到 body 的 fixed 浮窗：面板滚动/裁剪都不影响它，
-   底部居中、1.6s 自动消失、入场轻微上浮（animation 只做入场，消失交给计时器）。 ===== */
-.dsh-wf-copy-toast {
-  position: fixed;
-  left: 50%;
-  bottom: 28px;
-  transform: translateX(-50%);
-  z-index: 2147483000;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: min(72vw, 620px);
-  padding: 7px 14px;
-  border-radius: 999px;
-  font-size: 12px;
-  color: var(--wf-text, #e6edf7);
-  background: color-mix(in srgb, var(--wf-panel, #101a2b) 92%, transparent);
-  border: 1px solid color-mix(in srgb, var(--wf-accent, #4f8cff) 55%, transparent);
-  box-shadow: 0 8px 26px rgba(0,0,0,.45), 0 0 0 3px color-mix(in srgb, var(--wf-accent, #4f8cff) 12%, transparent);
-  pointer-events: none;
-  animation: dsh-wf-copy-toast-in .18s ease-out;
-}
-.dsh-wf-copy-toast-ico { font-size: 12px; line-height: 1; flex: none; }
-.dsh-wf-copy-toast-text {
-  font-family: ui-monospace, Consolas, monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-@keyframes dsh-wf-copy-toast-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 /* ===== ⏰ 定时任务弹窗（2026-10-03 用户拍板方案 v1，docs/SCHEDULE-PLAN.md §6）===== */
 /* ★ 为什么下面这几个弹窗宽度要写成 `.dag-flow-picker.xxx`（两个类）：
@@ -1003,6 +966,113 @@
 .tok-s { color: #a3e635; }
 .tok-c { color: #64748b; font-style: italic; }
 .tok-n { color: #f78c6c; }
+
+/* ===== 参数编辑器弹窗（2026-10-11 用户拍板：把「参数」从窄面板里独立出来） ===== */
+/* 代码级文本编辑框（code-text.tsx）：编辑区 + 状态栏 */
+.dsh-wf-codetext > .dsh-wf-code-status { display: block; text-align: right; margin-top: 6px; }
+/* 页签行：字段视图 / JSON 视图 + 右侧计数 */
+.dsh-wf-params-tabs { display: flex; gap: 6px; align-items: center; margin-bottom: 12px; }
+.dsh-wf-params-tab {
+  padding: 6px 12px; border-radius: 9px; border: 1px solid var(--wf-border2, #29405f);
+  background: var(--wf-panel2, #111e32); color: var(--wf-muted, #8b9bb3);
+  font-size: 12px; font-family: inherit; cursor: pointer;
+}
+.dsh-wf-params-tab:hover { border-color: var(--wf-border3, #365173); color: var(--wf-text, #e6edf7); }
+.dsh-wf-params-tab.on {
+  background: color-mix(in srgb, var(--wf-accent, #4f8cff) 22%, transparent);
+  border-color: var(--wf-accent, #4f8cff); color: #dbe7ff;
+}
+.dsh-wf-params-meta { margin-left: auto; font-size: 11px; color: var(--wf-muted2, #647895); font-family: ui-monospace, Consolas, monospace; }
+/* 每个参数一行：名字 + 值 + ⤢ 单行/多行 + ✕ */
+.dsh-wf-params-row { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
+.dsh-wf-params-k { flex: 0 0 210px; }
+.dsh-wf-params-v { flex: 1; min-width: 0; }
+.dsh-wf-params-form,
+.dsh-wf-params-type,
+.dsh-wf-params-del {
+  flex: none; width: 30px; min-height: 38px; border-radius: 9px;
+  border: 1px solid var(--wf-border2, #29405f); background: var(--wf-panel2, #111e32);
+  color: var(--wf-muted, #8b9bb3); cursor: pointer; font-size: 12px; font-family: inherit;
+}
+.dsh-wf-params-form:hover,
+.dsh-wf-params-type:hover { border-color: var(--wf-accent, #4f8cff); color: var(--wf-text, #e6edf7); }
+/* 图标（内联 SVG）居中；类型开关用等宽字，保证 T / {} 在任何字体下都清晰、宽度稳定 */
+.dsh-wf-params-form svg { display: block; }
+.dsh-wf-params-type { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; letter-spacing: -0.5px; }
+/* 类型开关：文（字符串，默认）/ {}（按 JSON 解析） */
+.dsh-wf-params-type.on {
+  background: color-mix(in srgb, var(--wf-accent, #4f8cff) 20%, transparent);
+  border-color: var(--wf-accent, #4f8cff); color: #dbe7ff; font-family: ui-monospace, Consolas, monospace;
+}
+.dsh-wf-params-del:hover { border-color: #f87171; color: #f87171; }
+.dsh-wf-params-addbar { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.dsh-wf-params-err { margin-top: 8px; font-size: 11.5px; color: var(--wf-danger, #f87171); font-family: ui-monospace, Consolas, monospace; }
+/* 面板里的只读参数摘要（同一件事只留一个入口：编辑在弹窗里做） */
+.dsh-wf-params-summary {
+  font-size: 11px; line-height: 1.55; color: var(--wf-muted, #8b9bb3);
+  font-family: ui-monospace, Consolas, monospace;
+  max-height: 52px; overflow: hidden; word-break: break-all;
+}
+
+/* ===== 参数弹窗右侧「变量抽屉」（2026-10-11 用户拍板方案 A） ===== */
+.dsh-wf-params-split { display: flex; gap: 14px; align-items: flex-start; }
+.dsh-wf-params-main { flex: 1; min-width: 0; }
+.dsh-wf-params-drawer {
+  flex: none; width: 272px; max-height: 64vh; overflow-y: auto;
+  border-left: 1px solid var(--wf-border, #1c2d47); padding-left: 14px;
+}
+.dsh-wf-params-var-toggle {
+  padding: 6px 12px; border-radius: 9px; border: 1px solid var(--wf-border2, #29405f);
+  background: var(--wf-panel2, #111e32); color: var(--wf-muted, #8b9bb3);
+  font-size: 12px; font-family: inherit; cursor: pointer;
+}
+.dsh-wf-params-var-toggle:hover { border-color: var(--wf-border3, #365173); color: var(--wf-text, #e6edf7); }
+.dsh-wf-params-var-toggle.on {
+  background: color-mix(in srgb, var(--wf-accent, #4f8cff) 22%, transparent);
+  border-color: var(--wf-accent, #4f8cff); color: #dbe7ff;
+}
+/* 抽屉里的变量列表：搜索框撑满、分组之间留白（复用变量弹窗既有的 chip/分组样式） */
+.dsh-wf-varpick .dsh-wf-var-search { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+.dsh-wf-varpick .dsh-wf-var-groups { display: flex; flex-direction: column; gap: 10px; }
+
+/* ===== 「参数与试跑」弹窗：底部常驻试跑条（2026-10-11 用户拍板方案 A） ===== */
+/* 富文本框工具条里的图标按钮（复制 / 清空——用户要求「换成 icon 图标就行」） */
+.dsh-wf-code-ibtn {
+  flex: none; width: 28px; height: 26px; border-radius: 8px;
+  border: 1px solid var(--wf-border2, #29405f); background: var(--wf-panel2, #111e32);
+  color: var(--wf-muted, #8b9bb3); cursor: pointer; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.dsh-wf-code-ibtn:hover { border-color: var(--wf-accent, #4f8cff); color: var(--wf-text, #e6edf7); }
+.dsh-wf-code-ibtn svg { display: block; }
+/* 已点一次「清空」：图标转红 + 旁边一句文字提示（避免纯图标看不出确认态） */
+.dsh-wf-code-ibtn.is-armed {
+  border-color: var(--wf-danger, #f87171); color: var(--wf-danger, #f87171);
+  background: color-mix(in srgb, var(--wf-danger, #f87171) 14%, transparent);
+}
+.dsh-wf-code-armed { font-size: 11px; color: var(--wf-danger, #f87171); }
+/* 放大/缩小把手：富文本框**内部右上角**（斜双箭头；right 让开 textarea 的竖向滚动条） */
+.dsh-wf-code-expand {
+  position: absolute; top: 4px; right: 20px; z-index: 3;
+  width: 24px; height: 24px; border-radius: 7px; padding: 0;
+  border: 1px solid var(--wf-border2, #29405f);
+  background: color-mix(in srgb, var(--wf-panel2, #111e32) 88%, transparent);
+  color: var(--wf-muted, #8b9bb3); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.dsh-wf-code-expand:hover { border-color: var(--wf-accent, #4f8cff); color: var(--wf-text, #e6edf7); }
+.dsh-wf-code-expand svg { display: block; }
+.dsh-wf-code-expand.is-expanded { border-color: var(--wf-accent, #4f8cff); color: #dbe7ff; }
+.dsh-wf-testbar { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--wf-border, #1c2d47); }
+.dsh-wf-testbar-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.dsh-wf-testbar-inputs { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.dsh-wf-testbar-row { display: flex; gap: 8px; align-items: center; }
+.dsh-wf-testbar-k {
+  flex: 0 0 180px; font-size: 11.5px; color: var(--wf-muted, #8b9bb3);
+  font-family: ui-monospace, Consolas, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dsh-wf-testbar-result { margin-top: 10px; }
 
 /* ========== 人工确认（manual 节点挂起，2026-10-03 方案 A） ========== */
 /* 头部等待徽标：accent 描边 + 呼吸光晕，与「运行中/成功/失败」区分（可点击重开弹窗） */
