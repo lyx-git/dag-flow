@@ -12,8 +12,10 @@ import { varMatch } from './util/varSearch';
 export type VarChip = { text: string; desc: string; isOut?: boolean };
 export type VarPickGroup = {
   key: string;
-  /** 分组标题（如「AI 子代理 · ai_final · 6 个字段（字段取自上次运行的真实输出）」） */
+  /** 分组标题（如「AI 子代理（ai_final · python） · 6 个字段（字段取自上次运行的真实输出）」） */
   title: string;
+  /** ★ 2026-10-13：**未截断的全名**——标题超长时显示用 title 是截断过的，悬浮这里放全名（用户要求） */
+  titleFull?: string;
   chips: VarChip[];
   /** 分组下方的说明（实测字段 / 字段说明 / 本节点输出是什么） */
   legend?: string;
@@ -66,7 +68,9 @@ export function VarPicker({ groups, onPick, actionHint, placeholder, emptyHint }
             return createElement('div', { key: g.key, className: 'dsh-wf-var-group' },
               createElement('div', {
                 className: `dsh-wf-var-node${g.collapsible ? ' is-toggle' : ''}${isOpen ? '' : ' is-closed'}`,
-                title: g.collapsible ? (isOpen ? '点击收起该节点字段' : '点击展开该节点字段') : undefined,
+                // ★ 2026-10-13：悬浮 = 全名（titleFull）+ 收起/展开提示；显示用的是截断后的 title
+                title: [(g.titleFull ?? g.title), g.collapsible ? (isOpen ? '点击收起该节点字段' : '点击展开该节点字段') : '']
+                  .filter(Boolean).join('\n') || undefined,
                 onClick: toggle,
               }, `${g.collapsible ? (isOpen ? '▾' : '▸') + ' ' : ''}${g.title}${g.note ? ` · ${g.note}` : ''}`),
               isOpen

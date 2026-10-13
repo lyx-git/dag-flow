@@ -5,6 +5,24 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261013-vargrouptitle：**上游变量分组标题统一为「显示名（节点id · 节点类型）」**（2026-10-13 用户原话：
+//   「打开变量弹窗里面的上游变量和参数里面的变量抽屉页的上游变量都按照节点分组了，节点显示的名称改为：
+//   显示名（节点id · 节点类型）」）。两处同步改（同一个上游数据源 `upstreamInfo` 的两个消费方）：
+//   · `FlowPanel.varPickGroups`（参数弹窗变量抽屉）与变量弹窗的上游分组行——原来都是
+//     「显示名 · 节点id · N 个字段」，现改为「显示名（节点id · 节点类型） · N 个字段」。
+//   · 节点类型用 `node.type`（与右侧面板「节点类型」行的口径一致）；**节点 id 必须保留**（引用要靠它，
+//     历史口径「id 不能丢」不变）；`upstreamInfo` 本来就返回 `un`，弹窗侧补进解构即可。
+//   对照例子：`AI 子代理（ai_final · python） · 6 个字段 —— 字段取自上次运行的真实输出`。
+//
+// v20261013-varglobal：**修复变量抽屉「全局变量」分组的 chips 全是空壳**（2026-10-13 用户原话：
+//   「变量数据过多，会导致挤压全局变量显示，变量按钮变得很小，看不到变量字段」+「全局变量的鼠标悬浮
+//   上去的提示信息变成了点击填入：undefined」——两条是同一个 bug）。根因：`FlowPanel.varPickGroups` 的
+//   全局分组直接 `chips: globalItems()`——那是**旧变量弹窗**的条目形状 `{path, desc, key, isOut}`，而抽屉
+//   `VarChip` 要 `{text, desc, isOut}` ⇒ `text: undefined`：chip 渲染成只有内边距的**空壳小按钮**
+//   （全局变量一多就是一排空壳，看起来像"被挤压"）、悬浮是「点击填入：undefined」、点了插入 undefined。
+//   上游 / 本节点输出两个分组是显式写的 `{text:…}`，所以没这问题（现有用例也只覆盖了它们 ⇒ 补 ①b 断言）。
+//   修法 = 映射成抽屉形状：`chips: globalItems().map((it) => ({ text: it.path, desc: it.desc, isOut: it.isOut }))`。
+//
 // v20261013-inboxbar：**复制 / 清除 / 提示 挪进富文本框内部右下角，且绝不遮挡输入**（2026-10-13 用户原话：
 //   「富文本框的复制，清除，tips挪到富文本框里面右下角位置，并且不能遮挡输入操作」——上一版"绝对定位浮层"
 //   会盖住代码、按钮也拦点击，被否）。本次方案＝**独占一条带**：
@@ -792,7 +810,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261013-inboxbar · apply OK');
+    console.log('[dag-flow] client v20261013-vargrouptitle · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

@@ -308,6 +308,12 @@ function runLogText(entries: unknown[]): string {
   return (entries ?? []).map((e) => logEntryText(e as never)).join('\n\n');
 }
 
+/** 分组标题里「显示名」的截断：超过 maxLen 只保留前段 + …（能区分即可），全名走悬浮 title。
+ *  （2026-10-13 用户要求：「显示名超过长度了，就只显示前面能区分的字符，多余的部分就...显示，浮窗显示全名」） */
+function truncLabel(s: string, maxLen = 10): string {
+  return s.length > maxLen ? s.slice(0, maxLen) + '…' : s;
+}
+
 export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   const [tab, setTab] = useState<ViewTab>('canvas');
   const [def, setDef] = useState<WorkflowDef>(() => ctx.workflow ?? DEFAULT_WORKFLOW);
@@ -3047,7 +3053,11 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
   const varPickGroups: VarPickGroup[] = [
     ...upstreamAll.map(({ u, um, un, spec, f, fields, srcNote }) => ({
       key: 'up-' + u,
-      title: `${um?.label ?? un?.type ?? '?'} · ${u} · ${fields.length} 个字段${spec.note ? ` —— ${spec.note}` : ''}${srcNote}`,
+      // ★ 2026-10-13 用户要求：上游分组标题统一为「显示名（节点id · 节点类型）」——id 必须保留（引用要靠它），
+      //   类型用节点 type（与右侧面板「节点类型」行一致）；字段数与实测说明跟在后面。
+      //   ★「显示名」= **节点自己的 label**（用户设置的显示名），缺省回退类型名；超长只显示前段 + …（全名进悬浮）。
+      title: `${truncLabel(un?.label || um?.label || un?.type || '?')}（${u} · ${un?.type ?? '?'}） · ${fields.length} 个字段${spec.note ? ` —— ${spec.note}` : ''}${srcNote}`,
+      titleFull: `${un?.label || um?.label || un?.type || '?'}（${u} · ${un?.type ?? '?'}） · ${fields.length} 个字段${spec.note ? ` —— ${spec.note}` : ''}${srcNote}`,
       collapsible: true,
       chips: [
         { text: `{{${u}.out}}`, desc: `「${u}」的整份输出` },
@@ -3061,7 +3071,11 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
     {
       key: 'global',
       title: `全局变量（vars ${globalVars.length} · inputs ${inputKeys.length}）`,
-      chips: globalItems(),
+      // ★ 2026-10-13 修复：这里原来直接 `chips: globalItems()`——那是**旧变量弹窗**的条目形状
+      //   `{path, desc, key, isOut}`，而抽屉要的是 `{text, desc, isOut}` ⇒ 全组 chips 的 text 全是
+      //   undefined：渲染成**空壳小按钮**（用户看到的「变量按钮变得很小、看不到字段」）、
+      //   悬浮提示是「点击填入：undefined」。映射成抽屉的形状即可（上游/本节点输出两分组本来就是显式形状）。
+      chips: globalItems().map((it) => ({ text: it.path, desc: it.desc, isOut: it.isOut })),
       legend: (!globalVars.length && !inputKeys.length)
         ? '还没有全局变量：加一个「设置变量」节点会写 vars，或在头部 ✍️ 工作流参数里加 inputs。' : undefined,
     },
@@ -3147,14 +3161,14 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
               upstream.length === 0
                 ? createElement('div', { className: 'dsh-wf-panel-hint' }, '无上游节点——本节点是流程起点；下面的全局变量仍然可用。')
                 : null,
-              ...upstreamView.map(({ u, um, f, fields, srcNote }) => {
+              ...upstreamView.map(({ u, um, un, f, fields, srcNote }) => {
                 const opened = varQuery ? true : varOpen[u] === true;
                 return createElement('div', { key: 'up-' + u, className: 'dsh-wf-var-group' },
                   createElement('div', {
                     className: `dsh-wf-var-node is-toggle${opened ? '' : ' is-closed'}`,
-                    title: opened ? '点击收起该节点字段' : '点击展开该节点字段',
+                    title: `${un?.label || um?.label || '?'}（${u} · ${un?.type ?? '?'}） · ${fields.length} 个字段${srcNote}${opened ? '\n点击收起该节点字段' : '\n点击展开该节点字段'}`,
                     onClick: () => setVarOpen((m) => ({ ...m, [u]: !(m[u] === true) })),
-                  }, `${opened ? '▾' : '▸'} ${um?.label ?? '?'} · ${u} · ${fields.length} 个字段${srcNote}`),
+                  }, `${opened ? '▾' : '▸'} ${truncLabel(un?.label || um?.label || '?')}（${u} · ${un?.type ?? '?'}） · ${fields.length} 个字段${srcNote}`),
                   opened
                     ? createElement('div', { className: 'dsh-wf-var-list' },
                         refChip(`{{${u}.out}}`, `「${u}」的整份输出`, `up-${u}-all`),
