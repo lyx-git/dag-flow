@@ -2953,10 +2953,22 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
   const copyRef = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied((prev) => ({ text, n: (prev?.n ?? 0) + 1 }));
-      if (copyTimer.current) window.clearTimeout(copyTimer.current);
-      copyTimer.current = window.setTimeout(() => setCopied(null), 1600);
-    } catch { /* 忽略 */ }
+    } catch {
+      // ★ 2026-10-13：剪贴板 API 不可用/被浏览器拒绝（headless、权限拒绝）时不能静默失败——
+      //   否则用户点 chip「毫无反应」。兜底：隐藏 textarea + execCommand('copy')。
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch { /* 两路都失败也继续给浮窗反馈 */ }
+      ta.remove();
+    }
+    // 反馈与剪贴板成败解耦：无论走哪条路都给「已复制」浮窗（1.6s 自动消失，连点可重触发）
+    setCopied((prev) => ({ text, n: (prev?.n ?? 0) + 1 }));
+    if (copyTimer.current) window.clearTimeout(copyTimer.current);
+    copyTimer.current = window.setTimeout(() => setCopied(null), 1600);
   };
   // 卸载时清掉计时器（避免面板重挂载后对已卸载组件 setState）
   useEffect(() => () => { if (copyTimer.current) window.clearTimeout(copyTimer.current); }, []);
@@ -3017,6 +3029,15 @@ function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts =
   };
   /** 全量（不带搜索过滤）：给参数弹窗的变量抽屉用 ✓ */
   const upstreamAll = upstream.map((u) => upstreamInfo(u, '')).filter((v) => v.show);
+  /** ★ 2026-10-13 修复（随回退恢复变量弹窗一起补回）：变量弹窗用——
+   *  `upstreamView` = 按**面板搜索词**过滤后的上游视图（搜索命中时自动全部展开）；
+   *  `varHitCount` = 搜索命中总数（上游字段 + 全局条目），弹窗顶部提示「命中 N 项」用。
+   *  回退时只有 JSX 回来了、这两个定义丢了 ⇒ 打开弹窗即渲染崩溃。 */
+  const upstreamView = upstream.map((u) => upstreamInfo(u, varQuery)).filter((v) => v.show);
+  const varHitCount = varQuery
+    ? upstreamView.reduce((n, v) => n + v.fields.length + (v.nodeHit ? 1 : 0), 0)
+      + globalItems(false).filter((it) => varMatch(varQuery, [it.path, it.desc])).length
+    : 0;
   /** 全局变量条目（vars + inputs + loop 专用）：变量抽屉的「全局变量」分组 */
 
   // ★ 2026-10-11（用户拍板方案 A）：参数弹窗右侧「变量抽屉」的分组数据。

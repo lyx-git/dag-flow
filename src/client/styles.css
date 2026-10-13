@@ -772,9 +772,23 @@
   padding: 6px 9px; font-size: 11.5px; font-family: inherit;
 }
 .dsh-wf-var-search:focus { outline: none; border-color: var(--wf-accent, #4c8dff); }
-/* ★ 2026-10-11（用户拍板）：「删掉画布右侧编辑画板里面的变量引用」→ 独立变量弹窗 `.dsh-wf-var-dlg`
-   （连同它的 760px 宽度规则）与「已复制」浮窗 `.dsh-wf-copy-toast` 整套已删除；变量只在
-   「🧪 参数与试跑」弹窗的变量抽屉里出现（抽屉样式见文件末尾 `.dsh-wf-varpick`）。 */
+/* ★ 2026-10-13 修复：变量引用 UI 随 git 回退恢复了 JSX，但这两块样式没跟着回来（只剩上面那句"已删除"
+   注释）——「已复制」浮窗会裸渲染在页面底部。现按各自原来的形态补回：
+   · 变量弹窗 760px：必须写成两段选择器（.dag-flow-picker 由 PICKER_CSS 运行时注入且在 styles.css 之后，
+     单类权重会输，见下方 ⏰ 段落的说明）；
+   · .dsh-wf-copy-toast：底部居中、入场轻微上浮、pointer-events:none（约 1.6s 由组件自己卸载）。 */
+.dag-flow-picker.dsh-wf-var-dlg { width: min(760px, 92vw); }
+.dsh-wf-var-dlg-body { max-height: 72vh; overflow: auto; }
+.dsh-wf-copy-toast {
+  position: fixed; left: 50%; bottom: 8vh; transform: translateX(-50%); z-index: 10002;
+  display: flex; gap: 7px; align-items: center; padding: 7px 14px; border-radius: 8px;
+  background: var(--wf-panel, #101a2b); border: 1px solid var(--wf-accent, #4f8cff);
+  color: var(--wf-text, #e6edf7); font-size: 12px;
+  animation: dsh-wf-pop 160ms cubic-bezier(.2, .8, .2, 1);
+  pointer-events: none;
+}
+.dsh-wf-copy-toast-ico { font-size: 13px; }
+.dsh-wf-copy-toast-text { color: var(--wf-text, #e6edf7); }
 /* 字段说明行（2026-10-03：每个变量是干什么的，写在 chips 下面一行） */
 .dsh-wf-var-legend {
   margin-top: 5px;
