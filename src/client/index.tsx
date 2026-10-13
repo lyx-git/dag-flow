@@ -5,6 +5,17 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261013-hovertip：**所有悬浮提示换成可选中复制的主题化卡片**（2026-10-13 用户原话：
+//   「所有的鼠标悬浮上去浮窗展示的内容，都要求能复制，不能无法选中浮窗内容，而且鼠标悬浮弹窗有点丑，
+//   和插件风格不太匹配」）。原生 title 属性的系统悬浮框内容不可选中、外观不受主题控制 ⇒
+//   **事件委托全局接管**（新增 `src/client/hover-tip.ts`，`FlowPanel.tsx` 模块副作用 `initHoverTips()`，
+//   幂等；真机入口与 CDP 夹具都从 FlowPanel 进入 ⇒ 一处生效、零调用点改动）：
+//   · 悬停任何 [title] 元素：把 title 摘到 `data-title` 并**移除属性**（浏览器就不画原生框；
+//     React 重渲染会还回来，下次悬停再摘）→ 显示 `.dsh-wf-hover-tip` 卡片（--wf-* 主题、`pre-line`
+//     保留换行、`user-select:text` 可选中复制、鼠标可移进卡片）。
+//   · 移开锚点 160ms 后收（给"移进卡片选中"留时间）；移进卡片不收、移出才收；点击/滚轮/滚动/失焦立即收
+//     （z-index 10006 高于弹窗遮罩 10000，必须防止盖住新弹窗）。
+//
 // v20261013-vargrouptitle：**上游变量分组标题统一为「显示名（节点id · 节点类型）」**（2026-10-13 用户原话：
 //   「打开变量弹窗里面的上游变量和参数里面的变量抽屉页的上游变量都按照节点分组了，节点显示的名称改为：
 //   显示名（节点id · 节点类型）」）。两处同步改（同一个上游数据源 `upstreamInfo` 的两个消费方）：
@@ -810,7 +821,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261013-vargrouptitle · apply OK');
+    console.log('[dag-flow] client v20261013-hovertip2 · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

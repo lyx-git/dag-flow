@@ -37,6 +37,10 @@ import { startResize8, readStoredJSON, saveJSON, clampNum, type RightGeom } from
 // ★ 定时任务（⏰，2026-10-03 用户拍板方案 v1，docs/SCHEDULE-PLAN.md §6）：cron 校验/中文预览
 //   直接复用宿主同一个纯模块 —— 面板预览与宿主实际执行必然同一套语义。
 import { cronError, describeCron } from '../adapter/cron';
+// ★ 全局悬浮提示接管（2026-10-13 用户要求：悬浮内容要能复制/选中，且外观与插件主题一致）——
+//   模块副作用初始化（幂等）：真机入口与 CDP 夹具都从本模块进入 ⇒ 一处生效。
+import { initHoverTips } from './hover-tip';
+initHoverTips();
 
 // ================= 定时任务：显示用小工具 =================
 

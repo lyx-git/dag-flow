@@ -1059,6 +1059,23 @@
 .dsh-wf-varpick .dsh-wf-var-search { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
 .dsh-wf-varpick .dsh-wf-var-groups { display: flex; flex-direction: column; gap: 10px; }
 
+/* ===== 全局悬浮提示卡（2026-10-13 用户要求：跟随鼠标、悬停在鼠标右上方、内容可选中复制） ===== */
+/* 由 src/client/hover-tip.ts 事件委托动态创建：卡片 fixed 在 (0,0)，位置用 transform 跟随鼠标（不触发重排）。 */
+.dsh-wf-hover-tip {
+  position: fixed; left: 0; top: 0; z-index: 10006; max-width: 380px;
+  max-height: 60vh; overflow: auto; will-change: transform;
+  padding: 7px 10px; border-radius: 8px;
+  background: var(--wf-panel, #101a2b);
+  border: 1px solid var(--wf-border2, #29405f);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  color: var(--wf-text, #e6edf7); font-size: 12px; line-height: 1.55;
+  white-space: pre-line; word-break: break-word;
+  user-select: text; cursor: text;
+  /* ★ 入场只能做 opacity 淡入（dsh-wf-fade）——不能用带 transform 的 dsh-wf-pop：
+     本卡的 transform 是**定位**（跟随鼠标），被动画覆盖会从原点"飞过来"。 */
+  animation: dsh-wf-fade 140ms cubic-bezier(.2, .8, .2, 1);
+}
+
 /* ===== 「参数与试跑」弹窗：底部常驻试跑条（2026-10-11 用户拍板方案 A） ===== */
 /* 富文本框工具条里的图标按钮（复制 / 清空——用户要求「换成 icon 图标就行」） */
 .dsh-wf-code-ibtn {
