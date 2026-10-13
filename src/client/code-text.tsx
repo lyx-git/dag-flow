@@ -96,8 +96,11 @@ export function CodeText({ value, onChange, lang = 'text', height = 180, placeho
   };
 
   return createElement('div', { className: 'dsh-wf-codetext' },
-    toolbar ? createElement('div', { className: 'dsh-wf-code-toolbar' }, toolbar as never) : null,
     createElement('div', { className: 'dsh-wf-code-ed', style: { height } },
+      // ★ 2026-10-13 用户要求：「复制，清除，tips 挪到富文本框里面右下角位置，并且不能遮挡输入操作」⇒
+      //   文本区（行号槽 + 高亮层 + textarea）包进 `.dsh-wf-code-main`，占满除工具条以外的全部高度；
+      //   工具条成为编辑区**内部最底部的一条带**（独占空间 ⇒ 不覆盖 textarea、不拦截输入）。
+      createElement('div', { className: 'dsh-wf-code-main' },
       createElement('div', { className: 'dsh-wf-code-gutter', ref: gutterRef },
         createElement('pre', null, lineNumbers(value))),
       createElement('div', { className: 'dsh-wf-code-wrap' },
@@ -137,8 +140,8 @@ export function CodeText({ value, onChange, lang = 'text', height = 180, placeho
           },
         }),
       ),
-      // ★ 放大/缩小把手：编辑区**内部右上角**（斜双箭头；放大态换成朝内的双箭头）——用户 2026-10-11 指定
-      //   「放大按钮在富文本框里面的右上角，放大和缩小」。
+      // ★ 放大/缩小把手：**文本区**内部右上角（在 .dsh-wf-code-main 里定位，随文本区而不是随工具条）——
+      //   用户 2026-10-11 指定「放大按钮在富文本框里面的右上角，放大和缩小」。
       expand
         ? createElement('button', {
             className: `dsh-wf-code-expand${expand.expanded ? ' is-expanded' : ''}`,
@@ -166,6 +169,11 @@ export function CodeText({ value, onChange, lang = 'text', height = 180, placeho
                 ],
           ))
         : null,
+      ),
+      // ★ 工具条（复制 / 清空 / 提示）：编辑区**内部最底部一条带、内容靠右**（＝框内右下角）。
+      //   2026-10-13 用户明确「并且不能遮挡输入操作」⇒ 这条带**独占空间**（不是浮层）：不覆盖任何代码文字、
+      //   不拦截 textarea 的点击；代价是文本区矮 ~28px（上一版"绝对定位浮层"正是因遮挡被否）。
+      toolbar ? createElement('div', { className: 'dsh-wf-code-toolbar' }, toolbar as never) : null,
     ),
     status ? createElement('div', { className: 'dsh-wf-code-status' }, `Ln ${cursor.ln}, Col ${cursor.col} · ${cursor.len} 字符`) : null,
   );

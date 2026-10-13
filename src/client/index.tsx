@@ -5,6 +5,26 @@
 // factory 返回 module.exports，DSH loader 自动调 module.exports.apply(ctx)。
 // （协议 banner/footer 在 scripts/build-client.mjs——客户端防腐点清单见 src/client/dsh-gate.ts）
 //
+// v20261013-inboxbar：**复制 / 清除 / 提示 挪进富文本框内部右下角，且绝不遮挡输入**（2026-10-13 用户原话：
+//   「富文本框的复制，清除，tips挪到富文本框里面右下角位置，并且不能遮挡输入操作」——上一版"绝对定位浮层"
+//   会盖住代码、按钮也拦点击，被否）。本次方案＝**独占一条带**：
+//   · `code-text.tsx`：文本区（行号槽 + 高亮层 + textarea）包进新层 `.dsh-wf-code-main`（flex:1 占满除工具条
+//     以外的高度）；放大/缩小把手移进 `.dsh-wf-code-main`（定位基准=文本区，仍在右上角）；工具条
+//     `.dsh-wf-code-toolbar` 成为 `.dsh-wf-code-ed` 的**最后一个子元素**＝编辑框内部最底部一条带。
+//   · `styles.css`：`.dsh-wf-code-ed` 改 `flex-direction:column`；`.dsh-wf-code-toolbar` 改
+//     `flex-shrink:0 + justify-content:flex-end + border-top`（内容靠右＝右下角；带顶一条分隔线）。
+//   ⇒ 工具条**不覆盖任何代码文字、不拦截 textarea 点击**（CDP 用 elementFromPoint + 矩形零重叠来锁）；
+//     代价＝文本区矮 ~28px。
+//
+// v20261013-broom：**参数弹窗里富文本框的「清除」按钮图标：垃圾桶 → 扫帚**（2026-10-13 用户原话：
+//   「参数弹窗面板里面的富文本框的清除按钮的icon图标换成扫帚的图标，而不是现在删除的图标」；
+//   追问用哪个形态时他明确「扫帚图标应该有通用的图标，使用通用图标就行」）。改动只在
+//   `src/client/params-editor.tsx`：删掉手画的 `IconTrash`，换成**通用图标集 Phosphor Icons（MIT）的
+//   `broom` 原始 path**（`BROOM_PATH`，256 网格、fill=currentColor、`IconBroom`），工具条里改用它。
+//   选型依据＝四家通用图标集真机渲染对比（`tmp-test/build/broom-icons.html` + 截图 `broom-icons.png`）：
+//   Phosphor broom 在 16px 下剪影最像扫帚；Tabler brush 描边太细、Material cleaning_services 没柄、
+//   Bootstrap brush 更像毛笔。★ 只换图标，按钮类名 / title / 两击确认语义一律没动。
+//
 // v20261011-expandmodal：**放大按钮改成"富文本框内部右上角的斜双箭头 → 放大成弹窗"**（2026-10-11 用户
 //   两次更正后的定稿：先「右下角」→ 再「右上角，放大和缩小」）。原话「富文本框放大的按钮不对，是在富文本框
 //   里面的右上角，有个类似于/斜杠的双箭头放大，可以放大到弹窗，遮盖其他部分」。
@@ -772,7 +792,7 @@ export function apply(ctx: any): void {
     });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261011-expandmodal · apply OK');
+    console.log('[dag-flow] client v20261013-inboxbar · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

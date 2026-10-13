@@ -68,12 +68,18 @@ function IconCopy(): ReactElement {
   );
 }
 
-/** 清空（垃圾桶） */
-function IconTrash(): ReactElement {
-  return createElement('svg', SVG_ICON,
-    createElement('path', { d: 'M3.6 5.2h8.8M6.6 5.2V3.9c0-.4.3-.7.7-.7h1.4c.4 0 .7.3.7.7v1.3' }),
-    createElement('path', { d: 'M5.1 5.2l.5 7.2c0 .5.4.9.9.9h3c.5 0 .9-.4.9-.9l.5-7.2' }),
-  );
+// ★ 2026-10-13 用户要求：清除按钮的图标从「垃圾桶」换成「扫帚」，并且**要用通用图标**——
+//   原话「参数弹窗面板里面的富文本框的清除按钮的icon图标换成扫帚的图标，而不是现在删除的图标」+
+//   「扫帚图标应该有通用的图标，使用通用图标就行」⇒ 直接用通用图标集 **Phosphor Icons（MIT）的 `broom`**
+//   **原始 path**（256 网格、实心 fill=currentColor），不自己手画。选它是因为四家候选真机渲染对比后，
+//   它在 16px 下的剪影最像扫帚（长柄 + 鬃毛）；Tabler 的 brush 描边太细、Material 的 cleaning_services
+//   没有柄、Bootstrap 的 brush 更像毛笔。对照页 tmp-test/build/broom-icons.html（截图 broom-icons.png）。
+const BROOM_PATH = 'M235.5,216.81c-22.56-11-35.5-34.58-35.5-64.8V134.73a15.94,15.94,0,0,0-10.09-14.87L165,110a8,8,0,0,1-4.48-10.34l21.32-53a28,28,0,0,0-16.1-37,28.14,28.14,0,0,0-35.82,16,.61.61,0,0,0,0,.12L108.9,79a8,8,0,0,1-10.37,4.49L73.11,73.14A15.89,15.89,0,0,0,55.74,76.8C34.68,98.45,24,123.75,24,152a111.45,111.45,0,0,0,31.18,77.53A8,8,0,0,0,61,232H232a8,8,0,0,0,3.5-15.19ZM67.14,88l25.41,10.3a24,24,0,0,0,31.23-13.45l21-53c2.56-6.11,9.47-9.27,15.43-7a12,12,0,0,1,6.88,15.92L145.69,93.76a24,24,0,0,0,13.43,31.14L184,134.73V152c0,.33,0,.66,0,1L55.77,101.71A108.84,108.84,0,0,1,67.14,88Zm48,128a87.53,87.53,0,0,1-24.34-42,8,8,0,0,0-15.49,4,105.16,105.16,0,0,0,18.36,38H64.44A95.54,95.54,0,0,1,40,152a85.9,85.9,0,0,1,7.73-36.29l137.8,55.12c3,18,10.56,33.48,21.89,45.16Z';
+/** 清空（扫帚 · path 取自 Phosphor Icons 的 `broom`，MIT；实心图标用 256 网格） */
+function IconBroom(): ReactElement {
+  return createElement('svg', {
+    width: 16, height: 16, viewBox: '0 0 256 256', fill: 'currentColor', 'aria-hidden': 'true',
+  }, createElement('path', { d: BROOM_PATH }));
 }
 
 /** 非字符串值 → 可编辑文本（对象/数组缩进展示） */
@@ -179,7 +185,7 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
         setClearArmKey(null);
         writeRowText(r.k, '');
       },
-    }, createElement(IconTrash)),
+    }, createElement(IconBroom)),
     // 已点一次「清空」时给一句文字提示，避免纯图标看不出"处于确认态"
     clearArmKey === r.k ? createElement('span', { className: 'dsh-wf-code-armed' }, '再点一次清空') : null,
     createElement('span', { className: 'dsh-wf-panel-hint' }, 'Tab = 4 空格缩进 · 改动即自动保存'),
