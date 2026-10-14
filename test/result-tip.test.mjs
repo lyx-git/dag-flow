@@ -18,7 +18,7 @@ await build({
   entryPoints: ['src/client/resultTip.ts'],
   bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent',
 });
-const { tipModel, previewOut, tipFullText } = await import(pathToFileURL(OUT).href);
+const { tipModel, infoTipModel, previewOut, tipFullText } = await import(pathToFileURL(OUT).href);
 
 const kinds = (m) => m.lines.map((l) => l.kind);
 const texts = (m) => m.lines.map((l) => l.text).join('\n');
@@ -119,6 +119,25 @@ console.log('== E. 📋 复制全文（2026-10-03 用户反馈「无法把鼠标
   eq(t.split('\n').length, 2 + m.lines.length, 'E4. 行数 = 标题 + 徽标 + 各说明行');
   const long = tipModel({ status: 'success', out: { a: 'y'.repeat(1200) } }, { label: 'L', id: 'n' });
   ok(tipFullText(long).includes('共') && tipFullText(long).length < 1200, 'E5. 超长输出仍走截断口径（复制内容与卡片所见一致）');
+}
+
+console.log('== F. 节点信息卡 infoTipModel（2026-10-15 用户拍板「没跑过也弹」）==');
+{
+  const m = infoTipModel({ label: '取日期', id: 'py_date', typeLabel: 'Python', sub: '3.12 内置 · timeout 30000ms' });
+  eq(m.title, '取日期 · py_date', 'F1. 标题=显示名 · 节点id（与结果卡同款）');
+  eq(m.badge, '◌ 未运行', 'F2. 徽标=未运行（不是假失败）');
+  eq(m.badgeKind, 'muted', 'F3. badgeKind=muted（无状态色）');
+  ok(texts(m).includes('类型：Python'), 'F4. 带节点类型行');
+  ok(texts(m).includes('3.12 内置 · timeout 30000ms'), 'F5. 带参数摘要（副标题）');
+  ok(texts(m).includes('还没运行'), 'F6. 带引导行（去运行）');
+  ok(!tipFullText(m).includes('✕ 失败') && !tipFullText(m).includes('✓ 成功'), 'F7. 全文无任何运行状态（10-08 反对的是误导，不是弹窗本身）');
+  const run = infoTipModel({ label: 'L', id: 'n', typeLabel: 'HTTP', sub: '', state: 'running' });
+  eq(run.badge, '⏳ 运行中…', 'F8. 运行中徽标');
+  ok(texts(run).includes('还没结束'), 'F9. 运行中引导行（结束后看最终结果）');
+  const pend = infoTipModel({ label: 'L', id: 'n', typeLabel: 'HTTP', sub: '', state: 'pending' });
+  eq(pend.badge, '⏳ 待运行', 'F10. 待运行徽标');
+  const noSub = infoTipModel({ label: 'L', id: 'n', typeLabel: 'T', sub: '' });
+  ok(!noSub.lines.some((l) => l.kind === 'normal'), 'F11. 空副标题不加空行');
 }
 
 console.log(`\n=== resultTip 悬浮卡内容模型：${pass} passed, ${fail} failed ===`);

@@ -11,7 +11,7 @@ import { findMeta } from '../types';
 import { runStatusStore, selectionStore } from './runStatus';
 import { switchCaseStore } from './switchCaseStore';
 import { failPolicyStore } from './failPolicyStore';
-import { tipModel, tipFullText, type TipModel } from '../resultTip';
+import { tipModel, infoTipModel, tipFullText, type TipModel } from '../resultTip';
 
 /** loop 卡片副标题（P1，2026-10-03 用户拍板）：按**实际生效的边界**显示。
  *  引擎优先级 over > count > while——旧实现只认 count，配了 over/while 的循环卡片显示 `count=?`（错信息）。 */
@@ -226,8 +226,9 @@ function NodeCardBody({ type }: { type: string }) {
   const showTip = (): void => {
     cancelHide(); // 重新移入卡片时取消"待隐藏"
     // 诊断钩子（真机/CDP 排查「悬浮没反应」：是监听没挂上、还是没有本次运行结果）
-    (window as any).__df_tipShow = { node: node.id, hasRs: !!rs, hasModel: !!tipValue, at: Date.now() };
-    if (!tipValue) return; // 本次运行没有该节点的结果 → 不弹（不做无信息的噪声提示）
+    (window as any).__df_tipShow = { node: node.id, hasRs: !!rs, at: Date.now() };
+    // ★ 2026-10-15 用户拍板「没跑过也弹」：不再以「无结果」为由不弹——没跑过/进行中悬停
+    //   退到节点信息卡（见下方 shownTip），跑过的仍是完整结果卡。
     const el = cardRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
@@ -361,6 +362,14 @@ function NodeCardBody({ type }: { type: string }) {
     ? SWITCH_CARD_MIN_H
     : (ifLabels.length ? 22 + (ifLabels.length - 1) * 30 + 24 : 0);
   const subText = type === 'switch' ? switchSubtitle(values, caseSel, caseKeys.length) : sub;
+  // ★ 2026-10-15 用户拍板「没跑过也弹」：跑过 → 完整结果卡；没跑过/进行中 → 节点信息卡（无假状态）
+  const shownTip = tipValue ?? infoTipModel({
+    label: (values.label as string) ?? node.id,
+    id: node.id,
+    typeLabel: meta.label,
+    sub: subText,
+    state: rs?.status === 'running' ? 'running' : rs?.status === 'pending' ? 'pending' : 'idle',
+  });
   // ★ 2026-10-11：subflow 卡片的提示行 + 悬浮说明——把「双击能进子工作流」这件事写在卡片上
   //   （2026-10-03 用户拍板过双击进入；但卡片上一直只有名字，没人看得出来能双击）。
   const wfName = String(values.workflowName ?? '').trim();
@@ -407,10 +416,10 @@ function NodeCardBody({ type }: { type: string }) {
     switchChips,
     switchNote,
     ifLabels.length ? ifLabels : null,
-    // ★ 悬浮结果卡（Portal 到 document.body）：画布容器带 transform，留在卡片内会被缩放/裁切
+    // ★ 悬浮卡（Portal 到 document.body）：画布容器带 transform，留在卡片内会被缩放/裁切
     //   onEnter/onLeave：鼠标移进浮窗时不收起（用户要能选中文本 / 点 📋 复制），离开才收
-    tipAt && tipValue ? createPortal(createElement(ResultTipBox, {
-      model: tipValue, at: tipAt, onEnter: cancelHide, onLeave: scheduleHide,
+    tipAt ? createPortal(createElement(ResultTipBox, {
+      model: shownTip, at: tipAt, onEnter: cancelHide, onLeave: scheduleHide,
     }), document.body) : null,
   );
 }

@@ -92,3 +92,26 @@ export function tipModel(item: RunStatusItem | undefined, opts: { label: string;
 
   return { title: `${opts.label} · ${opts.id}`, badge, badgeKind, lines };
 }
+
+/** 节点信息卡（未运行/待运行/运行中悬停也有一张卡——2026-10-15 用户拍板「没跑过也弹」）。
+ *  ★ 改的是 10-08「没执行的不用浮窗」契约：当时反对的是 pending 被误显示成「✕ 失败」的误导，
+ *    信息卡只报节点身份 + 参数摘要，**不带任何运行状态**，不与老契约的初衷冲突。
+ *  跑过的节点（success/failed/skipped）仍走 tipModel 的完整结果卡。 */
+export function infoTipModel(opts: {
+  label: string;
+  id: string;
+  typeLabel: string;
+  sub: string;
+  state?: 'idle' | 'pending' | 'running';
+}): TipModel {
+  const state = opts.state ?? 'idle';
+  const badge = state === 'running' ? '⏳ 运行中…' : state === 'pending' ? '⏳ 待运行' : '◌ 未运行';
+  const lines: TipLine[] = [
+    { kind: 'muted', text: `类型：${opts.typeLabel}` },
+  ];
+  if (opts.sub) lines.push({ kind: 'normal', text: opts.sub });
+  lines.push(state === 'idle'
+    ? { kind: 'muted', text: '这个节点这次还没运行——点画布 ▶ 运行后，悬停节点查看执行结果' }
+    : { kind: 'muted', text: '这次运行还没结束——结束后悬停节点看最终结果' });
+  return { title: `${opts.label} · ${opts.id}`, badge, badgeKind: 'muted', lines };
+}
