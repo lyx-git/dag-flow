@@ -32,10 +32,10 @@ export interface WebSearchEngineParams {
   searxngInstances?: string[];
 }
 
-// ---------- 常量（与 dsh-free-search 对齐） ----------
-const USER_AGENT =
+// ---------- 常量（与 dsh-free-search 对齐；web-fetch.ts 共用，2026-10-14 轮 3 起 export） ----------
+export const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
-const ACCEPT_LANG = 'zh-CN,zh;q=0.9,en;q=0.8';
+export const ACCEPT_LANG = 'zh-CN,zh;q=0.9,en;q=0.8';
 
 // 语言 → Bing 本地化档案：{ market, acceptLang }
 const LANG_PROFILES: Record<string, { market: string; acceptLang: string }> = {
@@ -63,8 +63,8 @@ const SEARXNG_INSTANCES = [
   'https://paulgo.io',
 ];
 
-// ---------- 小工具（移植自 dsh-free-search） ----------
-function decodeEntities(text: unknown): string {
+// ---------- 小工具（移植自 dsh-free-search；web-fetch.ts 共用，2026-10-14 轮 3 起 export） ----------
+export function decodeEntities(text: unknown): string {
   return String(text)
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
@@ -496,87 +496,4 @@ export async function runWebSearch(p: WebSearchEngineParams, signal?: AbortSigna
   throw new Error(`所有搜索引擎均失败：${errors.join('；').slice(0, 400)}`);
 }
 
-// ---------- web_fetch：抓取 URL → 正文文本 / JSON ----------
-export interface WebFetchParams {
-  url: string;
-  maxChars?: number;
-  timeoutMs?: number;
-  raw?: boolean;
-}
-
-export interface WebFetchOutcome {
-  url: string;
-  status: number;
-  contentType: string;
-  mode: 'text' | 'json' | 'raw';
-  text?: string;
-  json?: unknown;
-  chars: number;
-}
-
-function htmlToText(html: string): string {
-  return decodeEntities(
-    html
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
-      .replace(/<!--[\s\S]*?-->/g, ' ')
-      .replace(/<\/(p|div|li|tr|h[1-6]|br)>/gi, '\n')
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<[^>]+>/g, ' '),
-  )
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n\s*\n+/g, '\n')
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .join('\n');
-}
-
-export async function runWebFetch(p: WebFetchParams, signal?: AbortSignal): Promise<WebFetchOutcome> {
-  const timeoutMs = Math.max(1000, Math.min(300_000, p.timeoutMs ?? 30_000));
-  const maxChars = Math.max(200, Math.min(200_000, Math.floor(p.maxChars ?? 8000)));
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const onAbort = () => controller.abort();
-  signal?.addEventListener('abort', onAbort);
-  try {
-    const response = await fetch(p.url, {
-      headers: { 'user-agent': USER_AGENT, accept: 'text/html,application/json;q=0.9,*/*;q=0.8', 'accept-language': ACCEPT_LANG },
-      redirect: 'follow',
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}（${p.url.split('?')[0]}）`);
-    }
-    const contentType = String(response.headers.get('content-type') ?? '');
-    const body = await response.text();
-    if (p.raw) {
-      return { url: p.url, status: response.status, contentType, mode: 'raw', text: body.slice(0, maxChars), chars: Math.min(body.length, maxChars) };
-    }
-    if (/\bjson\b/i.test(contentType)) {
-      let json: unknown;
-      try {
-        json = JSON.parse(body);
-      } catch {
-        // content-type 标了 json 但解析失败 → 按文本处理
-        const text = body.slice(0, maxChars);
-        return { url: p.url, status: response.status, contentType, mode: 'text', text, chars: text.length };
-      }
-      return { url: p.url, status: response.status, contentType, mode: 'json', json: json as never, chars: body.length };
-    }
-    const text = htmlToText(body).slice(0, maxChars);
-    return { url: p.url, status: response.status, contentType, mode: 'text', text, chars: text.length };
-  } catch (error) {
-    if ((error as Error).name === 'AbortError' || signal?.aborted) {
-      if (signal?.aborted) throw new Error('运行已被取消');
-      const timeoutErr = new Error(`网页抓取超时（${timeoutMs}ms）——增大 timeoutMs 或稍后重试`);
-      timeoutErr.name = 'FetchTimeout';
-      throw timeoutErr;
-    }
-    throw error;
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', onAbort);
-  }
-}
+// ---------- web_fetch：已于 2026-10-14 重构轮 3 拆至 ./web-fetch.ts（runWebFetch 及其类型都在那边） ----------
