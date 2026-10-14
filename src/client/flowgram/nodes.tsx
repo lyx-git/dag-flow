@@ -1,4 +1,3 @@
-// @ts-nocheck
 // src/client/flowgram/nodes.tsx
 // FlowGram 节点注册表：21 个内置节点 → FlowNodeRegistry。
 // 节点卡视觉 = formMeta.render（nodeEngine 表单引擎渲染进节点体）；
@@ -424,20 +423,21 @@ function makeFormMeta(type: string) {
 }
 
 
-/** if 节点 formMeta：动态双输出端口（true 绿 / false 红，右侧上下分布） */
+/** if 节点 formMeta：动态双输出端口（true 绿 / false 红，右侧上下分布）
+ *  ★ value/context 形状 FlowGram 官方未导出类型 → any 过桥（strict 断言层，运行时与 nocheck 时代一致） */
 function makeIfFormMeta() {
   const PORT_KEYS = ['true', 'false'];
   const TOPS = [22, 52];
   return {
-    formatOnInit: (value) => ({ portKeys: PORT_KEYS, ...(value ?? {}) }),
+    formatOnInit: (value: Record<string, unknown> | undefined) => ({ portKeys: PORT_KEYS, ...(value ?? {}) }),
     effect: {
       portKeys: [
         {
           event: DataEvent.onValueInitOrChange,
-          effect: ({ value, context }) => {
+          effect: ({ value, context }: { value: any; context: any }) => {
             const { node } = context;
-            const ports = [{ type: 'input' }];
-            (value ?? PORT_KEYS).forEach((portID, i) => {
+            const ports: Array<Record<string, unknown>> = [{ type: 'input' }];
+            (value ?? PORT_KEYS).forEach((portID: unknown, i: number) => {
               ports.push({
                 type: 'output',
                 portID,
@@ -461,12 +461,12 @@ function makeIfFormMeta() {
  *  （'out' = 这条线先不带分支键，画完在线上点选）。 */
 function makeSwitchFormMeta() {
   return {
-    formatOnInit: (value) => ({ ...(value ?? {}) }),
+    formatOnInit: (value: Record<string, unknown> | undefined) => ({ ...(value ?? {}) }),
     effect: {
       cases: [
         {
           event: DataEvent.onValueInitOrChange,
-          effect: ({ value, context }) => {
+          effect: ({ value, context }: { value: any; context: any }) => {
             const { node } = context;
             const keys = Object.keys((value as Record<string, unknown>)?.cases ?? {});
             // 端口集合恒定（cases + '*' + 'out'）→ 改 case 只重排不增删，已画出的线不会掉

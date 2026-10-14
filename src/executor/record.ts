@@ -20,9 +20,3 @@ export async function showWorkflow(name: string): Promise<string> {
 export async function listRuns(workflowName?: string): Promise<string[]> {
   return storage.listRunRecords(workflowName);
 }
-
-export async function showRun(runId: string): Promise<string> {
-  const rec = await storage.readRunRecord(runId);
-  if (!rec) return `运行记录不存在: ${runId}`;
-  return JSON.stringify(rec, null, 2);
-}

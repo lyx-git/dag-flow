@@ -10,14 +10,14 @@
 
 import { hostService } from './safety.js';
 
-export interface SearchSource {
+interface SearchSource {
   url: string;
   title?: string;
   snippet?: string;
   publishedAt?: string;
 }
 
-export interface SearchOutcome {
+interface SearchOutcome {
   results: SearchSource[];
   engine: string;
   viaHost: boolean;

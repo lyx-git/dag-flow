@@ -4,14 +4,14 @@
 
 import { USER_AGENT, ACCEPT_LANG, decodeEntities } from './search.js';
 
-export interface WebFetchParams {
+interface WebFetchParams {
   url: string;
   maxChars?: number;
   timeoutMs?: number;
   raw?: boolean;
 }
 
-export interface WebFetchOutcome {
+interface WebFetchOutcome {
   url: string;
   status: number;
   contentType: string;

@@ -24,7 +24,7 @@ export class DocError extends Error {
   }
 }
 
-export interface DocResult {
+interface DocResult {
   /** 归一化后的格式名：pdf / docx / xlsx / pptx / text / html / csv / json / markdown */
   format: string;
   /** 抽取出的纯文本 */
@@ -36,7 +36,7 @@ export interface DocResult {
   meta: Record<string, string | number | boolean>;
 }
 
-export interface ExtractOptions {
+interface ExtractOptions {
   /** 文本上限（默认 200_000 字符；超出截断并置 truncated=true） */
   maxChars?: number;
 }
@@ -208,7 +208,7 @@ export function tags(xml: string, name: string): string[] {
 
 /** ★ 取标签块**连同属性**：xlsx 的工作表名（`<sheet name=…/>`）与单元格类型（`t="s"`）都在属性里，
  *  只取内层会把它们丢掉（2026-10-11 写到 xlsx 时踩到：sheet 名全空、共享字符串失效）。 */
-export function tagBlocks(xml: string, name: string): { attrs: string; inner: string }[] {
+function tagBlocks(xml: string, name: string): { attrs: string; inner: string }[] {
   const out: { attrs: string; inner: string }[] = [];
   const paired = new RegExp(`<${name}(\\s[^>]*?)?>([\\s\\S]*?)</${name}>`, 'g');
   for (const m of xml.matchAll(paired)) out.push({ attrs: m[1] ?? '', inner: m[2] ?? '' });
@@ -225,7 +225,7 @@ function countTags(xml: string, name: string): number {
 // ==================== docx ====================
 
 /** 段落 → 行；表格单元格用 \t 分隔（w:tc 结束补 \t、w:tr 结束补 \n） */
-export function docxToText(documentXml: string): string {
+function docxToText(documentXml: string): string {
   if (!documentXml) return '';
   let s = documentXml
     .replace(/<\/w:tc>/g, '</w:tc>\t')
@@ -252,7 +252,7 @@ function colIndex(ref: string): number {
   return n - 1;
 }
 
-export function extractXlsx(buf: Buffer): { text: string; meta: Record<string, string | number | boolean> } {
+function extractXlsx(buf: Buffer): { text: string; meta: Record<string, string | number | boolean> } {
   const zip = unzip(buf);
   const shared = tags(zipText(zip, 'xl/sharedStrings.xml'), 'si').map((si) => tags(si, 't').map((t) => decodeEntities(t)).join(''));
   const wb = zipText(zip, 'xl/workbook.xml');
@@ -309,7 +309,7 @@ function tidyTable(s: string): string {
 
 // ==================== pptx ====================
 
-export function extractPptx(buf: Buffer): { text: string; meta: Record<string, string | number | boolean> } {
+function extractPptx(buf: Buffer): { text: string; meta: Record<string, string | number | boolean> } {
   const zip = unzip(buf);
   const files = [...zip.keys()]
     .filter((k) => /^ppt\/slides\/slide\d+\.xml$/.test(k))

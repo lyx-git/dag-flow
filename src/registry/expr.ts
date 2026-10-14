@@ -1,4 +1,3 @@
-// @ts-nocheck
 // src/registry/expr.ts — 表达式求值（if / while / condition）
 // 封装 expr-eval，避免业务代码直接 import 第三方包（便于替换）
 
@@ -7,12 +6,12 @@ import { Parser, type Expression } from 'expr-eval';
 const parser = new Parser({
   operators: {
     in: false,
-    notin: false,
+    // ★ 2026-10-14 阶段五：`notin` 与 `concat` 两个选项删除——expr-eval 全包（含 .d.ts）没有这两个键，
+    //   运行时从未读过（死选项）。★备注：原作者写 concat:false 的意图是「禁字符串拼接」，从未生效过
+    //   （正确选项名是 concatenate）——现网 if/while 条件零处用到拼接；要真禁请改 concatenate:false（等拍板）。
     assignment: false,
     logical: true,
     comparison: true,
-    // 允许安全的成员访问（ctx.x）
-    concat: false,
   },
 });
 
@@ -43,11 +42,14 @@ export function evaluateExpr(expr: string, scope: Record<string, unknown>): unkn
     }
   }
   try {
-    return parsed.evaluate({
+    // ★ Math/JSON（缺索引签名）与 Boolean/Array 构造器装不进 expr-eval 的 Value 类型 → 断言过桥；
+    //   运行时与 nocheck 时代完全一致（这份白名单本来就是给求值器用的标准全局）。
+    const evalScope = {
       ...scope,
       // 显式白名单
       Math, Number, String, Boolean, Array, Object, JSON, Date,
-    });
+    } as unknown as Record<string, never>;
+    return parsed.evaluate(evalScope);
   } catch (e) {
     throw new ExprError(`表达式求值失败: ${(e as Error).message} | 表达式: ${expr}`);
   }

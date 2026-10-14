@@ -1,4 +1,3 @@
-// @ts-nocheck
 // src/client/FlowPanel.tsx
 // 顶层面板：画布/JSON 视图共享同一份 WorkflowDef（lifted state）。
 // 顶部 tab + 💾保存 + ▶运行；中部当前 tab；右侧节点详情。
@@ -584,8 +583,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     return () => window.clearTimeout(t);
   }, [importMsg]);
   // 版本管理（#14-② + 2026-10-01 夜）：状态与 openVersions/loadVersion 拆至 dialogs/versions-dialog.tsx
-  //   （hook 仍在本组件实例上调用；须在 setImportMsg 声明之后——hook 入参引用它，放前面会 const TDZ）
-  const verDlg = useVersionsDialog({ def, saveDefToDisk, onDefChange: handleDefChange, setDirty, setImportMsg });
+  //   （hook 仍在本组件实例上调用；hook 本身不引用 setImportMsg——浮窗提示由 View 的 prop 接收）
+  const verDlg = useVersionsDialog({ def, saveDefToDisk, onDefChange: handleDefChange, setDirty });
   const { verOpen, setVerOpen, verList, verLoading, verH, setVerH, verOff, setVerOff, verDir, openVersions, loadVersion } = verDlg;
 
   // 自动布局：按拓扑分层重排节点
@@ -1040,10 +1039,10 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
           title: '保存工作流到磁盘（<DSH_HOME>/.dag-flow/workflow/）',
           onClick: async () => {
             try {
-              const savedName = await handleSaveToDisk();
+              await handleSaveToDisk();
               setDirty(false);
               try { ctx.onChange?.(def); } catch { /* */ }
-              console.log(`[dag-flow] saved workflow: ${savedName}`);
+              // 保存成功走顶部浮窗提示（✓ 已保存）——不再打 console.log（阶段五清理）
             } catch (e) {
               setImportMsg({ ok: false, text: `保存失败：${(e as Error).message}` });
               console.error('[dag-flow] save failed:', e);
@@ -1105,7 +1104,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       //   取消中用 `!cancelling`：点了取消就立刻停动画（头部这时显示「取消中…」）。
       runActive: running && !cancelling,
       // 上次运行的真实输出（results.<id>.out）——面板用它反推「实际有哪些变量」，含用户自定义键
-      runOuts: ((runResult?.summary as { results?: Record<string, unknown> } | undefined)?.results ?? {}),
+      runOuts: (runResult?.summary as { results?: Record<string, { status?: string; durationMs?: number; out?: unknown }> } | undefined)?.results ?? {},
       // A4 失败策略（onError：节点失败时的行为）
       onNodeError: handleNodeError,
       // ★ 2026-10-04 轮 2：失败策略与「失败不影响流程」已合并为面板上唯一的一个下拉
@@ -1127,7 +1126,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     // ✍️ 工作流参数弹窗 → dialogs/inputs-dialog.tsx（弹窗专项批 1：hook 状态 + View 渲染成对拆出）
     createElement(InputsDialogView, { d: inputsDlg }),
     // ⏰ 定时任务弹窗 → dialogs/schedule-dialog.tsx（弹窗专项批 2+3：hook 状态 + View 渲染成对拆出）
-    createElement(SchedulesDialogView, { d: schedDlg, defName: def.name }),
+    //   ★ setImportMsg 必须传——View 里 dataPathRow 的「打开文件夹失败」提示要用（阶段五 tsc 摘 nocheck 时抓到的漏传）
+    createElement(SchedulesDialogView, { d: schedDlg, defName: def.name, setImportMsg }),
     // 🕘 历史版本弹窗 → dialogs/versions-dialog.tsx（弹窗专项批 1：hook 状态 + View 渲染成对拆出）
     createElement(VersionsDialogView, { d: verDlg, defName: def.name, setImportMsg }),
     // ★ 2026-10-09 导出菜单（⬇ 按钮下方）：导出 JSON / 导出图片（PNG）。

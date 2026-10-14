@@ -4,7 +4,7 @@
 > **状态（2026-10-03 深夜）：方案已按用户「之前的定时任务方案，实行了」的指示落地**（§7 的 1~4、6 步完成，第 5 步「真机端到端」由用户在真机确认）。
 > 落地清单：`src/adapter/cron.ts`（解析 + 下次时间 + 中文预览）、`src/adapter/schedules.ts`（配置原子写/改名联动/orphan）、
 > `src/adapter/scheduler.ts`（20s tick + skip + 不补跑 + 心跳）、`src/adapter/running.ts`（共享运行登记，避免定时与手动双跑）、
-> api.ts +4 条路由（15→19）、index.ts +1 条 effect（2→3，`dag-flow: scheduler`）、客户端头部 ⏰ 弹窗；
+> api.ts（2026-10-14 起为 adapter/api.ts 装配器 + adapter/routes/ 域文件）+4 条路由（15→19）、index.ts +1 条 effect（2→3，`dag-flow: scheduler`）、客户端头部 ⏰ 弹窗；
 > 测试：`test/cron.test.mjs` 90 断言、`test/schedules.test.mjs` 45、`test/scheduler.test.mjs` 41、`tmp-test/sched-e2e.mjs` 14（真执行器）、CDP `schedule-dialog`。
 > 前情：2026-10-02 这一轮曾**完整实现并全绿后按你指示整体回退**（schedules.ts / scheduler.ts / API / ⏰ 弹窗 / 重命名联动 / 测试）。本方案复用同一套骨架，回退清单保留在 §9。
 

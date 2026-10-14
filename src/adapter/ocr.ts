@@ -45,7 +45,7 @@ export const OCR_DEFAULT_MAX_PAGES = 20;
 /** 脚本回传 JSON 的行标记（前面可能混着 OCR 库自己的日志） */
 export const OCR_MARK = '__OCR_JSON__';
 
-export type OcrMode = 'off' | 'auto' | 'force';
+type OcrMode = 'off' | 'auto' | 'force';
 
 /** 带错误码的 OCR 异常（码与 message 都是中文可读的，见文件头） */
 export class OcrError extends Error {
@@ -57,20 +57,20 @@ export class OcrError extends Error {
   }
 }
 
-export interface OcrOptions {
+interface OcrOptions {
   /** 超时（可传字符串/空值，内部统一收敛） */
   timeoutMs?: unknown;
   signal?: AbortSignal;
 }
 
-export interface OcrPdfOptions extends OcrOptions {
+interface OcrPdfOptions extends OcrOptions {
   /** 最多识别几页（可传字符串/空值，内部收敛到 [1,200]，默认 20） */
   maxPages?: unknown;
   /** 栅格化倍率（1–5，默认 2 ≈ 150dpi） */
   scale?: number;
 }
 
-export interface OcrPdfResult {
+interface OcrPdfResult {
   text: string;
   /** PDF 总页数 */
   pages: number;
@@ -84,7 +84,7 @@ export interface OcrPdfResult {
   durationMs: number;
 }
 
-export interface OcrText {
+interface OcrText {
   text: string;
   lines: number;
   confidence: number;
@@ -92,7 +92,7 @@ export interface OcrText {
   durationMs: number;
 }
 
-export interface OcrEngineState {
+interface OcrEngineState {
   ready: boolean;
   installedNow?: boolean;
   engineDir: string;

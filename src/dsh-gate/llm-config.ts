@@ -196,13 +196,3 @@ export function envFallbackEndpoint(): LlmEndpoint | null {
     input: ['text'],
   };
 }
-
-/** 仅从 dsh 配置发现端点（读 settings.yaml + .credentials.yaml + profile patch，容忍缺失）。 */
-export async function discoverSettingsEndpoints(): Promise<LlmEndpoint[]> {
-  try {
-    const { settings, creds } = await readLlmConfigFiles();
-    return buildLlmCandidates(settings, creds);
-  } catch {
-    return [];
-  }
-}

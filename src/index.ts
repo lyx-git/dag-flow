@@ -1,4 +1,3 @@
-// @ts-nocheck
 // src/index.ts — 插件入口（DSH 风格：name + inject + apply + 模块顶层副作用）
 // 参照 dsh-at-file / dsh-subagent-profile：DSH loader 通过 cordis plugin 调 apply(ctx, config)。
 //   1. `name` 暴露插件 id（与 cordis.patch.yml 的 insert id 对齐）
@@ -20,7 +19,8 @@ import { runWorkflow } from './executor/run.js';
 import { writeRunRecord, showWorkflow, listRuns } from './executor/record.js';
 import { registerApiRoutes } from './adapter/api.js';
 import { startScheduler } from './adapter/scheduler.js';
-import type { DshStorage, DshLogger } from './adapter/storage.js';
+import type { DshStorage } from './adapter/storage.js';
+import type { DshLogger } from './adapter/logger.js';
 
 // —— 模块顶层副作用：注册内置节点（fail-soft，import 时即跑）
 let _nodesRegistered = false;
@@ -86,14 +86,15 @@ export function apply(ctx: any, config?: any): void {
     // 3. 注册 dagflow 工具（fail-soft）
     let toolResult: AttachResult = { registered: false };
     try { toolResult = attachToHost() ?? toolResult; } catch (e) {
-      try { logger.warn('[dag-flow] attachToHost failed (non-fatal):', e); } catch {}
+      // e 原样照传（DshLogger.meta 形状是宿主防腐类型，Error 装不下 → 断言过桥，运行时同一对象）
+      try { logger.warn('[dag-flow] attachToHost failed (non-fatal):', e as Record<string, unknown>); } catch {}
     }
     bindDispose(ctx, toolResult.dispose, 'dag-flow: workflow tool');
 
     // 3.5. 注册 client HTTP API 路由（fail-soft）
     let apiResult: AttachResult = { registered: false };
     try { apiResult = registerApiRoutes() ?? apiResult; } catch (e) {
-      try { logger.warn('[dag-flow] registerApiRoutes failed (non-fatal):', e); } catch {}
+      try { logger.warn('[dag-flow] registerApiRoutes failed (non-fatal):', e as Record<string, unknown>); } catch {}
     }
     bindDispose(ctx, apiResult.dispose, 'dag-flow: api routes');
 
@@ -102,7 +103,7 @@ export function apply(ctx: any, config?: any): void {
     //   （第三条 effect：工具 + 路由 + 调度器），插件热重载/卸载时定时器随之清掉。
     let schedResult: AttachResult = { registered: false };
     try { schedResult = startScheduler() ?? schedResult; } catch (e) {
-      try { logger.warn('[dag-flow] startScheduler failed (non-fatal):', e); } catch {}
+      try { logger.warn('[dag-flow] startScheduler failed (non-fatal):', e as Record<string, unknown>); } catch {}
     }
     bindDispose(ctx, schedResult.dispose, 'dag-flow: scheduler');
 

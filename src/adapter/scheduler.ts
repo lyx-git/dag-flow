@@ -23,10 +23,10 @@ import {
 import type { WorkflowDef, JsonValue } from '../types.js';
 import { createStorage } from './storage.js';
 
-export const TICK_MS = 20_000;
+const TICK_MS = 20_000;
 
 /** 一次 tick 的结果（供单测断言） */
-export interface TickReport {
+interface TickReport {
   /** 本次真正触发的工作流（含定时项 id） */
   triggered: { id: string; workflow: string }[];
   /** 到点但因「上一轮还在跑」被跳过 */
@@ -37,7 +37,7 @@ export interface TickReport {
   invalid: { id: string; reason: string }[];
 }
 
-export interface SchedulerDeps {
+interface SchedulerDeps {
   /** 当前时间（毫秒）；默认 Date.now */
   now?: () => number;
   /** 读配置（默认读 .dag-flow/schedules.json） */

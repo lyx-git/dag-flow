@@ -93,12 +93,6 @@ export function scanWorkspaceDirs(workspace?: string): string[] {
   return [...hit, ...rest];
 }
 
-/** 某会话 id 的候选文件全路径（按优先级；existsSync 由调用方判定） */
-export function sessionFileCandidates(sessionId: string, dirName: string): string[] {
-  const root = sessionsRoot();
-  return SESSION_FILE_CANDIDATES.map((f) => path.join(root, dirName, sessionId, f));
-}
-
 /**
  * 从已解压的会话文本解析消息（读内容与标题提取共用）。
  * 两代行形状（2026-10-01 真机实测）：①旧/直陈 {role, content}；②0.1.x+/0.2.x 事件流

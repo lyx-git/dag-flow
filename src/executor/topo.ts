@@ -6,7 +6,7 @@
 
 import type { WorkflowDef } from '../types.js';
 
-export interface TopoResult {
+interface TopoResult {
   ok: boolean;
   /** 拓扑层：每层内节点无相互依赖，可并行执行 */
   layers: string[][];

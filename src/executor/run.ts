@@ -1,4 +1,3 @@
-// @ts-nocheck
 // src/executor/run.ts — 工作流执行核心
 // 调度：start → 推进（next string / array parallel / {true,false} / loop 内部 next 推进 / 终止）
 
@@ -15,7 +14,7 @@ import { newRunId } from './awaiting.js';
 import { resolveParams, extractRefs, DataflowError } from './dataflow.js';
 
 /** 参数预检失败：一次性返回全部节点的必填缺失明细（防"生成的 DAG 跑到一半才失败"） */
-function invalidParamsSummary(def: WorkflowDef, problems: string[]): { summary: RunSummary; record: RunSummary } {
+function invalidParamsSummary(def: WorkflowDef, problems: string): { summary: RunSummary; record: RunSummary } {
   const startedAt = new Date().toISOString();
   const summary: RunSummary = {
     runId: `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

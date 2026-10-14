@@ -36,11 +36,6 @@ export function bundledRoots(): string[] {
   return override ? [override] : PLUGIN_ROOT_CANDIDATES;
 }
 
-/** 用户级运行时缓存根：<DSH_HOME>/runtime（按需下载落这里） */
-export function userRuntimeDir(): string {
-  return path.join(dshHome(), 'runtime');
-}
-
 const USER_RUNTIME_DIR = path.join(dshHome(), 'runtime');  // 09-27 意见 2：DSH_HOME 统一走 dshHome()
 
 // ---------- 平台检测 ----------
@@ -111,7 +106,7 @@ const UV_EXE_BY_PLATFORM: Record<Platform, string> = {
 };
 
 // ---------- 路径解析 ----------
-export interface RuntimePaths {
+interface RuntimePaths {
   platform: Platform;
   pythonExe: string;        // 解析到的可执行文件绝对路径
   pythonSource: 'bundled' | 'user-cache' | 'system' | 'missing';
@@ -253,43 +248,4 @@ export function resolveUv(platform: Platform = detectPlatform()): { exe: string;
     }
     return { exe: '', source: 'missing' as const };
   });
-}
-
-export function resolveAll(): RuntimePaths {
-  return memoResolve('all', () => {
-    const platform = detectPlatform();
-    const p = resolvePython(platform);
-    const b = resolveBash(platform);
-    const u = resolveUv(platform);
-    return {
-      platform,
-      pythonExe: p.exe,
-      pythonSource: p.source,
-      bashExe: b.exe,
-      bashSource: b.source,
-      uvExe: u.exe,
-      uvSource: u.source,
-    };
-  });
-}
-
-/** 检查 Python 解释器是否包含某个模块（用于决定是否需要 uv pip install） */
-export function hasPythonModule(pythonExe: string, moduleName: string): boolean {
-  const { spawnSync } = require('node:child_process') as typeof import('node:child_process');
-  const r = spawnSync(pythonExe, ['-c', `import ${moduleName}`], { stdio: 'ignore' });
-  return r.status === 0;
-}
-
-/** 触发首次启动按需下载（stub — 实际逻辑在 scripts/download-runtime.mjs） */
-export async function ensureUserCache(platform: Platform = detectPlatform()): Promise<{ python: boolean; bash: boolean; uv: boolean }> {
-  // 真实实现：spawn `node scripts/download-runtime.mjs --platform=${platform}`
-  // 这里返回"是否已存在"，触发逻辑在调用方
-  const _py = resolvePython(platform);
-  const _ba = resolveBash(platform);
-  const _uv = resolveUv(platform);
-  return {
-    python: _py.source !== 'missing',
-    bash: _ba.source !== 'missing',
-    uv: _uv.source !== 'missing',
-  };
 }

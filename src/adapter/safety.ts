@@ -24,7 +24,7 @@ const hostService = gateHostService;
 const getHost = gateGetHost;
 
 /** DSH 内部 API 探测结果。drifted 数组为空 = 健康。 */
-export interface DriftReport {
+interface DriftReport {
   drifted: string[];           // 形如 'tools.register' / 'llm.chat' / ...
   details: Record<string, JsonValue>;
   safeMode: boolean;           // true = 进入安全模式

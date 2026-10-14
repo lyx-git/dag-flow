@@ -13,7 +13,7 @@
 import type { RunSummary } from '../executor/run.js';
 
 /** 单节点在 /run/status 里的形状（客户端 runProgress.progressToStatusMap 消费） */
-export interface RunNodeResult {
+interface RunNodeResult {
   status: string;
   durationMs?: number;
   /** 节点输出（超过 RESULT_OUT_MAX 字会裁剪成字符串 + 结尾省略号） */
@@ -45,7 +45,7 @@ export interface ActiveRun {
 }
 
 /** 单节点运行日志：执行器的 onNodeLog 发两次（resolved=入参/引用、done=出参/错误），这里合并成一条 */
-export interface NodeLogEntry {
+interface NodeLogEntry {
   id: string;
   type?: string;
   /** 模板**已展开**的入参（节点真正收到的东西） */
@@ -68,7 +68,7 @@ export interface NodeLogEntry {
 }
 
 /** 日志单字段上限：日志弹窗要看内容，但也不能让响应无限大 */
-export const LOG_FIELD_MAX = 4000;
+const LOG_FIELD_MAX = 4000;
 
 function clipLogField(key: string, v: unknown, truncated: string[]): unknown {
   if (v === undefined) return undefined;
@@ -120,10 +120,10 @@ export function getLogTarget(opts: { name?: string; runId?: string }): ActiveRun
 
 /** 单节点输出上限：/run/status 轮询频繁，逐节点全量输出会让响应随节点数膨胀；
  *  悬浮卡自身预览也只到 800 字，所以每节点保留 1200 字足够（完整内容仍以最终 summary 为准）。 */
-export const RESULT_OUT_MAX = 1200;
+const RESULT_OUT_MAX = 1200;
 
 /** 裁剪节点输出：小输出原样保留类型（对象/数组/标量），超长转字符串 + 尾注 */
-export function clipNodeOut(v: unknown): { out?: unknown } {
+function clipNodeOut(v: unknown): { out?: unknown } {
   if (v === undefined) return {};
   let s: string;
   try { s = typeof v === 'string' ? v : JSON.stringify(v) ?? ''; } catch { return { out: '（无法序列化）' }; }
@@ -173,10 +173,6 @@ export function getLastCompleted(name: string): ActiveRun | undefined {
   return name ? lastCompleted.get(name) : undefined;
 }
 
-export function isRunActive(name: string): boolean {
-  return !!name && activeRuns.has(name);
-}
-
 /** 运行结束：标完成、写 summary、释放同名互斥、记入 lastCompleted、顺手裁剪 */
 export function finishRun(rec: ActiveRun, summary?: RunSummary): void {
   rec.status = 'completed';
@@ -189,7 +185,7 @@ export function finishRun(rec: ActiveRun, summary?: RunSummary): void {
 }
 
 /** 已完成的运行只留最近 20 条（等待中的永不淘汰）；lastCompleted 同样只留最近 20 个工作流 */
-export function pruneRuns(): void {
+function pruneRuns(): void {
   const done = [...runsById.values()].filter((r) => r.status === 'completed');
   if (done.length > 20) {
     done.sort((a, b) => (a.finishedAt ?? 0) - (b.finishedAt ?? 0));
@@ -199,11 +195,4 @@ export function pruneRuns(): void {
     const entries = [...lastCompleted.entries()].sort((a, b) => (a[1].finishedAt ?? 0) - (b[1].finishedAt ?? 0));
     for (const [name] of entries.slice(0, entries.length - 20)) lastCompleted.delete(name);
   }
-}
-
-/** 仅供测试：清空登记 */
-export function __resetRunRegistry(): void {
-  activeRuns.clear();
-  runsById.clear();
-  lastCompleted.clear();
 }

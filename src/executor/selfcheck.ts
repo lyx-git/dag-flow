@@ -21,9 +21,9 @@ import { normalizeDef, nextToEdges } from './normalize.js';
 import { topoSort } from './topo.js';
 import { checkWorkflowParams } from '../registry/params-check.js';
 
-export type SelfcheckLevel = 'error' | 'warn';
+type SelfcheckLevel = 'error' | 'warn';
 
-export interface SelfcheckItem {
+interface SelfcheckItem {
   level: SelfcheckLevel;
   /** 稳定错误码（测试与前端分组用；不随文案变化） */
   code: string;

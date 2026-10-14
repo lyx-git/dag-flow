@@ -12,7 +12,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { storageBaseDir, dagFlowDir, dagFlowTmpDir } from './workspace.js';
 
-export interface SavedAsset {
+interface SavedAsset {
   /** 相对 <DSH_HOME> 的路径（含 .dag-flow/ 前缀，如 .dag-flow/reports/周报.md；2026-10-11 起基准不再是工作区） */
   relativePath: string;
   /** 宿主机绝对路径 */

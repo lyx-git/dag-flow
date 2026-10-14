@@ -1,4 +1,3 @@
-// @ts-nocheck
 // src/client/flowgram/FlowGramCanvas.tsx
 // FlowGram free-layout 画布（2026-09-23 起替代旧画布引擎）。
 // props 契约与旧 Canvas 完全一致（def/nodes/edges/onChange/onSelectNode/selectedNodeId），
@@ -225,7 +224,8 @@ export function Canvas(props: {
   /** 运行是否仍在进行（false ⇒ 没走完的边只留静态绿、光点停）。见 RunPathSync 头注释 */
   runActive?: boolean;
   onChange: (nodes: RFNode[], edges: RFEdge[]) => void;
-  onSelectNode: (id: string) => void;
+  /** ★ null = 点空白取消选中（onSelectRef 桥同款契约；renderBody/p.onSelectNode 本来就是 string|null） */
+  onSelectNode: (id: string | null) => void;
   /** 双击节点（进入 loop 循环体 / subflow 子工作流，2026-10-03 用户需求） */
   onNodeDoubleClick?: (id: string) => void;
   selectedNodeId?: string | null;

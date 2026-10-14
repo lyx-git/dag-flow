@@ -24,6 +24,8 @@ export interface ClientNode {
   params?: Record<string, JsonValue>;
   next?: NextRef;
   onError?: 'stop' | 'continue' | { goto: string };
+  /** 🛟 忽略失败（2026-10-04 轮 2）：与 onError 互斥——写 onError 清 tolerate、写 tolerate 清 onError */
+  tolerate?: boolean;
   label?: string;
 }
 

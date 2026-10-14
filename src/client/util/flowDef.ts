@@ -1,4 +1,3 @@
-// @ts-nocheck
 // src/client/util/flowDef.ts
 // WorkflowDef ↔ 画布节点/连线（RFNode/RFEdge）双向转换。
 // 这是 5 个视图共享状态的"真相源"。
@@ -120,7 +119,7 @@ export function fromRF(def: WorkflowDef, rfNodes: RFNode[], rfEdges: RFEdge[]): 
     //   id/type/params/onError/label 这几项，其余字段原样保留。
     // ★ 2026-10-08 用户拍板：**写盘只写 edges、不再写 next**（读入仍兼容 next-only 文件）——
     //   引擎（normalize.ts）与画布（toRF）都以 edges 为准，两个字段并存只会带来"改了没生效"的坑。
-    const out: ClientNode = { ...(tn ?? { id: rn.id, type: rn.type }), id: rn.id, type: rn.type, params: paramsCopy };
+    const out: ClientNode = { ...(tn ?? { id: rn.id, type: rn.type }), id: rn.id, type: rn.type, params: paramsCopy as ClientNode['params'] };
     delete (out as { next?: unknown }).next;
     const onErrorVal = rn.onError ?? tn?.onError;
     if (onErrorVal) out.onError = onErrorVal; else delete (out as { onError?: unknown }).onError;

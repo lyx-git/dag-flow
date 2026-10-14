@@ -21,7 +21,7 @@
 // 行为锁定：test/cron.test.mjs（离线：node test/cron.test.mjs）
 
 /** 解析结果：5 个字段各自的取值列表（均去重升序；周日的 7 已归一化为 0） */
-export type CronSpec = {
+type CronSpec = {
   minutes: number[];
   hours: number[];
   days: number[];

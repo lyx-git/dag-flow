@@ -24,7 +24,7 @@
 
 import type { JsonValue, WorkflowDef } from '../types.js';
 
-export interface ParamProblem {
+interface ParamProblem {
   nodeId: string;
   type: string;
   msg: string;

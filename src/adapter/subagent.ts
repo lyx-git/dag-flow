@@ -34,7 +34,7 @@ export type { LlmEndpoint };
 export { listAllEndpoints, resolveLlmEndpoint, SubagentUnavailableError };
 export { detectModalities, checkModelModality, MODALITY_SCAN_MAX_CHARS } from './llm-modality.js';
 
-export interface SubagentOptions {
+interface SubagentOptions {
   prompt: string;
   model?: string;
   isolated?: boolean;
@@ -45,7 +45,7 @@ export interface SubagentOptions {
   maxTokens?: number;
 }
 
-export interface SubagentResult {
+interface SubagentResult {
   text: string;
   raw?: JsonValue;
   /** ★ AI 调试信息（2026-10-04 用户问「试跑本节点能不能当 LLM 调试面板」→ 把调试要看的都采集出来）：
@@ -54,7 +54,7 @@ export interface SubagentResult {
 }
 
 /** AI 节点调试信息（进 NodeResult.debug → 试跑面板 + 运行日志共用；**不进 out**，不污染数据流） */
-export interface SubagentDebug {
+interface SubagentDebug {
   /** 实际发出的提示词（模板已展开——这就是"AI 到底看到了什么"） */
   prompt: string;
   system?: string;

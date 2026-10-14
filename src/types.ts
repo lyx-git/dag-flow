@@ -68,7 +68,7 @@ export interface NodeResult {
   debug?: JsonValue;
 }
 
-export interface CtxLogger {
+interface CtxLogger {
   info(msg: string, meta?: Record<string, unknown>): void;
   warn(msg: string, meta?: Record<string, unknown>): void;
   error(msg: string, meta?: Record<string, unknown>): void;
@@ -182,6 +182,3 @@ export const WORKFLOW_SCHEMA = {
   },
 } as const;
 
-// 默认节点超时（ms）
-export const DEFAULT_NODE_TIMEOUT_MS = 30_000;
-export const DEFAULT_LOOP_MAX_ITERATIONS = 1_000;

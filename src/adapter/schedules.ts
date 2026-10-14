@@ -16,7 +16,7 @@ import { isWorkflowRunning } from './running.js';
 import { cronError, nextRunAt } from './cron.js';
 import type { JsonValue } from '../types.js';
 
-export type ScheduleStatus = 'success' | 'failed' | 'skipped' | 'error';
+type ScheduleStatus = 'success' | 'failed' | 'skipped' | 'error';
 
 export interface ScheduleItem {
   /** sch_xxxxxxxx */

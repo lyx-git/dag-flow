@@ -1,4 +1,3 @@
-// @ts-nocheck
 // src/client/workflow-picker.ts
 // 「打开 / 新建工作流」入口弹窗 —— v2：组合式输入框（combobox）
 //   一个输入框同时承担两件事：
@@ -298,7 +297,7 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
       const item = { name: copyName, nodes: Array.isArray(src.nodes) ? src.nodes.length : 0, path: joinPath(storageDir, copyName) };
       workflows = [...workflows, item];
       const rowEl = Array.from(listBox.querySelectorAll('.dag-flow-combo-row'))
-        .find((r) => r.dataset.name === w.name);
+        .find((r) => (r as HTMLElement).dataset.name === w.name);
       const newRow = document.createElement('div');
       newRow.className = 'dag-flow-combo-row';
       newRow.addEventListener('mousedown', (e) => { e.preventDefault(); void openExisting(item.name); });
@@ -322,7 +321,7 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
       }
       workflows = workflows.filter((x) => x.name !== w.name);
       const rowEl = Array.from(listBox.querySelectorAll('.dag-flow-combo-row'))
-        .find((r) => r.dataset.name === w.name);
+        .find((r) => (r as HTMLElement).dataset.name === w.name);
       if (rowEl) {
         rowEl.classList.add('del-out');
         setTimeout(() => { rowEl.remove(); }, 170);

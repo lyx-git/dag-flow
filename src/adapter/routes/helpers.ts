@@ -6,8 +6,8 @@
 import { createLogger } from '../logger.js';
 import type { DshStorage } from '../storage.js';
 
-export type RouteSpec = { kind?: 'exact' | 'prefix'; path: string; handler: (req: any, res: any) => unknown };
-export type RouteRegisterer = (spec: RouteSpec) => void;
+type RouteSpec = { kind?: 'exact' | 'prefix'; path: string; handler: (req: any, res: any) => unknown };
+type RouteRegisterer = (spec: RouteSpec) => void;
 
 /** 各域路由模块的依赖包（api.ts 装配） */
 export interface ApiRouteDeps {

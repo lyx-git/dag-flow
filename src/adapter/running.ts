@@ -25,11 +25,6 @@ export function isWorkflowRunning(name: string): boolean {
   return !!name && running.has(name);
 }
 
-/** 当前所有运行中的工作流名（诊断/测试用） */
-export function listRunning(): string[] {
-  return [...running];
-}
-
 /** 仅供测试：清空登记 */
 export function __resetRunning(): void {
   running.clear();

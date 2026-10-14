@@ -14,7 +14,7 @@
 import { hostService } from './host.js';
 
 /** DSH llm 服务的稳定形状（业务代码只依赖本接口，不依赖 DSH 原生类型） */
-export interface HostLlmRuntime {
+interface HostLlmRuntime {
   listProviders?: () => { id: string; name?: string }[] | Promise<{ id: string; name?: string }[]>;
   listModels?: (provider: string) => Promise<
     { id: string; name?: string; description?: string; inputModalities?: readonly string[] }[]

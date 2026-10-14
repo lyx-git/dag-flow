@@ -13,14 +13,14 @@
 import { hostService } from './host.js';
 
 /** 统一注册结果（= api.ts/cli.ts AttachResult 形状，index.ts bindDispose 消费） */
-export interface HostAttachResult {
+interface HostAttachResult {
   registered: boolean;
   reason?: string;
   dispose?: () => void;
 }
 
 /** 路由规格（kind 缺省 exact；prefix 路由由 dsh 按前缀匹配） */
-export interface HostRouteSpec {
+interface HostRouteSpec {
   kind?: 'exact' | 'prefix';
   path: string;
   handler: (req: any, res: any) => unknown;
@@ -49,7 +49,7 @@ export function registerHostTool(tool: unknown): HostAttachResult {
   }
 }
 
-export interface HostRouteRegistrar {
+interface HostRouteRegistrar {
   /** 注册一条路由：失败仅告警跳过，不中断其余路由 */
   register: (spec: HostRouteSpec) => void;
   /** 已成功注册（返回了 disposer）的路由数——日志/测试断言口径 */

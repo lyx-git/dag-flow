@@ -11,14 +11,14 @@
 // 为什么单独一个模块：executor（manual 节点）与 adapter（/run、/run/resume 路由）都要用它，
 //   放在任一方向都会造成 registry → adapter 或 adapter → registry 的反向依赖。
 
-export interface ManualAwaitingInfo {
+interface ManualAwaitingInfo {
   runId: string;
   nodeId: string;
   prompt: string;
   createdAt: string;
 }
 
-export interface ManualResolution {
+interface ManualResolution {
   /** 用户在确认弹窗里填的备注（可为空串） */
   value: string;
 }

@@ -29,8 +29,8 @@ import {
   __resetRuntimeCache, type Platform,
 } from './runtime.js';
 
-export type RuntimeTool = 'python' | 'bash' | 'uv';
-export type RuntimeSource = 'bundled' | 'user-cache' | 'system' | 'missing';
+type RuntimeTool = 'python' | 'bash' | 'uv';
+type RuntimeSource = 'bundled' | 'user-cache' | 'system' | 'missing';
 
 /** 清掉解析记忆化缓存（下完运行时、或换掉自带根/PATH 之后要重新扫盘时调用） */
 export { __resetRuntimeCache } from './runtime.js';
@@ -52,7 +52,7 @@ export class RuntimeError2 extends Error {
   }
 }
 
-export interface Resolved { exe: string; source: RuntimeSource }
+interface Resolved { exe: string; source: RuntimeSource }
 
 function resolve(tool: RuntimeTool, platform: Platform): Resolved {
   if (tool === 'python') return resolvePython(platform);
