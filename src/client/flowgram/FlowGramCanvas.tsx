@@ -32,6 +32,7 @@ import { createFreeNodePanelPlugin } from '@flowgram.ai/free-node-panel-plugin';
 import { createFreeLinesPlugin } from '@flowgram.ai/free-lines-plugin';
 import '@flowgram.ai/free-layout-editor/index.css';
 import './fg.css';
+import './fg-overlays.css'; // 第二段（快选/问题面板/分支显形/chips/拖拽）：紧邻上一条，<style> 顺序 = 拆分前段落顺序
 import type { RFNode, RFEdge } from '../util/flowDef';
 import { DSH_NODE_REGISTRIES } from './nodes';
 // ★ 画布缩放策略（进画布默认缩放 / 适应画布夹取 / 一键放大缩小档位）——纯函数，离线可测
