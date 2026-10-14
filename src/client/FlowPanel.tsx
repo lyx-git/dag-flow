@@ -38,6 +38,10 @@ import {
 import { SessionInputFields, MediaFields, WebFields } from './inspector-fields';
 // ★ 2026-10-14 重构轮 7：右侧检查器整体拆至 NodeInspector.tsx（840 行一个组件，不二次切）
 import { NodeInspector } from './NodeInspector';
+// ★ 2026-10-14 弹窗专项批 1：工作流参数/历史版本/运行失败详情三弹窗成对拆出（hook 状态留在本组件实例）
+import { useInputsDialog, InputsDialogView } from './dialogs/inputs-dialog';
+import { useVersionsDialog, VersionsDialogView } from './dialogs/versions-dialog';
+import { useRunFailDialog, RunFailDialogView } from './dialogs/run-fail-dialog';
 // ★ 失败策略显形（2026-10-04 轮 7）：def 里的策略同步进 store，卡片订阅后显示 chip
 import { failPolicyStore } from './flowgram/failPolicyStore';
 import { JsonView } from './JsonView';
@@ -221,9 +225,10 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   }, [ctx, def]);
 
   // 运行
-  const [runResult, setRunResult] = useState<{ status: string; summary?: unknown; error?: string } | null>(null);
-  // ★ 运行失败详情弹窗（2026-10-02 用户需求：报错不再在 logo 后行内截断显示，改弹窗看全量）
-  const [runDlgOpen, setRunDlgOpen] = useState(false);
+  // ★ 运行失败详情弹窗（2026-10-02）：状态/开关拆至 dialogs/run-fail-dialog.tsx
+  //   （hook 仍在本组件实例上调用——applyRunSummary/handleRun/头部失败徽标的读写零变化）
+  const runDlg = useRunFailDialog();
+  const { runResult, setRunResult, runDlgOpen, setRunDlgOpen } = runDlg;
   // ★ 弹窗样式挂载即注入（2026-10-02 用户报「报错信息在左下角」根因：dag-flow-picker 系弹窗
   //   样式由 ensurePickerStyles 注入，过去只有点开 📂 时才注入——停靠模式刷新后直接点 ▶，
   //   失败弹窗因缺样式渲染成面板底部的裸块。挂载即注入（幂等），全部弹窗不再依赖打开顺序）
@@ -272,48 +277,6 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     return data.name as string;
   }, []);
 
-  // 版本管理（#14-② + 2026-10-01 夜：手动保存生成快照到 versions/，此处弹窗列表与回载）
-  const [verOpen, setVerOpen] = useState(false);
-  const [verList, setVerList] = useState<{ ts: string }[]>([]);
-  const [verLoading, setVerLoading] = useState(false);
-  // 版本弹窗高度（2026-10-01 夜用户需求：上边缘可上下拖动，展示更多版本）
-  const [verH, setVerH] = useState(420);
-  // 版本弹窗「上移偏移」（2026-10-04 用户要求：弹窗位置与 ⏰ 定时任务弹窗保持一致——默认落点 14vh，
-  //   拖上边缘时顶边跟随光标上移，偏移量记在这里；clamp 在 [0, 14vh-16px]，绝不让顶边越出视口）
-  const [verOff, setVerOff] = useState(0);
-  // 版本数据实际落盘目录（服务端 versions 列表响应携带 dir；弹窗里标注存储位置）
-  const [verDir, setVerDir] = useState('');
-  const openVersions = useCallback(async () => {
-    ensurePickerStyles(); // 版本弹窗复用 picker 的 .dag-flow-picker-* 样式——没开过 📂 时也要有样式
-    setVerOpen(true);
-    // 每次打开都回到默认落点（14vh，与 ⏰ 定时任务弹窗一致）——上移偏移只影响本次打开期间；
-    // 高度 verH 仍然记忆（用户上轮拖高看更多版本的需求，见 2026-10-01 夜）
-    setVerOff(0);
-    setVerLoading(true);
-    try {
-      const res = await fetch(`/api/dag-flow/workflows/${encodeURIComponent(def.name)}/versions`, { credentials: 'include' });
-      const data = await res.json();
-      setVerList(data.versions ?? []);
-      setVerDir(String(data.dir ?? ''));
-    } catch { setVerList([]); setVerDir(''); }
-    setVerLoading(false);
-  }, [def.name]);
-
-  const loadVersion = useCallback(async (ts: string) => {
-    try {
-      const res = await fetch(`/api/dag-flow/workflows/${encodeURIComponent(def.name)}/versions/${encodeURIComponent(ts)}`, { credentials: 'include' });
-      const data = await res.json();
-      if (data?.workflow) {
-        // 回载 = 受控保存两步：先以 snapshot:true 落盘当前内容（与最新版本相同则服务端去重跳过），
-        // 回载前的当前内容成为新版本、随时可再退回；再以 snapshot:false 写入回载内容（回载本身不算一次保存）
-        await saveDefToDisk(def, true).catch(() => {});
-        await saveDefToDisk(data.workflow as WorkflowDef, false).catch(() => {});
-        handleDefChange(data.workflow);
-        setVerOpen(false);
-        setDirty(true);
-      }
-    } catch { /* 忽略 */ }
-  }, [def, handleDefChange, saveDefToDisk]);
   /** 把 /run 与 /run/resume 的响应统一落到界面（两条路径的 summary 语义相同，避免重复代码） */
   const applyRunSummary = useCallback((data: any): void => {
     setRunResult({ status: data?.ok ? 'success' : 'failed', summary: data?.summary });
@@ -706,6 +669,10 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     const t = window.setTimeout(() => setImportMsg(null), 2600);
     return () => window.clearTimeout(t);
   }, [importMsg]);
+  // 版本管理（#14-② + 2026-10-01 夜）：状态与 openVersions/loadVersion 拆至 dialogs/versions-dialog.tsx
+  //   （hook 仍在本组件实例上调用；须在 setImportMsg 声明之后——hook 入参引用它，放前面会 const TDZ）
+  const verDlg = useVersionsDialog({ def, saveDefToDisk, onDefChange: handleDefChange, setDirty, setImportMsg });
+  const { verOpen, setVerOpen, verList, verLoading, verH, setVerH, verOff, setVerOff, verDir, openVersions, loadVersion } = verDlg;
 
   // 自动布局：按拓扑分层重排节点
   const handleAutoLayout = useCallback(() => {
@@ -859,27 +826,10 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     }
   }, [handleDefChange]);
 
-  // A3 工作流参数（def.inputs，原「工作流级输入/全局参数」）编辑弹窗——改动即自动保存（2026-10-02 用户需求）
-  const [inputsOpen, setInputsOpen] = useState(false);
-  const [inputsRows, setInputsRows] = useState<{ k: string; v: string }[]>([]);
-  const openInputs = useCallback(() => {
-    ensurePickerStyles(); // 弹窗用 dag-flow-picker 样式——先于选择器打开时也要保证已注入
-    const rows = Object.entries(def.inputs ?? {}).map(([k, v]) => ({ k, v: typeof v === 'string' ? v : JSON.stringify(v) }));
-    // 默认一条空行（视觉占位；名称为空的行不写入 def，不算数据）
-    setInputsRows(rows.length ? rows : [{ k: '', v: '' }]);
-    setInputsOpen(true);
-  }, [def.inputs]);
-  // 行任意变更（输入/删除）→ 过滤掉名称为空的行 → 立即写回 def（磁盘落盘走既有 2s 防抖自动保存，不生成版本）
-  const pushInputs = useCallback((rows: { k: string; v: string }[]) => {
-    setInputsRows(rows);
-    const inputs: Record<string, unknown> = {};
-    for (const { k, v } of rows) {
-      const key = k.trim();
-      if (!key) continue;
-      try { inputs[key] = JSON.parse(v); } catch { inputs[key] = v; }
-    }
-    handleDefChange({ ...def, inputs });
-  }, [def, handleDefChange]);
+  // A3 工作流参数编辑弹窗：状态与 openInputs/pushInputs 拆至 dialogs/inputs-dialog.tsx
+  //   （hook 仍在本组件实例上调用——改动即自动保存的数据流零变化）
+  const inputsDlg = useInputsDialog({ def, onDefChange: handleDefChange });
+  const { inputsOpen, setInputsOpen, inputsRows, setInputsRows, openInputs, pushInputs } = inputsDlg;
 
   // ===== 定时任务弹窗（⏰，2026-10-03 用户拍板方案 v1）=====
   //   与工作流参数弹窗同一套弹窗约定（右上 ✕ / hint 小字 / 行尾 ✕ / 底部虚线 ＋ / 改动即自动保存）；
@@ -1475,49 +1425,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       onRightGeom: setRightGeom,
       rightRef,
     }),
-    // A3 工作流参数编辑弹窗（✍️，用户选定「填写」意象；2026-10-02 重做：✕ 移右上角、默认一条空行、
-    //    行尾 ✕ 删除、底部 + 添加、改动即自动保存——原「＋添加输入/取消/保存」三键全删）
-    inputsOpen && createElement(
-      'div',
-      {
-        className: 'dag-flow-picker-overlay',
-        onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) setInputsOpen(false); },
-      },
-      createElement(
-        'div',
-        { className: 'dag-flow-picker' },
-        createElement('div', { className: 'dag-flow-picker-title', style: { fontSize: 16 } },
-          '✍️ 工作流参数',
-          createElement('button', {
-            className: 'dag-flow-picker-close', title: '关闭',
-            onClick: () => setInputsOpen(false),
-          }, '✕'),
-        ),
-        createElement('div', { className: 'dag-flow-picker-body' },
-          createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11, opacity: 0.72 } },
-            '仅当前工作流可用，随工作流一起保存（新建工作流时参数为空）。节点参数里用 {{inputs.名称}} 引用；值可填字符串或合法 JSON（对象/数字自动解析），改动即自动保存。'),
-          inputsRows.map((row, i) => createElement('div', { key: i, style: { display: 'flex', gap: 6, marginBottom: 6 } },
-            createElement('input', {
-              className: 'dsh-wf-input', placeholder: '名称', value: row.k, style: { flex: '0 0 40%' },
-              onChange: (e: React.ChangeEvent<HTMLInputElement>) => pushInputs(inputsRows.map((r, j) => (j === i ? { ...r, k: e.target.value } : r))),
-            }),
-            createElement('input', {
-              className: 'dsh-wf-input', placeholder: '值（字符串或 JSON）', value: row.v, style: { flex: 1 },
-              onChange: (e: React.ChangeEvent<HTMLInputElement>) => pushInputs(inputsRows.map((r, j) => (j === i ? { ...r, v: e.target.value } : r))),
-            }),
-            createElement('button', {
-              className: 'dsh-wf-btn', title: '删除该参数',
-              onClick: () => pushInputs(inputsRows.filter((_, j) => j !== i)),
-            }, '✕'),
-          )),
-          // 底部 + 号：追加一条空行（名称为空的行不写入 def，输入内容后才计入自动保存）
-          createElement('button', {
-            className: 'dsh-wf-inputs-add', title: '添加一条参数',
-            onClick: () => setInputsRows((rs) => [...rs, { k: '', v: '' }]),
-          }, '+'),
-        ),
-      ),
-    ),
+    // ✍️ 工作流参数弹窗 → dialogs/inputs-dialog.tsx（弹窗专项批 1：hook 状态 + View 渲染成对拆出）
+    createElement(InputsDialogView, { d: inputsDlg }),
     // ⏰ 定时任务弹窗（2026-10-03 用户拍板方案 v1，docs/SCHEDULE-PLAN.md §6）
     schedOpen && createElement(
       'div',
@@ -1634,96 +1543,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         ),
       ),
     ),
-    // 版本历史弹窗（🕘；2026-10-01 夜 补上此前缺失的渲染——此前点按钮只 setState 不出 UI）
-    // UX（2026-10-01 夜用户反馈）：title 加大、hint 小字浅色、✕ 移右上角、上边缘可拖拽调高看更多
-    verOpen && createElement(
-      'div',
-      {
-        className: 'dag-flow-picker-overlay',
-        // 2026-10-04 用户反馈「历史版本弹窗有点偏中下部了，最好和定时任务弹窗保持一致」：
-        //   此前这里内联了 alignItems:'flex-end' + paddingBottom:'8vh'（底部锚定，弹窗落在中下部），
-        //   现改为**不覆盖** —— 用 overlay 默认的顶部锚定（align-items:flex-start; padding-top:14vh），
-        //   与 ⏰ 定时任务弹窗同一落点。「顶边跟随光标」的手感由下面 handle 的 verOff 偏移保留。
-        onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) setVerOpen(false); },
-      },
-      createElement(
-        'div',
-        {
-          className: 'dag-flow-picker dag-flow-picker-ver',
-          // maxHeight 与顶部锚定配套：顶边在 14vh，可用高度 = 100vh-14vh，留 16px 下边距（原 90vh 会在顶部锚定下越出视口底部）
-          style: { height: verH, maxHeight: 'calc(86vh - 16px)', marginTop: -verOff, display: 'flex', flexDirection: 'column' },
-        },
-        // 上边缘拖拽把手：向上拖 = 顶边跟随光标上移 + 加高；向下拖 = 收矮（钳位 280px ~ 视口剩余高度）
-        createElement('div', {
-          className: 'dag-flow-picker-resize-y',
-          title: '上下拖动调整弹窗高度',
-          onMouseDown: (e: React.MouseEvent) => {
-            e.preventDefault();
-            const startY = e.clientY;
-            const startH = verH;
-            const startOff = verOff;
-            const vh = window.innerHeight;
-            // 与 .dag-flow-picker-overlay 的 padding-top:14vh 对齐（默认锚点 = ⏰ 定时任务弹窗的落点）
-            const baseTop = Math.round(vh * 0.14);
-            const GAP = 16;
-            const MIN_H = 280;
-            const maxOff = Math.max(0, baseTop - GAP);
-            const onMove = (ev: MouseEvent) => {
-              const dy = startY - ev.clientY; // 向上拖为正
-              // 顶边跟随光标上移（不越过视口上沿、也不低于默认锚点），高度同步长高
-              const off = Math.min(Math.max(startOff + dy, 0), maxOff);
-              const maxH = Math.max(MIN_H, vh - GAP - (baseTop - off));
-              setVerOff(off);
-              setVerH(Math.min(Math.max(startH + dy, MIN_H), maxH));
-            };
-            const onUp = () => {
-              window.removeEventListener('mousemove', onMove, true);
-              window.removeEventListener('mouseup', onUp, true);
-            };
-            window.addEventListener('mousemove', onMove, true);
-            window.addEventListener('mouseup', onUp, true);
-          },
-        }),
-        createElement('div', { className: 'dag-flow-picker-title', style: { fontSize: 16, flex: 'none' } },
-          '🕘 历史版本',
-          createElement('button', {
-            className: 'dag-flow-picker-close', title: '关闭',
-            onClick: () => setVerOpen(false),
-          }, '✕'),
-        ),
-        createElement('div', { className: 'dag-flow-picker-body', style: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } },
-          createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11, opacity: 0.72, flex: 'none' } },
-            '手动 💾 保存会生成一个版本快照（自动保存不计入）。点「回载」把该版本放回画布；回载前的当前内容如与最新版本不同，也会先存为一个版本，随时可再退回。'),
-          // 数据存储位置标注（2026-10-01 夜用户要求；★ 2026-10-11 起**可点击打开**所在文件夹）
-          dataPathRow(
-            verDir ? verDisplayPath(verDir, def.name) : '<DSH_HOME>/.dag-flow/workflow/versions/<名称>/<时间戳>.json',
-            `workflow/versions/${def.name}`,
-            (m) => setImportMsg({ ok: false, text: m }),
-          ),
-          verLoading && createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11, opacity: 0.72 } }, '加载中…'),
-          !verLoading && verList.length === 0
-            ? createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11, opacity: 0.72 } }, '暂无历史版本——手动 💾 保存后即可在此回溯。')
-            : createElement('div', { className: 'dag-flow-picker-ver-list', style: { flex: 1, minHeight: 0, overflowY: 'auto' } },
-                ...verList.map((v) => {
-                  const ms = Number(String(v.ts).split('-')[0]);
-                  const when = Number.isFinite(ms) && ms > 0
-                    ? new Date(ms).toLocaleString('zh-CN', { hour12: false })
-                    : v.ts;
-                  return createElement('div', {
-                    key: v.ts,
-                    style: {
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                      padding: '7px 4px', borderBottom: '1px solid var(--wf-border, #22304a)',
-                    },
-                  },
-                    createElement('span', { style: { fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12, color: 'var(--wf-text, #e6edf7)' } }, `🕒 ${when}`),
-                    createElement('button', { className: 'dsh-wf-btn', onClick: () => void loadVersion(v.ts) }, '⤺ 回载'),
-                  );
-                }),
-              ),
-        ),
-      ),
-    ),
+    // 🕘 历史版本弹窗 → dialogs/versions-dialog.tsx（弹窗专项批 1：hook 状态 + View 渲染成对拆出）
+    createElement(VersionsDialogView, { d: verDlg, defName: def.name, setImportMsg }),
     // ★ 2026-10-09 导出菜单（⬇ 按钮下方）：导出 JSON / 导出图片（PNG）。
     //   用一层透明背板实现"点外面关闭"（比 document 监听更省事、也不会漏解绑）。
     exportMenuOpen && createElement(
@@ -2113,53 +1934,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       ),
     ),
     // 🧾 运行日志（2026-10-04 用户需求：工作流执行黑盒 → 能看到节点之间的参数传递）
-    // 运行失败详情弹窗（2026-10-02 用户需求：报错用弹窗提示，不再在 logo 后行内显示；
-    // 头部失败徽标点击可再开本弹窗。统一弹窗模式：✕ 右上、hint 小字浅色）
-    runDlgOpen && runResult && runResult.status !== 'success' && createElement(
-      'div',
-      {
-        className: 'dag-flow-picker-overlay',
-        onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) setRunDlgOpen(false); },
-      },
-      createElement(
-        'div',
-        { className: 'dag-flow-picker', style: { width: 560, maxWidth: '92vw' } },
-        createElement('div', { className: 'dag-flow-picker-title', style: { fontSize: 16 } },
-          runResult.status === 'error' ? '✗ 运行出错' : '⚠ 运行失败',
-          createElement('button', {
-            className: 'dag-flow-picker-close', title: '关闭',
-            onClick: () => setRunDlgOpen(false),
-          }, '✕'),
-        ),
-        createElement('div', { className: 'dag-flow-picker-body' },
-          createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11, opacity: 0.72 } },
-            `工作流「${def.name}」未运行成功——失败详情如下，可复制后反馈或对照节点修正。`),
-          createElement('pre', {
-            style: {
-              margin: '8px 0 0', padding: 10, borderRadius: 8, fontSize: 11.5, lineHeight: 1.55,
-              fontFamily: 'ui-monospace, Consolas, monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-              maxHeight: '46vh', overflowY: 'auto',
-              background: 'var(--wf-bg, #08101e)', border: '1px solid var(--wf-border, #22304a)',
-              color: 'var(--wf-danger, #f87171)',
-            },
-          }, runFailureDetail(runResult, def)),
-          createElement('div', { style: { display: 'flex', gap: 8, marginTop: 10 } },
-            createElement('button', {
-              className: 'dsh-wf-btn',
-              title: '复制失败详情（便于反馈问题）',
-              onClick: async () => {
-                try {
-                  await navigator.clipboard.writeText(runFailureDetail(runResult, def));
-                  setImportMsg({ ok: true, text: '失败详情已复制到剪贴板' });
-                } catch { setImportMsg({ ok: false, text: '复制失败——请手动选中文本复制' }); }
-              },
-            }, '📋 复制详情'),
-            createElement('span', { className: 'dag-flow-picker-hint', style: { fontSize: 10.5, opacity: 0.6, alignSelf: 'center' } },
-              '关闭后可点头部「✗ 运行失败」徽标再次查看'),
-          ),
-        ),
-      ),
-    ),
+    // 运行失败详情弹窗 → dialogs/run-fail-dialog.tsx（弹窗专项批 1：hook 状态 + View 渲染成对拆出）
+    createElement(RunFailDialogView, { d: runDlg, def, setImportMsg }),
   );
 }
 
