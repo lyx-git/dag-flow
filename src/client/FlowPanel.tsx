@@ -29,12 +29,8 @@ import { applyAutoLayout } from './util/layout';
 import { Canvas } from './flowgram/FlowGramCanvas';
 import { disposeCanvasNode } from './flowgram/FlowGramCanvas';
 // ★ 2026-10-14 重构轮 6：模块级工具与检查器字段表单拆至 panel-utils.ts / inspector-fields.tsx（纯搬运）
-import {
-  TABS, dataPathRow, displayTag, fmtAgo, fmtLastRun, fmtLogValue, fmtRefs, fmtWhen,
-  fieldsCacheOf, joinDisplay, logEntryText, logSearchText, logStatusLabel,
-  openFolderAt, paramsSummary, codeSummary, reqMark, runFailureDetail, runLogText,
-  truncLabel, verDisplayPath,
-} from './panel-utils';
+//   ★ 2026-10-14 弹窗专项收尾：轮 6 搬走的工具在主文件的引用随弹窗拆分全部迁入 dialogs/*，只剩 TABS
+import { TABS } from './panel-utils';
 import { SessionInputFields, MediaFields, WebFields } from './inspector-fields';
 // ★ 2026-10-14 重构轮 7：右侧检查器整体拆至 NodeInspector.tsx（840 行一个组件，不二次切）
 import { NodeInspector } from './NodeInspector';
@@ -44,15 +40,15 @@ import { useVersionsDialog, VersionsDialogView } from './dialogs/versions-dialog
 import { useRunFailDialog, RunFailDialogView } from './dialogs/run-fail-dialog';
 import { useSchedulesDialog, SchedulesDialogView, ScheduleRunConfirmView } from './dialogs/schedule-dialog';
 import { useRunLogDialog, RunLogDialogView } from './dialogs/run-log-dialog';
+import { useManualDialog, ManualDialogView } from './dialogs/manual-dialog';
+import { useSelfcheckDialog, SelfcheckOkDialogView, SelfcheckBlockDialogView } from './dialogs/selfcheck-dialog';
 // ★ 失败策略显形（2026-10-04 轮 7）：def 里的策略同步进 store，卡片订阅后显示 chip
 import { failPolicyStore } from './flowgram/failPolicyStore';
 import { JsonView } from './JsonView';
 import { normalizeWorkflowName } from '../name-rule';
 import { ensurePickerStyles } from './workflow-picker';
 import { startResize8, readStoredJSON, saveJSON, clampNum, type RightGeom } from './util/edge-drag';
-// ★ 定时任务（⏰，2026-10-03 用户拍板方案 v1，docs/SCHEDULE-PLAN.md §6）：cron 校验/中文预览
-//   直接复用宿主同一个纯模块 —— 面板预览与宿主实际执行必然同一套语义。
-import { cronError, describeCron } from '../adapter/cron';
+// ★ 定时任务的 cron 校验/中文预览已随 ⏰ 弹窗迁入 dialogs/schedule-dialog.tsx（复用宿主同一纯模块）
 // ★ 全局悬浮提示接管（2026-10-13 用户要求：悬浮内容要能复制/选中，且外观与插件主题一致）——
 //   模块副作用初始化（幂等）：真机入口与 CDP 夹具都从本模块进入 ⇒ 一处生效。
 import { initHoverTips } from './hover-tip';
@@ -247,15 +243,6 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   //   期间运行按钮仍是 disabled → 用户（或用例）马上再点 ▶ 会被静默吞掉（2026-10-08 CDP 实测）。
   const [cancelTick, setCancelTick] = useState(0);
   const runAbortRef = useRef<AbortController | null>(null);
-  // ★ 人工确认（2026-10-03 用户拍板方案 A）：manual 节点挂起 → 头部 ⏸ 徽标 + 确认弹窗
-  const [manualWait, setManualWait] = useState<{ runId: string; nodeId: string; prompt: string } | null>(null);
-  const [manualDlgOpen, setManualDlgOpen] = useState(false);
-  const [manualNote, setManualNote] = useState('');
-  const [manualBusy, setManualBusy] = useState(false);
-  /** 中断态：刷新后查回却发现运行已丢（dsh web 重启）→ 明确收尾，不静默变僵尸 */
-  const [manualBroken, setManualBroken] = useState<string | null>(null);
-  const MANUAL_STORE_KEY = 'dag-flow:manual-wait';
-
   // ★ 写盘核心（无校验）：自动保存与手动保存共用；snapshot 控制是否生成版本快照
   //   （2026-10-01 夜 用户需求：手动保存生成版本方便回退；自动保存不生成——否则版本太多）
   // ★ 必须声明在 loadVersion 之前——loadVersion 依赖数组渲染期引用它，声明在后 = const TDZ
@@ -305,15 +292,20 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     }
   }, []);
 
-  /** 结束人工确认态（确认/取消/中断都要清） */
-  const clearManualWait = useCallback((): void => {
-    setManualWait(null);
-    setManualDlgOpen(false);
-    setManualNote('');
-    setManualBroken(null);
-    try { localStorage.removeItem('dag-flow:manual-wait'); } catch { /* 忽略 */ }
-  }, []);
+  // 手动点运行进行中（handleRun 自己轮询并落定终态）→ 后台监视让位，避免两套轮询互相覆盖
+  //   （原声明在后台监视段——现提前到人工确认 hook 之前：hook 入参引用它，放后面会 const TDZ；
+  //    后台监视 effect 仍读写同一个 ref，行为不变）
+  const manualRunRef = useRef(false);
 
+  // ★ 人工确认（2026-10-03 用户拍板方案 A）：manual 节点挂起 → 头部 ⏸ 徽标 + 确认弹窗
+  //   状态与 handlers 拆至 dialogs/manual-dialog.tsx（hook 仍在本组件实例上调用；须在 applyRunSummary 之后——
+  //   hook 入参引用它，放前面会 const TDZ。handleRun/cancelRun/头部徽标经解构出的原名读写，零数据流变化）
+  const manualDlg = useManualDialog({ def, applyRunSummary, setRunning, setCancelling, setCancelTick, cancellingRef, manualRunRef, runAbortRef });
+  const { manualWait, setManualWait, manualDlgOpen, setManualDlgOpen, manualNote, setManualNote, clearManualWait, MANUAL_STORE_KEY } = manualDlg;
+
+  // 自检拦截/自检通过弹窗：状态拆至 dialogs/selfcheck-dialog.tsx（handleRun 是写方，经解构出的 setter 原名读写，零数据流变化）
+  const selfcheckDlg = useSelfcheckDialog();
+  const { selfcheckBlock, setSelfcheckBlock, selfcheckState, setSelfcheckState } = selfcheckDlg;
   const handleRun = useCallback(async (runOpts?: { confirmed?: boolean }) => {
     if (dirty) handleSave();
     // AI 节点必须选模型：未选 → 不执行，给出引导
@@ -447,86 +439,6 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       }
     }
   }, [ctx, dirty, handleSave, def, applyRunSummary, MANUAL_STORE_KEY]);
-
-  /** 确认并继续：POST /run/resume（该请求 hold 到跑完，返回完整 summary） */
-  const confirmManual = useCallback(async () => {
-    if (!manualWait) return;
-    setManualBusy(true);
-    try {
-      const res = await fetch('/api/dag-flow/run/resume', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ runId: manualWait.runId, value: manualNote }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        // 404 = 运行已丢（dsh 重启）；409 = 状态不符（多半已结束）
-        setManualBroken(`${data?.error ?? `HTTP ${res.status}`}\n运行：${manualWait.runId}`);
-        setManualDlgOpen(true);
-        return;
-      }
-      clearManualWait();
-      applyRunSummary(data);
-    } catch (e) {
-      setManualBroken(`确认失败：${(e as Error).message}`);
-    } finally {
-      setManualBusy(false);
-      if (!cancellingRef.current) setRunning(false);   // ★ 取消中：保持取消态，交给监视器收尾（同上）
-      manualRunRef.current = false;   // 人工确认路径结束 → 后台监视恢复接管
-      runAbortRef.current = null;
-    }
-  }, [manualWait, manualNote, clearManualWait, applyRunSummary]);
-
-  /** 取消本次运行（弹窗内）：走既有 DELETE 通道——host 会 reject 挂起的 manual 节点再 abort */
-  const cancelManualRun = useCallback(() => {
-    // ★ 2026-10-08：与头部取消按钮同一套语义——进入"取消中"态，不立刻把 running 置回 false ✗，
-    //   等监视器确认宿主真的停了再**浮窗提示「取消成功」**（右侧结果条不动 ✗）。
-    cancellingRef.current = true;
-    setCancelling(true);
-    setCancelTick((n) => n + 1);   // 立刻踢一次监视器轮询（同上）
-    void fetch(`/api/dag-flow/run?name=${encodeURIComponent(def.name)}`, { method: 'DELETE', credentials: 'include' }).catch(() => {});
-    runAbortRef.current?.abort();
-    clearManualWait();
-    manualRunRef.current = false;
-  }, [def.name, clearManualWait]);
-
-  /** 撤销误发的 DELETE（刷新后查回等待态时用）：发现状态不符就清掉本地等待标记 */
-  const refreshManualState = useCallback(async (info: { runId: string; nodeId: string; prompt: string }): Promise<void> => {
-    try {
-      const res = await fetch(`/api/dag-flow/run/status?runId=${encodeURIComponent(info.runId)}`);
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data?.status === 'awaiting') {
-        setManualWait(info);
-        setManualDlgOpen(true);
-        setRunning(true);
-        return;
-      }
-      if (res.ok && data?.status === 'completed' && data?.summary) {
-        clearManualWait();
-        applyRunSummary({ ok: (data.summary as { status?: string })?.status === 'success', summary: data.summary });
-        return;
-      }
-      if (!res.ok) {
-        // 运行已丢（dsh 重启）→ 明确收尾
-        setManualBroken(`${data?.error ?? `HTTP ${res.status}`}\n运行：${info.runId}（节点 ${info.nodeId}）`);
-        setManualWait(info);
-        setManualDlgOpen(true);
-        return;
-      }
-      clearManualWait();
-    } catch { clearManualWait(); }
-  }, [clearManualWait, applyRunSummary]);
-
-  // 挂载时恢复等待态（刷新页面 / 重挂面板后仍能看到 ⏸ 与确认弹窗）
-  useEffect(() => {
-    let info: { runId: string; nodeId: string; prompt: string } | null = null;
-    try {
-      const raw = localStorage.getItem('dag-flow:manual-wait');
-      if (raw) info = JSON.parse(raw);
-    } catch { info = null; }
-    if (info?.runId) void refreshManualState(info);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   /** 取消运行：本地 abort + 通知服务端 abort（RUN_CANCELLED）
    *  ★ 2026-10-08：进入"取消中"状态——不再立刻把 running 交还给后台监视器（它会把界面点回运行中 ✗），
@@ -841,10 +753,6 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   //   （hook 仍在本组件实例上调用；「运行刚结束补拉一次」effect 的 running 经入参传入，行为不变）
   const logDlg = useRunLogDialog({ def, running });
   const { logOpen, setLogOpen } = logDlg;
-  // ★ 运行前自检拦住（2026-10-04 轮 1）：存住 host 返回的问题清单（含解决办法），弹窗让用户人工确认
-  const [selfcheckBlock, setSelfcheckBlock] = useState<{ items: { level?: string; code?: string; nodeId?: string; message?: string; fix?: string }[]; errorCount: number; warnCount?: number; stats?: { nodes?: number; edges?: number } } | null>(null);
-  // 「点运行 → 先自检（按钮显示『自检中…』）→ 自检通过 → 人工确认 → 才真正开跑」的中间态
-  const [selfcheckState, setSelfcheckState] = useState<null | { phase: 'checking' } | { phase: 'ok'; result: { items: any[]; errorCount: number; warnCount: number; stats: { nodes?: number; edges?: number } } }>(null);
   // ===== 后台运行监视（2026-10-03 用户真机反馈：「定时任务执行，工作流的状态不会变化」）=====
   //   根因：逐节点状态轮询原来只挂在**手动点运行**那条路径上，而定时触发是宿主调度器直接跑，
   //   客户端毫不知情 → 画布不点亮、头部也不显示运行态。
@@ -852,8 +760,6 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
   //   都会点亮画布；检测到在跑就切快档（600ms），跑完收敛到终态（宿主会回退到「最近一次完成的运行」），
   //   若 ⏰ 弹窗开着则顺手刷新「上次/下次」。与手动路径互不干扰：手动跑时 running=true，这里让位。
   const lastSigRef = useRef('');
-  // 手动点运行进行中（handleRun 自己轮询并落定终态）→ 后台监视让位，避免两套轮询互相覆盖
-  const manualRunRef = useRef(false);
   const nodesRef = useRef<string[]>([]);
   nodesRef.current = (def.nodes ?? []).map((n) => n.id);
   useEffect(() => {
@@ -1288,155 +1194,14 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       },
       `${importMsg.ok ? '✓ ' : '✗ '}${importMsg.text}`,
     ),
-    // 人工确认弹窗（2026-10-03 用户拍板：变体 A —— 底部左「✕ 取消本次运行」右「✓ 确认并继续」；
-    // 右上 ✕ 只关弹窗、运行继续等待，可从头部 ⏸ 徽标重开）
-    manualWait && manualDlgOpen && createElement(
-      'div',
-      {
-        className: 'dag-flow-picker-overlay',
-        onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) setManualDlgOpen(false); },
-      },
-      createElement(
-        'div',
-        { className: 'dag-flow-picker' },
-        createElement('div', { className: 'dag-flow-picker-title' },
-          manualBroken ? '⚠ 运行已中断' : '⏸ 等待人工确认',
-          createElement('button', {
-            className: 'dag-flow-picker-close',
-            title: '关闭（运行继续等待，可从头部 ⏸ 徽标重新打开）',
-            onClick: () => setManualDlgOpen(false),
-          }, '✕'),
-        ),
-        createElement('div', { className: 'dag-flow-picker-body' },
-          createElement('div', { className: 'dag-flow-picker-hint', style: manualBroken ? { fontSize: 11, opacity: 0.72 } : undefined },
-            manualBroken
-              ? '这次运行停在人工确认上，但已不在 host 内存中（通常是 dsh web 重启过）——运行无法继续，请重新运行工作流。'
-              : `工作流「${def.name}」已暂停——确认后从该节点继续执行，取消则终止本次运行。`),
-          createElement('div', { className: 'dsh-wf-manual-tag' },
-            '✋ ',
-            createElement('b', null, displayTag(def, manualWait.nodeId)),
-            createElement('span', { className: 'kind' }, '(manual)'),
-          ),
-          createElement('pre', { className: 'dsh-wf-manual-prompt', style: manualBroken ? { color: 'var(--wf-danger, #f87171)' } : undefined },
-            manualBroken ?? manualWait.prompt),
-          !manualBroken && createElement('div', null,
-            createElement('div', { className: 'dsh-wf-manual-lab' },
-              '备注（可选，透传给下游 ', createElement('code', null, `{{${manualWait.nodeId}.out.value}}`), '）'),
-            createElement('textarea', {
-              className: 'dsh-wf-manual-note',
-              value: manualNote,
-              placeholder: '例如：已核对，图 2 需替换（留空则不传值）',
-              onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => setManualNote(e.target.value),
-            }),
-          ),
-          createElement('div', { className: 'dsh-wf-manual-acts' },
-            manualBroken
-              ? createElement('span', { className: 'dsh-wf-manual-grow' })
-              : createElement('button', {
-                  className: 'dsh-wf-btn dsh-wf-btn-danger',
-                  title: '终止整个运行（已完成节点不回滚）',
-                  onClick: cancelManualRun,
-                }, '✕ 取消本次运行'),
-            createElement('span', { className: 'dsh-wf-manual-grow' }),
-            !manualBroken && createElement('span', { className: 'dsh-wf-manual-tip' }, '取消会终止整个运行，已完成节点不回滚'),
-            manualBroken
-              ? createElement('button', { className: 'dsh-wf-btn', onClick: clearManualWait }, '知道了')
-              : createElement('button', {
-                  className: 'dsh-wf-btn dsh-wf-btn-primary',
-                  disabled: manualBusy,
-                  onClick: () => void confirmManual(),
-                }, manualBusy ? '⏳ 继续中…' : '✓ 确认并继续'),
-          ),
-        ),
-      ),
-    ),
+    // 人工确认弹窗 → dialogs/manual-dialog.tsx（弹窗专项批 4：hook 状态 + View 渲染成对拆出）
+    createElement(ManualDialogView, { d: manualDlg, def }),
     // ▶ 立即运行一次确认弹窗 → dialogs/schedule-dialog.tsx（弹窗专项批 2+3）
     createElement(ScheduleRunConfirmView, { d: schedDlg, defName: def.name }),
-    // ✓ 运行前自检**通过**也要人工确认一次（2026-10-04 用户要求：「自检完成没问题后，手动确认，再开始真正运行」）
-    selfcheckState?.phase === 'ok' && createElement(
-      'div',
-      {
-        className: 'dag-flow-picker-overlay',
-        onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) setSelfcheckState(null); },
-      },
-      createElement(
-        'div',
-        { className: 'dag-flow-picker dsh-wf-selfcheck is-ok' },
-        createElement('div', { className: 'dag-flow-picker-title', style: { fontSize: 16 } },
-          '✓ 自检通过',
-          createElement('button', { className: 'dag-flow-picker-close', title: '关闭（不运行）', onClick: () => setSelfcheckState(null) }, '✕'),
-        ),
-        createElement('div', { className: 'dag-flow-picker-body' },
-          createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11.5, opacity: 0.8, lineHeight: 1.65 } },
-            `已检查 ${selfcheckState.result.stats?.nodes ?? 0} 个节点 / ${selfcheckState.result.stats?.edges ?? 0} 条边：结构、连线引用、必填参数、分支键、环路、循环与子工作流依赖都没问题。`,
-            selfcheckState.result.warnCount > 0 ? `另有 ${selfcheckState.result.warnCount} 条提醒（不影响运行，可先看看）：` : '点「开始运行」就真正执行，运行期间可以在头部取消。',
-          ),
-          selfcheckState.result.items.filter((i) => i.level === 'warn').length
-            ? createElement('div', { className: 'dsh-wf-selfcheck-list' },
-                selfcheckState.result.items.filter((i) => i.level === 'warn').map((it, i) =>
-                  createElement('div', {
-                    key: i,
-                    className: `dsh-wf-selfcheck-item is-warn${it.nodeId ? ' is-clickable' : ''}`,
-                    onClick: () => { if (it.nodeId) { setSelectedNodeId(it.nodeId); setSelfcheckState(null); } },
-                  },
-                    createElement('div', { className: 'dsh-wf-selfcheck-msg' }, `⚠ ${it.message ?? ''}`),
-                    it.fix ? createElement('div', { className: 'dsh-wf-selfcheck-fix' }, `👉 解决办法：${it.fix}`) : null,
-                  )),
-              )
-            : null,
-          createElement('div', { className: 'dsh-wf-manual-acts' },
-            createElement('button', { className: 'dsh-wf-btn', onClick: () => setSelfcheckState(null) }, '✕ 取消'),
-            createElement('span', { className: 'dsh-wf-manual-grow' }),
-            createElement('button', {
-              className: 'dsh-wf-btn dsh-wf-btn-primary',
-              onClick: () => { setSelfcheckState(null); void handleRun({ confirmed: true }); },
-            }, '▶ 开始运行'),
-          ),
-        ),
-      ),
-    ),
-    // ⚠ 运行前自检未通过（2026-10-04 轮 1 用户拍板；★2026-10-08 用户收严：**不提供"仍然运行"**，
-    //   自检有 error 就必须去改——「去修改」关弹窗并选中第一个出问题的节点，没有旁路按钮）。
-    selfcheckBlock && createElement(
-      'div',
-      {
-        className: 'dag-flow-picker-overlay',
-        onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) setSelfcheckBlock(null); },
-      },
-      createElement(
-        'div',
-        { className: 'dag-flow-picker dsh-wf-selfcheck' },
-        createElement('div', { className: 'dag-flow-picker-title', style: { fontSize: 16 } },
-          `⚠ 运行前自检未通过（${selfcheckBlock.errorCount} 项）`,
-          createElement('button', { className: 'dag-flow-picker-close', title: '关闭（不运行）', onClick: () => setSelfcheckBlock(null) }, '✕'),
-        ),
-        createElement('div', { className: 'dag-flow-picker-body' },
-          createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11.5, opacity: 0.8, lineHeight: 1.65 } },
-            '这些问题会让工作流跑不起来、或跑出意料之外的结果。请先按下面的「解决办法」改掉——自检不通过时不能运行。'),
-          createElement('div', { className: 'dsh-wf-selfcheck-list' },
-            selfcheckBlock.items.filter((i) => i.level === 'error').map((it, i) =>
-              createElement('div', {
-                key: i,
-                className: `dsh-wf-selfcheck-item${it.nodeId ? ' is-clickable' : ''}`,
-                onClick: () => { if (it.nodeId) { setSelectedNodeId(it.nodeId); setSelfcheckBlock(null); } },
-              },
-                createElement('div', { className: 'dsh-wf-selfcheck-msg' }, `✕ ${it.message ?? ''}`),
-                it.fix ? createElement('div', { className: 'dsh-wf-selfcheck-fix' }, `👉 解决办法：${it.fix}`) : null,
-              )),
-          ),
-          createElement('div', { className: 'dsh-wf-manual-acts' },
-            createElement('button', {
-              className: 'dsh-wf-btn dsh-wf-btn-primary',
-              onClick: () => {
-                const first = selfcheckBlock.items.find((i) => i.level === 'error' && i.nodeId);
-                setSelfcheckBlock(null);
-                if (first?.nodeId) setSelectedNodeId(first.nodeId);
-              },
-            }, '✕ 去修改'),
-          ),
-        ),
-      ),
-    ),
+    // ✓ 自检通过确认弹窗 → dialogs/selfcheck-dialog.tsx（弹窗专项批 4）
+    createElement(SelfcheckOkDialogView, { d: selfcheckDlg, onRun: handleRun, setSelectedNodeId }),
+    // ⚠ 自检未通过拦截弹窗 → dialogs/selfcheck-dialog.tsx（弹窗专项批 4）
+    createElement(SelfcheckBlockDialogView, { d: selfcheckDlg, setSelectedNodeId }),
     // 🧾 运行日志弹窗 → dialogs/run-log-dialog.tsx（弹窗专项批 2+3：hook 状态 + View 渲染成对拆出）
     createElement(RunLogDialogView, { d: logDlg, def, setSelectedNodeId, setImportMsg }),
     // 🧾 运行日志（2026-10-04 用户需求：工作流执行黑盒 → 能看到节点之间的参数传递）
