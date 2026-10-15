@@ -28,8 +28,8 @@ import { applyAutoLayout } from './util/layout';
 import { Canvas } from './flowgram/FlowGramCanvas';
 import { disposeCanvasNode } from './flowgram/FlowGramCanvas';
 // ★ 2026-10-14 重构轮 6：模块级工具与检查器字段表单拆至 panel-utils.ts / inspector-fields.tsx（纯搬运）
-//   ★ 2026-10-14 弹窗专项收尾：轮 6 搬走的工具在主文件的引用随弹窗拆分全部迁入 dialogs/*，只剩 TABS
-import { TABS } from './panel-utils';
+//   ★ 2026-10-14 弹窗专项收尾：轮 6 搬走的工具在主文件的引用随弹窗拆分全部迁入 dialogs/*
+//   ★ 2026-10-15 画布/JSON 拆独立按钮后 TABS 不再被引用（panel-utils 里的 TABS 定义同步删除）
 import { SessionInputFields, MediaFields, WebFields } from './inspector-fields';
 // ★ 2026-10-14 重构轮 7：右侧检查器整体拆至 NodeInspector.tsx（840 行一个组件，不二次切）
 import { NodeInspector } from './NodeInspector';
@@ -51,6 +51,8 @@ import { startResize8, readStoredJSON, saveJSON, clampNum, type RightGeom } from
 // ★ 全局悬浮提示接管（2026-10-13 用户要求：悬浮内容要能复制/选中，且外观与插件主题一致）——
 //   模块副作用初始化（幂等）：真机入口与 CDP 夹具都从本模块进入 ⇒ 一处生效。
 import { initHoverTips } from './hover-tip';
+// ★ 2026-10-15 用户拍板：头部三颗图标换成 14px 线条 SVG（JSON＝大括号 / 导出/导入＝托盘+箭头）
+import { iconJsonBraces, iconExportTray, iconImportTray } from './header-icons';
 initHoverTips();
 
 
@@ -943,21 +945,24 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         : autoSave === 'saving' ? '⏳ 自动保存中…'
         : autoSave === 'error' ? '⚠ 自动保存失败（请手动保存）'
         : '● 未保存（将自动保存）'),
-      createElement('div', { className: 'dsh-wf-tabs' }, ...TABS.map((t) =>
-        createElement(
-          'button',
-          {
-            key: t.id,
-            className: `dsh-wf-tab ${tab === t.id ? 'active' : ''}`,
-            onClick: () => setTab(t.id),
-            title: t.label, // 紧凑模式：只显示图标，汉字悬停提示
-          },
-          `${t.emoji}`,
-        ),
-      )),
-      // ⬇⬆ 导入导出紧跟 JSON 标签（2026-10-02 用户指定头部排列）
-      //   ★ 2026-10-09：⬇ 从「直接导出 JSON」改成**导出菜单**（导出 JSON / 导出图片 PNG）——
+      // ★ 2026-10-15 用户要求：画布 / JSON 拆成**独立按钮**（不再共用 tabs 组），与导入/导出同款按钮风格；
+      //   图标同日拍板：JSON＝大括号线条 SVG（iconJsonBraces）；画布保持 🎨。
+      createElement('button', {
+        className: `dsh-wf-btn${tab === 'canvas' ? ' is-on' : ''}`,
+        'aria-pressed': tab === 'canvas',
+        title: '画布',
+        onClick: () => setTab('canvas'),
+      }, '🎨'),
+      createElement('button', {
+        className: `dsh-wf-btn${tab === 'json' ? ' is-on' : ''}`,
+        'aria-pressed': tab === 'json',
+        title: '查看 / 编辑工作流 JSON',
+        onClick: () => setTab('json'),
+      }, iconJsonBraces()),
+      // 导入导出紧跟 JSON 按钮（2026-10-02 用户指定头部排列）
+      //   ★ 2026-10-09：导出从「直接导出 JSON」改成**导出菜单**（导出 JSON / 导出图片 PNG）——
       //   用户原话「导出 json 已经有导出按钮了，导出图片可以集成到一起」。
+      //   ★ 2026-10-15 图标拍板：导出＝托盘+下箭头 / 导入＝托盘+上箭头（拍照板方案 J，均为线条 SVG）。
       createElement(
         'button',
         {
@@ -970,7 +975,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
           },
           title: '导出（JSON / 图片 PNG）',
         },
-        '⬇',
+        iconExportTray(),
       ),
       createElement(
         'button',
@@ -985,7 +990,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
             inp.click();
           },
         },
-        '⬆',
+        iconImportTray(),
       ),
       createElement('div', { className: 'dsh-wf-spacer' }),
       // 右侧按钮顺序：工作流参数 → 开始(运行) → 保存 → 版本（2026-10-02 用户指定）
@@ -1282,7 +1287,22 @@ function renderBody(p: {
           // 缩略图右避让：右面板右偏移+宽（或最小化竖条）+ 面板边距 14 + 间隙 12
           rightInset: p.rightMin ? 66 : (p.rightGeom ? p.rightGeom.r + p.rightGeom.w + 12 : 366),
         })
-      : createElement(JsonView, { def: p.def, onChange: p.onDefChange });
+      : null;   // JSON tab 的 center 由下方常驻 jsonView 层显示（切 tab 免重挂载，2026-10-15 大 JSON 提速）
+
+  // ★ JSON 视图常驻（2026-10-15 大 JSON 提速）：只在首次显示时 stringify + 挂 Monaco，
+  //   之后 tab 来回切**零重挂载**（隐藏时 JsonView 内部跳过同步，不产生开销）。
+  // ★ 铺满方式必须用 absolute inset:0（与 .dsh-wf-center 同款）——**不能只给 width/height:100% 再加
+  //   display:flex**：一旦这层成了 flex 容器，`.dsh-wf-json-root`（display:grid）就变成 flex item、
+  //   按内容宽度收缩成 ~330px（320px 校验栏 + 编辑器最小宽），实机测出来 Monaco 编辑器只有 **10px 宽**。
+  //   2026-10-15 由交付截图取证抓到（CDP 用例只断言了"Monaco 在不在"，断不出"宽度对不对"）。
+  const jsonView = createElement('div', {
+    key: 'json-view',
+    style: {
+      position: 'absolute',
+      inset: 0,
+      display: p.tab === 'json' ? 'block' : 'none',
+    },
+  }, createElement(JsonView, { def: p.def, onChange: p.onDefChange, visible: p.tab === 'json' }));
 
   // ★ 右侧：节点参数面板（仅 canvas 显示）。
   // ★ 必须在所有分支 return 之前声明——canvas 分支的 return 引用了它，
@@ -1371,19 +1391,22 @@ function renderBody(p: {
     return createElement('div', { className: 'dsh-wf-body' },
       createElement('div', { className: 'dsh-wf-center dsh-wf-center-full' }, center),
       right,
+      jsonView,   // 常驻隐藏（切 JSON 免重挂载）
     );
   }
 
   if (p.tab === 'json') {
     // 这些视图自带三栏 / 不需要共享 palette
     return createElement('div', { className: 'dsh-wf-body' },
-      createElement('div', { className: 'dsh-wf-center dsh-wf-center-full' }, center)
+      createElement('div', { className: 'dsh-wf-center dsh-wf-center-full' }, center),
+      jsonView,
     );
   }
 
   return createElement('div', { className: 'dsh-wf-body' },
     createElement('div', { className: 'dsh-wf-center dsh-wf-center-full' }, center),
     right,
+    jsonView,   // 常驻隐藏
   );
 }
 

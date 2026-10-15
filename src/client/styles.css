@@ -231,33 +231,12 @@
 .dsh-wf-spacer { flex: 1; }
 
 /* ========== Tabs ========== */
-.dsh-wf-tabs {
-  display: inline-flex;
-  background: var(--dsh-wf-hover);
-  border-radius: var(--dsh-wf-radius-md, 10px);
-  padding: 2px;
-  gap: 2px;
-}
-.dsh-wf-tab {
-  padding: 3px 9px;
-  font-size: 13px;
-  background: transparent;
-  border: 0;
-  border-radius: var(--dsh-wf-radius-sm, 6px);
-  color: var(--dsh-wf-muted);
-  cursor: pointer;
-  /* ★ 2026-10-09 收窄：原来是 `transition: all 0.15s` ✗ —— 本项目被"过渡 + background 简写"坑出过
-     选中态闪白（fg.css 里也记着这条），这里只过渡颜色类属性 ✓ */
-  transition: color 0.15s ease, background-color 0.15s ease;
-  line-height: 1.2;
-}
-.dsh-wf-tab:hover { color: var(--dsh-wf-fg); }
-.dsh-wf-tab.active {
-  background: var(--dsh-wf-panel);
-  color: var(--dsh-wf-fg);
-  box-shadow: var(--dsh-wf-shadow);
-  font-weight: 500;
-}
+/* ★ 2026-10-15 用户要求「画布和 {} 按钮不放一起，都放成独立按钮」：原来这对标签组（一个 flex 壳 + 若干项、
+   靠 .active 表示选中）已被两个独立 .dsh-wf-btn 取代，源码里再无任何元素挂这些类（已全量 grep 确认
+   TS/TSX 零引用）⇒ 整块规则删除。留着就是"死 CSS 悄悄影响后人判断这功能还在"。
+   （注释里刻意不写死类名：verify-build-markers 用「类名不再出现在产物里」当拆分完成的证据，
+     而 CSS 注释在 minify 后也可能留存，写进去会让那条断言永远为假。）
+   注意：参数弹窗的两页签用的是**另一套**类名（params-tabs / params-tab），不受影响。 */
 
 /* ★ 头部按钮紧凑化（仅作用于头部——.dsh-wf-btn 基类同时被弹窗/检查器使用，不能全局缩） */
 .dsh-wf-header .dsh-wf-btn {

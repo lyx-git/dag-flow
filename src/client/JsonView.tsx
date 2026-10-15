@@ -2,7 +2,7 @@
 // JSON 编辑视图：优先 Monaco Editor，不可用时回退 textarea；
 // 右侧 ajv 实时 schema 校验。改动时双向同步到 FlowPanel 状态。
 
-import { useEffect, useMemo, useState, createElement } from 'react';
+import { useEffect, useRef, useState, createElement } from 'react';
 import type { WorkflowDef } from './types';
 import { getThemeMode } from './theme';
 // ★ 2026-10-11（审计②）：名字规则的唯一事实源是 src/name-rule.ts（client 另外 4 处都引它），
@@ -13,6 +13,10 @@ import { WORKFLOW_NAME_PATTERN } from '../name-rule';
 interface JsonViewProps {
   def: WorkflowDef;
   onChange: (def: WorkflowDef) => void;
+  /** 2026-10-15 大 JSON 提速：视图是否可见（FlowPanel 常驻挂载、隐藏时 display:none）。
+   *  隐藏时**跳过全部同步**（不 stringify、不校验）⇒ 画布上的 def 变化在 JSON 隐藏期间零开销；
+   *  切到可见的那一刻才与 def 对齐。缺省视为可见（兼容旧用法）。 */
+  visible?: boolean;
 }
 
 // ★ 2026-10-11：改为 export —— 仅供一致性探针（tmp-test/verify-schema-parity.mjs）与将来的一致性
@@ -85,75 +89,111 @@ export const WORKFLOW_SCHEMA = {
   },
 } as const;
 
-export function JsonView({ def, onChange }: JsonViewProps) {
-  const initialText = useMemo(() => JSON.stringify(def, null, 2), [def]);
-  const [text, setText] = useState<string>(initialText);
+// ★ 2026-10-15 大 JSON 加载/编辑卡顿优化（用户反馈「针对大json加载有点慢」），行为不变：
+//   ① ajv validator **模块级只编译一次**（原每次按键都 await import + compile 全量 schema，大 JSON 双倍慢）；
+//   ② 校验**防抖 400ms**（原每个按键同步跑全文校验，打字卡）；
+//   ③ Monaco CDN 加载期间给占位提示（原白等无反馈）。
+// 同步语义不变：外部 def 引用变化 → 重置编辑文本（syncedDefRef 保持原 useMemo [def] 的语义）。
+
+/** schema 是模块常量 ⇒ validator 全程只需编译一次（首键 ~几十 ms，之后复用） */
+type Validator = ((data: unknown) => boolean) & {
+  errors?: Array<{ instancePath?: string; message?: string }> | null;
+};
+let cachedValidate: Validator | null = null;
+async function getValidator(): Promise<Validator | null> {
+  if (cachedValidate) return cachedValidate;
+  try {
+    const Ajv = (await import('ajv')).default;
+    const ajv = new Ajv({ allErrors: true, strict: false, unicodeRegExp: true });
+    cachedValidate = ajv.compile(WORKFLOW_SCHEMA);
+    return cachedValidate;
+  } catch {
+    return null; // ajv 不可用：调用方回退只校验 JSON.parse
+  }
+}
+
+export function JsonView({ def, onChange, visible = true }: JsonViewProps) {
+  const [text, setText] = useState<string>('');
   const [errors, setErrors] = useState<string[]>([]);
   const [valid, setValid] = useState<boolean>(true);
-
-  // 同步：外部 def 变 → 重置 text
+  // ★ 2026-10-15 大 JSON 提速：只在**可见**时与 def 对齐（隐藏期不 stringify），且同一 def 引用不重排。
+  //   语义：外部 def 第一次可见 / 可见期间 def 引用变化 → 重置编辑文本（与改动前的 [def] 语义一致）。
+  const syncedDefRef = useRef<WorkflowDef | null>(null);
   useEffect(() => {
-    setText(initialText);
-  }, [initialText]);
+    if (!visible) return;                        // 隐藏：零开销
+    if (syncedDefRef.current === def) return;    // 同一引用：不重排
+    syncedDefRef.current = def;
+    setText(JSON.stringify(def, null, 2));
+  }, [def, visible]);
 
-  // 校验（用 ajv，不可用时回退手写 JSON.parse）
+  // 校验（防抖 400ms；ajv 单例 + 失败回退手写 JSON.parse）；隐藏时完全不跑（大 JSON 零开销）
   useEffect(() => {
+    if (!visible) return undefined;
     let cancelled = false;
-    (async () => {
-      let parsed: unknown = null;
-      try {
-        parsed = JSON.parse(text);
-      } catch (e) {
-        if (!cancelled) {
-          setValid(false);
-          setErrors([`JSON 解析失败: ${(e as Error).message}`]);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        let parsed: unknown = null;
+        try {
+          parsed = JSON.parse(text);
+        } catch (e) {
+          if (!cancelled) {
+            setValid(false);
+            setErrors([`JSON 解析失败: ${(e as Error).message}`]);
+          }
+          return;
         }
-        return;
-      }
-      try {
-        const Ajv = (await import('ajv')).default;
-        const ajv = new Ajv({ allErrors: true, strict: false, unicodeRegExp: true });
-        const validate = ajv.compile(WORKFLOW_SCHEMA);
-        const ok = validate(parsed);
-        if (cancelled) return;
-        if (ok) {
-          setValid(true);
-          setErrors([]);
-        } else {
-          setValid(false);
-          // ajv 英文消息 → 中文映射（与 server 端 parse.ts 同一套规则）
-          const ZH: [RegExp, string][] = [
-            [/must have required property '([^']+)'/, '缺少必填字段 "$1"'],
-            [/must NOT have additional properties/, '存在不允许的多余字段'],
-            [/must be (string|object|array|number|integer|boolean|null)/, '类型必须是 $1'],
-            [/must match pattern '([^']+)'/, '必须匹配格式 $1'],
-            [/must be equal to constant/, '值不匹配要求'],
-            [/must NOT be shorter than (\d+)/, '长度不能少于 $1'],
-            [/must NOT be longer than (\d+)/, '长度不能超过 $1'],
-            [/must be >= (-?\d+)/, '不能小于 $1'],
-            [/must be <= (-?\d+)/, '不能大于 $1'],
-            [/must NOT have fewer than (\d+) items/, '数组至少需要 $1 项'],
-            [/must NOT have more than (\d+) items/, '数组不能超过 $1 项'],
-          ];
-          const zh = (m: string): string => {
-            for (const [re, tpl] of ZH) {
-              const mm = m.match(re);
-              if (mm) return tpl.replace(/\$(\d)/g, (_, i) => mm[Number(i)] ?? `$${i}`);
+        try {
+          const validate = await getValidator();
+          if (cancelled) return;
+          if (!validate) {
+            // ajv 不可用：只校验 JSON.parse
+            if (!cancelled) {
+              setValid(true);
+              setErrors([]);
             }
-            return m;
-          };
-          setErrors((validate.errors ?? []).map((e) => `${e.instancePath || '(根)'} ${zh(e.message ?? '')}`));
+            return;
+          }
+          const ok = validate(parsed);
+          if (cancelled) return;
+          if (ok) {
+            setValid(true);
+            setErrors([]);
+          } else {
+            setValid(false);
+            // ajv 英文消息 → 中文映射（与 server 端 parse.ts 同一套规则）
+            const ZH: [RegExp, string][] = [
+              [/must have required property '([^']+)'/, '缺少必填字段 "$1"'],
+              [/must NOT have additional properties/, '存在不允许的多余字段'],
+              [/must be (string|object|array|number|integer|boolean|null)/, '类型必须是 $1'],
+              [/must match pattern '([^']+)'/, '必须匹配格式 $1'],
+              [/must be equal to constant/, '值不匹配要求'],
+              [/must NOT be shorter than (\d+)/, '长度不能少于 $1'],
+              [/must NOT be longer than (\d+)/, '长度不能超过 $1'],
+              [/must be >= (-?\d+)/, '不能小于 $1'],
+              [/must be <= (-?\d+)/, '不能大于 $1'],
+              [/must NOT have fewer than (\d+) items/, '数组至少需要 $1 项'],
+              [/must NOT have more than (\d+) items/, '数组不能超过 $1 项'],
+            ];
+            const zh = (m: string): string => {
+              for (const [re, tpl] of ZH) {
+                const mm = m.match(re);
+                if (mm) return tpl.replace(/\$(\d)/g, (_, i) => mm[Number(i)] ?? `$${i}`);
+              }
+              return m;
+            };
+            setErrors((validate.errors ?? []).map((e) => `${e.instancePath || '(根)'} ${zh(e.message ?? '')}`));
+          }
+        } catch {
+          // ajv 不可用：只校验 JSON.parse
+          if (!cancelled) {
+            setValid(true);
+            setErrors([]);
+          }
         }
-      } catch {
-        // ajv 不可用：只校验 JSON.parse
-        if (!cancelled) {
-          setValid(true);
-          setErrors([]);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [text]);
+      })();
+    }, 400);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [text, visible]);
 
   // 提交：校验通过 → 回写
   const commit = () => {
@@ -171,6 +211,7 @@ export function JsonView({ def, onChange }: JsonViewProps) {
     height?: string | number;
     theme?: string;
     options?: Record<string, unknown>;
+    loading?: React.ReactNode;
   }> | null>(null);
   const [monacoError, setMonacoError] = useState<string | null>(null);
   useEffect(() => {
@@ -201,6 +242,7 @@ export function JsonView({ def, onChange }: JsonViewProps) {
             theme: getThemeMode() === 'nodeflow-light' || getThemeMode() === 'dsh' ? 'vs' : 'vs-dark',
             options: { minimap: { enabled: false }, fontSize: 12, wordWrap: 'on' },
             onChange: (v) => setText(v ?? ''),
+            loading: createElement('div', { className: 'dsh-wf-text-muted', style: { padding: 12, fontSize: 11 } }, '编辑器加载中…'),
           })
         : createElement('textarea', {
             className: 'dsh-wf-textarea',

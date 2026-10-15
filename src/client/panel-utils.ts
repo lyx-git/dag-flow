@@ -3,7 +3,6 @@
 // 2026-10-14 重构轮 6 自 FlowPanel.tsx 纯搬运拆出（FlowPanelProps 仍留在 FlowPanel.tsx）。
 
 import { createElement } from 'react';
-import type { ViewTab } from './types';
 
 // ================= 定时任务：显示用小工具 =================
 
@@ -167,13 +166,8 @@ export function codeSummary(params: Record<string, unknown> | undefined, workflo
   return `还没写代码——打开「🧪 参数与试跑」在 code 行直接写（或填 codePath 指向 scripts/${workflowName || '工作流名'}/xxx.py）`;
 }
 
-export const TABS: { id: ViewTab; label: string; emoji: string }[] = [
-  { id: 'canvas', label: '画布', emoji: '🎨' },
-  // 2026-10-01 深夜：移除「🖼 缩略图」「📝 表单」tab（用户反馈没啥用）
-  { id: 'json', label: 'JSON', emoji: '{ }' },
-  // 2026-10-01 深夜：又移除「📋 管理」「🤖 AI 生成」tab（用户反馈没用）
-  // ——随之下线的 ThumbView/FormView/ManageView/AiGenView.tsx 已于 2026-10-11 删除（全仓零引用）
-];
+// ★ 2026-10-15：TABS（画布/JSON 标签组）已删除——画布/JSON 拆成头部独立按钮（用户要求「都放成独立按钮」），
+//   图标直接写在 FlowPanel 头部（JSON 图标候选拍板后替换）
 
 // ================= 运行日志（2026-10-04 用户需求：「工作流执行黑盒」） =================
 // 用户原话：「现在每个节点的执行情况没有日志打印，参数传递是否正常，下个节点接收参数是否正常
