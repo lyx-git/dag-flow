@@ -114,6 +114,10 @@ function showToast(text: string, ok = false): void {
  *  dockVersion 变化时重挂以切换工作流。 */
 export function DockedMainPanel(): any {
   const bodyRef = useRef(null);
+  // ★ 2026-10-15 用户要求「将画布上部中间栏的工作流名和保存状态移到上面栏的自定义工作流，替换掉自定义工作流，
+  //   图标也替换掉，中间栏的图标还是居中放置」⇒ 上面栏这一格从「⚡ 自定义工作流」文字换成**空占位容器**，
+  //   FlowPanel 把标识区（logo + 工作流名输入框 + 保存状态）portal 进来 —— 图标即工作流 logo，⚡ 退役。
+  const chromeSlotRef = useRef<HTMLDivElement | null>(null);
   useSyncExternalStore(subscribeDock, () => dockVersion);
   useEffect(() => {
     if (!bodyRef.current) return;
@@ -121,6 +125,7 @@ export function DockedMainPanel(): any {
     console.log('[dag-flow] dock mount v' + dockVersion, 'def=' + (def?.name ?? '(null)'));
     mountWorkflowPanel(bodyRef.current, {
       workflow: def,
+      chromeSlot: chromeSlotRef.current,
       onCache: (d: WorkflowDef) => {
         setNavCurrent(d);              // 让导航栈知道当前 def（进入子工作流时要压「父 def 快照」）
         setDockDef(d, false);
@@ -140,7 +145,8 @@ export function DockedMainPanel(): any {
   }, [dockVersion]);
   return createElement('div', { className: 'dsh-wf-dock' },
     createElement('div', { className: 'dsh-wf-dock-head' },
-      createElement('span', { className: 'dsh-wf-dock-title' }, '⚡ 自定义工作流'),
+      // 占位容器：FlowPanel 的标识区 portal 到这里（原来是「⚡ 自定义工作流」文字）
+      createElement('div', { className: 'dsh-wf-chrome-slot', ref: chromeSlotRef }),
       createElement('span', { className: 'dsh-wf-dock-sub' }, '停靠在会话区域 · 数据落 <DSH_HOME>/.dag-flow/'),
       createElement('div', { className: 'dsh-wf-dock-actions' },
         createElement('button', {

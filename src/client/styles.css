@@ -740,3 +740,12 @@
   box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 4px 10px rgba(0,0,0,.25);
 }
 
+/* ★ 2026-10-15「标识区搬到上面栏」：FlowPanel 通过 portal 渲染到 .dsh-wf-chrome-slot 里的这一层
+   （logo + 工作流名输入框 + 保存状态）。只在停靠模式下存在——legacy 窗口 / CDP 夹具仍渲染在 header 内。 */
+.dsh-wf-chrome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+

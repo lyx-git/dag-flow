@@ -190,10 +190,17 @@
   background: var(--wf-bg, #0b1120); color: var(--wf-text, #e6edf7); }
 .dsh-wf-dock-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
   border-bottom: 1px solid var(--wf-border-strong, #2a3a56); flex: none; }
-.dsh-wf-dock-title { font-weight: 600; font-size: 14px; }
-.dsh-wf-dock-sub { font-size: 11px; color: var(--wf-muted, #8b9bb3); }
-.dsh-wf-dock-actions { margin-left: auto; display: flex; gap: 8px; }
-.dsh-wf-dock-btn { padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer;
+/* ★ 2026-10-15 用户要求把「工作流名 + 保存状态」搬到上面栏、并用工作流 logo 替换掉原来的 ⚡ 文案：
+   这一格是**空占位容器**，FlowPanel 通过 portal 把标识区（logo + 名字输入框 + 保存状态）渲染进来。
+   flex:0 1 auto 让它按内容宽度收放，min-width:0 允许内部的输入框在窄屏时被压缩而不是把按钮挤出去。 */
+.dsh-wf-chrome-slot { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; }
+.dsh-wf-dock-sub { font-size: 11px; color: var(--wf-muted, #8b9bb3);
+  /* ★ 2026-10-15：标识区搬上来后这一行变成"可伸缩的装饰性说明"——它吸收剩余空间并在窄屏先被省略号吃掉，
+     否则会把右侧三颗按钮挤到换行（实测 860px 下「工作流文件夹」被折成两行）。 */
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-wf-dock-actions { margin-left: auto; display: flex; gap: 8px; flex: none; }
+.dsh-wf-dock-btn { padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer; white-space: nowrap;
   border: 1px solid var(--wf-border-strong, #2a3a56); background: var(--wf-panel2, #162135); color: var(--wf-text, #e6edf7); }
 .dsh-wf-dock-btn:hover { filter: brightness(1.15); }
 .dsh-wf-dock-btn-primary { background: linear-gradient(135deg, #4f8cff, #7c5cff); color: #fff; border: none; font-weight: 600; }

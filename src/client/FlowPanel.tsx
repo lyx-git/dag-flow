@@ -65,10 +65,15 @@ interface FlowPanelProps {
   onMount?: () => void;
   onClose?: () => void;
   onCache?: (def: WorkflowDef) => void;
+  /** ★ 2026-10-15 用户要求：「将画布上部中间栏的工作流名和保存状态移到上面栏的自定义工作流，替换掉自定义工作流，
+   *  图标也替换掉，中间栏的图标还是居中放置」⇒ 停靠模式把上面栏的占位容器传进来，标识区（logo + 名字输入框 +
+   *  保存状态）整块 portal 过去；**没传**（legacy 窗口模式 / CDP 夹具）就仍然在 header 内原地渲染。
+   *  一条分支两种形态：状态、改名、自动保存逻辑一行没改，只换渲染位置。 */
+  chromeSlot?: HTMLElement | null;
 }
 
 
-export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
+export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps) {
   const [tab, setTab] = useState<ViewTab>('canvas');
   const [def, setDef] = useState<WorkflowDef>(() => ctx.workflow ?? DEFAULT_WORKFLOW);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(() => {
@@ -923,6 +928,35 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
 
   // 2026-10-01 深夜：A1 已保存工作流的删除/复制/重命名随管理视图移除——复制功能移植进打开/新建选择器
 
+  // ★ 2026-10-15「工作流名 + 保存状态移到上面栏」：标识区三个节点抽成变量 ——
+  //   上面栏的占位容器存在（停靠模式）时整块 portal 过去；不存在（legacy 窗口 / CDP 夹具）时就地渲染，
+  //   且**顺序与原来逐字一致**（logo → 名字 → 导航 → 提示 → 保存状态），老路径行为零变化。
+  const brandLogo = createElement('span', { className: 'dsh-wf-logo', key: 'logo', title: '工作流搭建器' },
+    createElement('svg', {
+      width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none',
+      stroke: '#fff', strokeWidth: 2.2, strokeLinecap: 'round', strokeLinejoin: 'round',
+    },
+      createElement('rect', { x: '3', y: '3', width: '7', height: '7', rx: '1.5' }),
+      createElement('rect', { x: '14', y: '14', width: '7', height: '7', rx: '1.5' }),
+      createElement('circle', { cx: '17.5', cy: '6.5', r: '2.5' }),
+      createElement('path', { d: 'M10 6.5h5M10 17.5h1.5M17.5 9v5' }),
+    ),
+  );
+  const brandName = createElement('input', {
+    key: 'name',
+    className: 'dsh-wf-name-input',
+    value: def.name,
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => handleRename(e.target.value),
+    placeholder: '工作流名称',
+    title: '自定义工作流名称（保存后用于识别）',
+  });
+  // 2026-10-01 深夜：移除「N 节点」计数（用户反馈没啥用）；title-sub 仅剩保存状态
+  const brandStatus = createElement('span', { className: 'dsh-wf-title-sub', key: 'save' },
+    !dirty ? '✓ 已保存'
+    : autoSave === 'saving' ? '⏳ 自动保存中…'
+    : autoSave === 'error' ? '⚠ 自动保存失败（请手动保存）'
+    : '● 未保存（将自动保存）');
+
   return createElement(
     'div',
     { className: 'dsh-wf-root' },
@@ -930,24 +964,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     createElement(
       'header',
       { className: 'dsh-wf-header', ref: headerRef },
-      createElement('span', { className: 'dsh-wf-logo', title: '工作流搭建器' },
-        createElement('svg', {
-          width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none',
-          stroke: '#fff', strokeWidth: 2.2, strokeLinecap: 'round', strokeLinejoin: 'round',
-        },
-          createElement('rect', { x: '3', y: '3', width: '7', height: '7', rx: '1.5' }),
-          createElement('rect', { x: '14', y: '14', width: '7', height: '7', rx: '1.5' }),
-          createElement('circle', { cx: '17.5', cy: '6.5', r: '2.5' }),
-          createElement('path', { d: 'M10 6.5h5M10 17.5h1.5M17.5 9v5' }),
-        ),
-      ),
-      createElement('input', {
-        className: 'dsh-wf-name-input',
-        value: def.name,
-        onChange: (e: React.ChangeEvent<HTMLInputElement>) => handleRename(e.target.value),
-        placeholder: '工作流名称',
-        title: '自定义工作流名称（保存后用于识别）',
-      }),
+      // ★ 上面栏有占位容器（停靠模式）→ 标识区整块搬过去（见下面的 createPortal）；否则就地渲染
+      ...(chromeSlot ? [] : [brandLogo, brandName]),
       // ★ 子工作流返回入口（变体 A，用户 2026-10-03 拍板）：返回胶囊紧邻工作流名，右侧面包屑显示层级
       //   （父 › 当前，嵌套多层时从外到内全显示，可逐级点回去）。
       ...(nav && (nav.crumbs?.length ?? 0) > 0
@@ -977,11 +995,8 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       // 双击跳转的提示条（子工作流不存在 / 没选循环体 / 成环等，4s 自动消失）
       navMsg ? createElement('span', { className: 'dsh-wf-navmsg', key: 'navmsg' }, `⚠ ${navMsg}`) : null,
       // 2026-10-01 深夜：移除「N 节点」计数（用户反馈没啥用）；title-sub 仅剩保存状态
-      createElement('span', { className: 'dsh-wf-title-sub' },
-        !dirty ? '✓ 已保存'
-        : autoSave === 'saving' ? '⏳ 自动保存中…'
-        : autoSave === 'error' ? '⚠ 自动保存失败（请手动保存）'
-        : '● 未保存（将自动保存）'),
+      // ★ 2026-10-15：保存状态随标识区一起搬到上面栏（停靠模式）
+      ...(chromeSlot ? [] : [brandStatus]),
       // ★ 2026-10-15 用户要求：画布 / JSON 拆成**独立按钮**（不再共用 tabs 组）；
       //   ★ 同日二次拍板：按使用频率重排成「频率对称带」——所有功能按钮收进下面这一条按钮带，
       //     在「标识区之后到右边缘」之间居中（`.dsh-wf-btnband` 用左右 auto margin，不用绝对定位，
@@ -1138,6 +1153,12 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         '⏸ 等待人工确认',
       ),
       ),   // ← 按钮带结束
+      // ★ 2026-10-15：标识区搬到上面栏——portal 不占中间栏的位置，于是中间栏只剩这条按钮带，
+      //   靠左右 auto margin 真正居中（用户要求「中间栏的图标还是居中放置」）。
+      chromeSlot ? createPortal(
+        createElement('div', { className: 'dsh-wf-chrome' }, brandLogo, brandName, brandStatus),
+        chromeSlot,
+      ) : null,
       // ★ 2026-10-08 用户拍板：**右侧结果条整个撤掉** ✗（原来是「✓ 运行成功」/「✗ 运行失败」的可点徽标）——
       //   运行结果改由**顶部浮窗**提示（成功=自动消失；失败=常驻可点开详情），与「取消成功」同一形态。
       //   历史：2026-10-02 曾把行内报错改成这个徽标；2026-10-08 再改为浮窗（用户口径）。

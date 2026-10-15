@@ -25,6 +25,8 @@ export function mountWorkflowPanel(target: HTMLElement, opts: any = {}): void {
       onMount: () => {},
       onClose: opts.onClose,
       onCache: opts.onCache,
+      // ★ 2026-10-15：上面栏的占位容器（停靠模式传入）——FlowPanel 用它把「工作流名 + 保存状态」portal 上去
+      chromeSlot: opts.chromeSlot ?? null,
     })
   );
 }
