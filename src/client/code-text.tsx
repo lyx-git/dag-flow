@@ -3,7 +3,7 @@
 // ★ 2026-10-11 抽出复用：用户拍板「参数编辑区的富文本编辑框是那种类似代码级的富文本编辑框，
 //   也不是 word 编辑框」——所以参数编辑器的长文本值 / JSON 视图都用这套（等宽 + 行号 + 高亮 + Tab 缩进）。
 //   高亮函数从 FlowPanel.tsx 原样搬来（python/bash 两套规则不变），另加 json / text 两种。
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { createElement } from 'react';
 
 export type CodeLang = 'python' | 'bash' | 'json' | 'text';
@@ -86,13 +86,28 @@ export function CodeText({ value, onChange, lang = 'text', height = 180, placeho
   const gutterRef = useRef<HTMLDivElement | null>(null);
   const [cursor, setCursor] = useState({ ln: 1, col: 1, len: value.length });
 
+  // ★ 2026-10-15 性能：这两块以前在 render 里直接算 ⇒ 任何 state 变化（连点一下鼠标都会 setCursor）
+  //   都触发一次全量高亮（30 万字符正则 + innerHTML 重建上万个节点）。用 value/lang 做依赖缓存住。
+  //   ★ 别再往这里加大文本降级：实测去掉弹窗遮罩的背景模糊之后，高亮层 18001 个节点滚动仍是
+  //     17ms/帧（满帧）——高亮层的 DOM 规模**不是**滚动瓶颈，无需牺牲着色（详见 workflow-picker.ts）。
+  const hlHtml = useMemo(() => highlightCode(value, lang), [value, lang]);
+  const gutterText = useMemo(() => lineNumbers(value), [value]);
+
   const syncScroll = (ta: HTMLTextAreaElement): void => {
     if (hlRef.current) { hlRef.current.scrollTop = ta.scrollTop; hlRef.current.scrollLeft = ta.scrollLeft; }
     if (gutterRef.current) gutterRef.current.scrollTop = ta.scrollTop;
   };
+  // ★ 2026-10-15 性能：原实现 `slice(0, selectionStart).split('\n')` 每次按键都切一个最多 30 万字符的
+  //   子串 + 分配一个上万项的数组，只为数出「第几行第几列」。改成单遍 charCodeAt 计数，零分配。
   const updateCursor = (ta: HTMLTextAreaElement): void => {
-    const lines = ta.value.slice(0, ta.selectionStart).split('\n');
-    setCursor({ ln: lines.length, col: (lines[lines.length - 1]?.length ?? 0) + 1, len: ta.value.length });
+    const v = ta.value;
+    const s = ta.selectionStart;
+    let ln = 1;
+    let lineStart = 0;
+    for (let i = 0; i < s; i++) {
+      if (v.charCodeAt(i) === 10) { ln++; lineStart = i + 1; }
+    }
+    setCursor({ ln, col: s - lineStart + 1, len: v.length });
   };
 
   return createElement('div', { className: 'dsh-wf-codetext' },
@@ -102,11 +117,11 @@ export function CodeText({ value, onChange, lang = 'text', height = 180, placeho
       //   工具条成为编辑区**内部最底部的一条带**（独占空间 ⇒ 不覆盖 textarea、不拦截输入）。
       createElement('div', { className: 'dsh-wf-code-main' },
       createElement('div', { className: 'dsh-wf-code-gutter', ref: gutterRef },
-        createElement('pre', null, lineNumbers(value))),
+        createElement('pre', null, gutterText)),
       createElement('div', { className: 'dsh-wf-code-wrap' },
         createElement('pre', {
           className: 'dsh-wf-code-hl', ref: hlRef, 'aria-hidden': true,
-          dangerouslySetInnerHTML: { __html: highlightCode(value, lang) },
+          dangerouslySetInnerHTML: { __html: hlHtml },
         }),
         createElement('textarea', {
           className: 'dsh-wf-code-ta',
