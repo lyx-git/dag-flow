@@ -6,6 +6,8 @@
 import { createElement, useState } from 'react';
 import type { WorkflowDef } from '../types';
 import { runFailureDetail } from '../panel-utils';
+// ★ 2026-10-15 用户拍板「复制反馈在按钮本身」：复制按钮点了就地变「✓ 已复制」/「✗ 复制失败」（无浮窗）
+import { useCopyFlash } from '../use-copy-flash';
 
 export function useRunFailDialog() {
   const [runResult, setRunResult] = useState<{ status: string; summary?: unknown; error?: string } | null>(null);
@@ -14,12 +16,15 @@ export function useRunFailDialog() {
   return { runResult, setRunResult, runDlgOpen, setRunDlgOpen };
 }
 
-export function RunFailDialogView({ d, def, setImportMsg }: {
+export function RunFailDialogView({ d, def }: {
   d: ReturnType<typeof useRunFailDialog>;
   def: WorkflowDef;
+  // ★ setImportMsg 不再解构：复制反馈已改到按钮本身（2026-10-15 拍板）；prop 保留以兼容 FlowPanel 调用点
   setImportMsg: (m: { ok: boolean; text: string; onClick?: () => void } | null) => void;
 }) {
   const { runResult, runDlgOpen } = d;
+  // hook 在早退之前调用（React 规则）
+  const { flash: copyFlash, copy } = useCopyFlash();
   if (!runDlgOpen || !runResult || runResult.status === 'success') return null;
   return createElement(
     'div',
@@ -51,15 +56,10 @@ export function RunFailDialogView({ d, def, setImportMsg }: {
         }, runFailureDetail(runResult, def)),
         createElement('div', { style: { display: 'flex', gap: 8, marginTop: 10 } },
           createElement('button', {
-            className: 'dsh-wf-btn',
+            className: `dsh-wf-copy-btn${copyFlash?.key === 'detail' ? (copyFlash.kind === 'ok' ? ' is-done' : ' is-bad') : ''}`,
             title: '复制失败详情（便于反馈问题）',
-            onClick: async () => {
-              try {
-                await navigator.clipboard.writeText(runFailureDetail(runResult, def));
-                setImportMsg({ ok: true, text: '失败详情已复制到剪贴板' });
-              } catch { setImportMsg({ ok: false, text: '复制失败——请手动选中文本复制' }); }
-            },
-          }, '📋 复制详情'),
+            onClick: () => copy(runFailureDetail(runResult, def), 'detail'),
+          }, copyFlash?.key === 'detail' ? (copyFlash.kind === 'ok' ? '✓ 已复制' : '✗ 复制失败') : '📋 复制详情'),
           createElement('span', { className: 'dag-flow-picker-hint', style: { fontSize: 10.5, opacity: 0.6, alignSelf: 'center' } },
             '关闭后可点头部「✗ 运行失败」徽标再次查看'),
         ),

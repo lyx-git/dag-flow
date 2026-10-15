@@ -12,6 +12,7 @@ import { runStatusStore, selectionStore } from './runStatus';
 import { switchCaseStore } from './switchCaseStore';
 import { failPolicyStore } from './failPolicyStore';
 import { tipModel, infoTipModel, tipFullText, type TipModel } from '../resultTip';
+import { copyText } from '../util/copy-text';
 
 /** loop 卡片副标题（P1，2026-10-03 用户拍板）：按**实际生效的边界**显示。
  *  引擎优先级 over > count > while——旧实现只认 count，配了 over/while 的循环卡片显示 `count=?`（错信息）。 */
@@ -138,7 +139,7 @@ function ResultTipBox({ model, at, onEnter, onLeave }: {
   onLeave?: () => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<'ok' | 'bad' | null>(null);
   const enterRef = useRef(onEnter);
   enterRef.current = onEnter;
   const leaveRef = useRef(onLeave);
@@ -155,33 +156,14 @@ function ResultTipBox({ model, at, onEnter, onLeave }: {
       el.removeEventListener('mouseleave', leave);
     };
   }, []);
-  /** 复制全文：优先 Clipboard API，失败退回 textarea + execCommand（旧 WebView/无权限时可用） */
+  /** 复制全文（2026-10-15 统一走公共 copyText：Clipboard → execCommand 兜底，成败真实回传）；
+   *  反馈在按钮本身（用户拍板「不要浮窗」）：「✓ 已复制」/ 失败「✗ 复制失败」，1.4s 还原 */
   const copy = (): void => {
     const text = tipFullText(model);
-    const mark = (): void => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    };
-    const fallback = (): void => {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-      } catch { /* 复制失败也不弹错 */ }
-    };
-    try {
-      if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(text).then(mark, () => { fallback(); mark(); });
-        return;
-      }
-    } catch { /* 落到兜底 */ }
-    fallback();
-    mark();
+    void copyText(text).then((okFlag) => {
+      setCopied(okFlag ? 'ok' : 'bad');
+      window.setTimeout(() => setCopied(null), 1400);
+    });
   };
   return createElement(
     'div',
@@ -190,10 +172,10 @@ function ResultTipBox({ model, at, onEnter, onLeave }: {
       createElement('span', { className: 'dsh-wf-fg-tip-title' }, model.title),
       createElement('span', { className: `dsh-wf-fg-tip-badge is-${model.badgeKind}` }, model.badge),
       createElement('span', {
-        className: `dsh-wf-fg-tip-copy${copied ? ' is-done' : ''}`,
+        className: `dsh-wf-copy-btn${copied === 'ok' ? ' is-done' : ''}${copied === 'bad' ? ' is-bad' : ''}`,
         title: '复制这个节点的完整运行结果（错误信息太长时点这里）',
         onClick: copy,
-      }, copied ? '✓ 已复制' : '📋 复制'),
+      }, copied === 'ok' ? '✓ 已复制' : copied === 'bad' ? '✗ 复制失败' : '📋 复制'),
     ),
     ...model.lines.map((l, i) => createElement('div', { key: `line-${i}`, className: `dsh-wf-fg-tip-line is-${l.kind}` }, l.text)),
   );

@@ -277,23 +277,8 @@
   user-select: text;
 }
 
-/* 📋 复制：一键复制浮窗全文（错误信息太长时手选很痛苦） */
-.dsh-wf-fg-tip-copy {
-  flex: none;
-  padding: 1px 7px;
-  border-radius: 8px;
-  font-size: 10px;
-  cursor: pointer;
-  color: var(--wf-text, #e6edf7);
-  background: color-mix(in srgb, #fff 10%, transparent);
-  border: 1px solid var(--wf-border, #24324a);
-}
-
-.dsh-wf-fg-tip-copy:hover { background: color-mix(in srgb, #fff 18%, transparent); }
-.dsh-wf-fg-tip-copy.is-done {
-  color: var(--wf-success, #34d399);
-  border-color: color-mix(in srgb, var(--wf-success, #34d399) 55%, transparent);
-}
+/* 📋 复制按钮（2026-10-15 统一）：样式搬到 styles-dialogs.css 的 .dsh-wf-copy-btn（全部入口共用一类，
+   「📋 复制」emoji+文字、大小对齐本卡原复制按钮；✓ 已复制 / ✗ 复制失败 状态色也在那边） */
 
 .dsh-wf-fg-tip.is-ok { border-color: color-mix(in srgb, var(--wf-success, #34d399) 50%, transparent); }
 .dsh-wf-fg-tip.is-err { border-color: color-mix(in srgb, var(--wf-danger, #f87171) 55%, transparent); }

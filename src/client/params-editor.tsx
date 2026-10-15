@@ -22,6 +22,8 @@ import type { VarPickGroup } from './var-picker';
 // ★ 2026-10-11 用户拍板方案 A：试跑本节点集成进本弹窗（底部常驻试跑条）——输入按工作流参数逐字段填、
 //   参数与试跑同屏、结果就地展开；结果块与面板结果区共用同一个组件。
 import { TestResultView } from './test-result';
+// ★ 2026-10-15 用户拍板「复制反馈在按钮本身」：公共复制（Clipboard→execCommand 兜底）+ 按钮文字态 hook
+import { useCopyFlash } from './use-copy-flash';
 import type { TestResult } from './test-result';
 
 type Row = { k: string; text: string; kind: 'string' | 'other'; multi: boolean; auto?: boolean };
@@ -58,29 +60,6 @@ function IconMultiLine(): ReactElement {
 
 // ★ 2026-10-11 用户要求「富文本框的放大按钮在里面的右上角，斜双箭头，放大和缩小」——
 //   这个把手已由 code-text.tsx 的 `expand` prop 渲染（编辑区内部右上角），这里不再需要额外的行内图标。
-
-// ★ 2026-10-11 用户要求「复制和清空按钮换成 icon 图标就行」——工具条里两个按钮改纯图标（title 里保留说明）。
-/** 复制（两张叠起来的纸） */
-function IconCopy(): ReactElement {
-  return createElement('svg', SVG_ICON,
-    createElement('rect', { x: 5.6, y: 5.6, width: 7.4, height: 7.4, rx: 1.3 }),
-    createElement('path', { d: 'M10.4 3.2H5.2c-.9 0-1.6.7-1.6 1.6v5.2' }),
-  );
-}
-
-// ★ 2026-10-13 用户要求：清除按钮的图标从「垃圾桶」换成「扫帚」，并且**要用通用图标**——
-//   原话「参数弹窗面板里面的富文本框的清除按钮的icon图标换成扫帚的图标，而不是现在删除的图标」+
-//   「扫帚图标应该有通用的图标，使用通用图标就行」⇒ 直接用通用图标集 **Phosphor Icons（MIT）的 `broom`**
-//   **原始 path**（256 网格、实心 fill=currentColor），不自己手画。选它是因为四家候选真机渲染对比后，
-//   它在 16px 下的剪影最像扫帚（长柄 + 鬃毛）；Tabler 的 brush 描边太细、Material 的 cleaning_services
-//   没有柄、Bootstrap 的 brush 更像毛笔。对照页 tmp-test/build/broom-icons.html（截图 broom-icons.png）。
-const BROOM_PATH = 'M235.5,216.81c-22.56-11-35.5-34.58-35.5-64.8V134.73a15.94,15.94,0,0,0-10.09-14.87L165,110a8,8,0,0,1-4.48-10.34l21.32-53a28,28,0,0,0-16.1-37,28.14,28.14,0,0,0-35.82,16,.61.61,0,0,0,0,.12L108.9,79a8,8,0,0,1-10.37,4.49L73.11,73.14A15.89,15.89,0,0,0,55.74,76.8C34.68,98.45,24,123.75,24,152a111.45,111.45,0,0,0,31.18,77.53A8,8,0,0,0,61,232H232a8,8,0,0,0,3.5-15.19ZM67.14,88l25.41,10.3a24,24,0,0,0,31.23-13.45l21-53c2.56-6.11,9.47-9.27,15.43-7a12,12,0,0,1,6.88,15.92L145.69,93.76a24,24,0,0,0,13.43,31.14L184,134.73V152c0,.33,0,.66,0,1L55.77,101.71A108.84,108.84,0,0,1,67.14,88Zm48,128a87.53,87.53,0,0,1-24.34-42,8,8,0,0,0-15.49,4,105.16,105.16,0,0,0,18.36,38H64.44A95.54,95.54,0,0,1,40,152a85.9,85.9,0,0,1,7.73-36.29l137.8,55.12c3,18,10.56,33.48,21.89,45.16Z';
-/** 清空（扫帚 · path 取自 Phosphor Icons 的 `broom`，MIT；实心图标用 256 网格） */
-function IconBroom(): ReactElement {
-  return createElement('svg', {
-    width: 16, height: 16, viewBox: '0 0 256 256', fill: 'currentColor', 'aria-hidden': 'true',
-  }, createElement('path', { d: BROOM_PATH }));
-}
 
 /** 非字符串值 → 可编辑文本（对象/数组缩进展示） */
 function toText(v: unknown): string {
@@ -171,22 +150,27 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
   const [clearArmKey, setClearArmKey] = useState<string | null>(null);
   // ★ 2026-10-11 用户要求：放大按钮在**富文本框内部右下角**（斜双箭头），点了**放大到弹窗**、遮盖其他部分。
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
-  /** 富文本框工具条（行内与放大弹窗共用）：复制 / 清空（两击确认）图标按钮 + Tab 提示 */
+  // ★ 2026-10-15 用户拍板「复制反馈在按钮本身」：点复制 → 按钮文字变「✓ 已复制」/「✗ 失败」1.4s（每行独立 key）
+  const { flash: copyFlash, copy } = useCopyFlash();
+  /** 富文本框工具条（行内与放大弹窗共用）：复制 / 清空（两击确认）按钮 + Tab 提示。
+   *  ★ 2026-10-15 二次拍板：全部统一成「📋 复制」「🧹 清空」格式（emoji+文字），大小对齐结果卡复制按钮，
+   *  反馈在按钮本身（✓ 已复制 / ✗ 复制失败 1.4s），颜色状态与全部入口共用同一个 .dsh-wf-copy-btn */
   const codeToolbar = (r: Row): unknown[] => [
     createElement('button', {
-      className: 'dsh-wf-code-ibtn', title: '复制全部内容到剪贴板',
-      onClick: () => void navigator.clipboard.writeText(r.text),
-    }, createElement(IconCopy)),
+      className: `dsh-wf-copy-btn${copyFlash && copyFlash.key === r.k ? (copyFlash.kind === 'ok' ? ' is-done' : ' is-bad') : ''}`,
+      title: '复制全部内容到剪贴板',
+      onClick: () => copy(r.text, r.k),
+    }, copyFlash && copyFlash.key === r.k ? (copyFlash.kind === 'ok' ? '✓ 已复制' : '✗ 复制失败') : '📋 复制'),
     createElement('button', {
-      className: `dsh-wf-code-ibtn${clearArmKey === r.k ? ' is-armed' : ''}`,
+      className: `dsh-wf-copy-btn${clearArmKey === r.k ? ' is-armed' : ''}`,
       title: clearArmKey === r.k ? '再点一次确认清空' : '清空全部内容（点两次确认，防误触）',
       onClick: () => {
         if (clearArmKey !== r.k) { setClearArmKey(r.k); setTimeout(() => setClearArmKey(null), 2500); return; }
         setClearArmKey(null);
         writeRowText(r.k, '');
       },
-    }, createElement(IconBroom)),
-    // 已点一次「清空」时给一句文字提示，避免纯图标看不出"处于确认态"
+    }, '🧹 清空'),
+    // 已点一次「清空」时给一句文字提示，避免看不出"处于确认态"
     clearArmKey === r.k ? createElement('span', { className: 'dsh-wf-code-armed' }, '再点一次清空') : null,
     createElement('span', { className: 'dsh-wf-panel-hint' }, 'Tab = 4 空格缩进 · 改动即自动保存'),
   ];

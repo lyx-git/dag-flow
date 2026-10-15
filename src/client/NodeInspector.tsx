@@ -14,6 +14,8 @@ import type { TestResult } from './test-result';
 import { varMatch } from './util/varSearch';
 import { fieldsCacheOf, paramsSummary, codeSummary, truncLabel, reqMark } from './panel-utils';
 import { SessionInputFields, MediaFields, WebFields } from './inspector-fields';
+// ★ 2026-10-15 用户拍板「复制反馈在按钮本身」：变量 chips 的复制走公共 hook（无浮窗）
+import { useCopyFlash } from './use-copy-flash';
 
 export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts = {}, workflowName = '', onDelete, onParamsChange, onError = 'stop', onNodeError, tolerate = false, onFailPolicyChange }: {
   node: import('./types').ClientNode;
@@ -373,36 +375,19 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
   //   原来是面板里一行行内小字（`已复制：xxx`，面板长了还得往下找）；现在改成 Portal 到 body 的浮窗 toast
   //   （fixed 定位，与面板滚动位置无关），文案 = 「已复制 <复制到的变量引用>」。
   //   用 {text,n} 记次数：连点同一个 chip 也能重新触发（只存字符串时 React 不重渲染、计时器不重置）。
-  const [copied, setCopied] = useState<{ text: string; n: number } | null>(null);
-  const copyTimer = useRef<number | null>(null);
-  const copyRef = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // ★ 2026-10-13：剪贴板 API 不可用/被浏览器拒绝（headless、权限拒绝）时不能静默失败——
-      //   否则用户点 chip「毫无反应」。兜底：隐藏 textarea + execCommand('copy')。
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); } catch { /* 两路都失败也继续给浮窗反馈 */ }
-      ta.remove();
-    }
-    // 反馈与剪贴板成败解耦：无论走哪条路都给「已复制」浮窗（1.6s 自动消失，连点可重触发）
-    setCopied((prev) => ({ text, n: (prev?.n ?? 0) + 1 }));
-    if (copyTimer.current) window.clearTimeout(copyTimer.current);
-    copyTimer.current = window.setTimeout(() => setCopied(null), 1600);
+  // ★ 2026-10-15 用户拍板「复制反馈在按钮本身」（原话「不要浮窗，就在按钮本身做，提示已复制」）：
+  //   chip 点了就地变「✓ 已复制」/「✗ 复制失败」1.4s（原先的「已复制」浮窗 toast 退役）。
+  //   flash 带 key：弹窗里 chips 很多，只有点中的那一颗显示提示（连点另一颗会立即切过去）。
+  const { flash: chipFlash, copy: copyChip } = useCopyFlash();
+  const refChip = (text: string, desc: string, key: string, isOut = false) => {
+    const f = chipFlash && chipFlash.key === key ? chipFlash.kind : null;
+    return createElement('span', {
+      key,
+      className: `dsh-wf-var-chip${isOut ? ' is-out' : ''}${f === 'ok' ? ' is-flash-ok' : ''}${f === 'bad' ? ' is-flash-bad' : ''}`,
+      title: `点击复制：${text}\n作用：${desc}`,
+      onClick: () => copyChip(text, key),
+    }, f ? (f === 'ok' ? '✓ 已复制' : '✗ 复制失败') : text);
   };
-  // 卸载时清掉计时器（避免面板重挂载后对已卸载组件 setState）
-  useEffect(() => () => { if (copyTimer.current) window.clearTimeout(copyTimer.current); }, []);
-  const refChip = (text: string, desc: string, key: string, isOut = false) => createElement('span', {
-    key,
-    className: `dsh-wf-var-chip${isOut ? ' is-out' : ''}`,
-    title: `点击复制：${text}\n作用：${desc}`,
-    onClick: () => void copyRef(text),
-  }, text);
   /**
    * ★ 2026-10-09 用户拍板方案 C：变量面板「不平铺 + 口语化搜索」。
    *   · 上游变量**已按来源节点分组**，但原来**全部展开** ✗（上游 24 个时一坨）→ 现在默认收起、点标题展开 ✓
@@ -626,13 +611,6 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
             ),
           ),
         ),
-      ),
-      document.body,
-    ),
-    copied && createPortal(
-      createElement('div', { className: 'dsh-wf-copy-toast', key: 'copy-toast-' + copied.n },
-        createElement('span', { className: 'dsh-wf-copy-toast-ico' }, '📋'),
-        createElement('span', { className: 'dsh-wf-copy-toast-text' }, `已复制 ${copied.text}`),
       ),
       document.body,
     ),

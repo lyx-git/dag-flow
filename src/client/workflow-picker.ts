@@ -227,7 +227,7 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
     }
   };
 
-  /** 构建下拉行内层：名称 + 落盘路径（置灰）+ 节点数 + 行尾 ⧉复制 + 🗑 删除（取消确认态时也用它恢复原行） */
+  /** 构建下拉行内层：名称 + 落盘路径（置灰）+ 节点数 + 行尾 📋复制 + 🗑 删除（取消确认态时也用它恢复原行） */
   const buildRowInner = (row: HTMLDivElement, w: PickerWorkflow): void => {
     row.classList.remove('confirming');
     row.dataset.name = w.name;
@@ -237,11 +237,13 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
       : '';
     row.innerHTML = `📄 ${escapeHtml(w.name)}${pathHtml} <span class="meta">${w.nodes} 节点</span>`;
     // ★ 复制（2026-10-01 深夜从管理视图移植）：生成一模一样的工作流 <名>-copy（冲突递增）
+    //   ★ 2026-10-15 用户拍板（第 2 轮）：语义=「照着这份再建一份一模一样的工作流」（不是复制文字），
+    //   图标用通用图标集（Lucide/Tabler）的 copy-plus=双叠框+加号（🧪 候选表 A，用户要真实示例后定）
     const cp = document.createElement('button');
     cp.type = 'button';
     cp.className = 'cp';
     cp.title = `复制「${w.name}」`;
-    cp.textContent = '⧉';
+    cp.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="15" y1="12" x2="15" y2="18"/><line x1="12" y1="15" x2="18" y2="15"/><rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
     cp.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); });
     cp.addEventListener('click', (e) => { e.stopPropagation(); void copyWorkflow(w); });
     row.appendChild(cp);

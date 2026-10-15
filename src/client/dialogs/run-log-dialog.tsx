@@ -6,6 +6,8 @@
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkflowDef } from '../types';
 import { dataPathRow, fmtLogValue, fmtRefs, joinDisplay, logEntryText, logSearchText, logStatusLabel, runLogText } from '../panel-utils';
+// ★ 2026-10-15 用户拍板「复制反馈在按钮本身」：复制按钮点了就地变「✓ 已复制」/「✗ 复制失败」（无浮窗）
+import { useCopyFlash } from '../use-copy-flash';
 
 type ImportMsg = { ok: boolean; text: string; onClick?: () => void } | null;
 
@@ -103,6 +105,8 @@ export function RunLogDialogView({ d, def, setSelectedNodeId, setImportMsg }: {
   setSelectedNodeId: (id: string) => void;
   setImportMsg: (m: ImportMsg) => void;
 }) {
+  // ★ hook 必须在早退之前调用（React 规则）：两个复制按钮共用一个 flash（key 区分「全部」与各节点）
+  const { flash: copyFlash, copy } = useCopyFlash();
   if (!d.logOpen) return null;
   return createElement(
     'div',
@@ -150,16 +154,11 @@ export function RunLogDialogView({ d, def, setSelectedNodeId, setImportMsg }: {
             onChange: (e: React.ChangeEvent<HTMLInputElement>) => d.setLogFilter(e.target.value),
           }),
           createElement('button', {
-            className: 'dsh-wf-btn',
+            className: `dsh-wf-copy-btn${copyFlash?.key === 'all' ? (copyFlash.kind === 'ok' ? ' is-done' : ' is-bad') : ''}`,
             title: '复制全部日志文本（便于反馈问题）',
             disabled: d.logEntries.length === 0,
-            onClick: async () => {
-              try {
-                await navigator.clipboard.writeText(runLogText(d.logView));
-                setImportMsg({ ok: true, text: '全部日志已复制到剪贴板' });
-              } catch { setImportMsg({ ok: false, text: '复制失败——请手动选中文本复制' }); }
-            },
-          }, '📋 复制全部'),
+            onClick: () => copy(runLogText(d.logView), 'all'),
+          }, copyFlash?.key === 'all' ? (copyFlash.kind === 'ok' ? '✓ 已复制' : '✗ 复制失败') : '📋 复制全部'),
         ),
         createElement('div', { className: 'dsh-wf-log-list' },
           d.logView.length === 0
@@ -218,16 +217,11 @@ export function RunLogDialogView({ d, def, setSelectedNodeId, setImportMsg }: {
                   Array.isArray(e?.truncated) && e.truncated.length
                     ? createElement('div', { className: 'dsh-wf-log-sec-title' }, `（字段已截断：${e.truncated.join('、')}）`) : null,
                   createElement('button', {
-                    className: 'dsh-wf-btn',
+                    className: `dsh-wf-copy-btn${copyFlash?.key === `node-${e.id}` ? (copyFlash.kind === 'ok' ? ' is-done' : ' is-bad') : ''}`,
                     style: { marginTop: 6 },
                     title: '复制该节点日志',
-                    onClick: async () => {
-                      try {
-                        await navigator.clipboard.writeText(logEntryText(e));
-                        setImportMsg({ ok: true, text: `节点 ${e.id} 的日志已复制` });
-                      } catch { setImportMsg({ ok: false, text: '复制失败——请手动选中文本复制' }); }
-                    },
-                  }, '📋 复制本节点'),
+                    onClick: () => copy(logEntryText(e), `node-${e.id}`),
+                  }, copyFlash?.key === `node-${e.id}` ? (copyFlash.kind === 'ok' ? '✓ 已复制' : '✗ 复制失败') : '📋 复制本节点'),
                 ) : null,
               );
             }),
