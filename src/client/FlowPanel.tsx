@@ -52,7 +52,11 @@ import { startResize8, readStoredJSON, saveJSON, clampNum, type RightGeom } from
 //   模块副作用初始化（幂等）：真机入口与 CDP 夹具都从本模块进入 ⇒ 一处生效。
 import { initHoverTips } from './hover-tip';
 // ★ 2026-10-15 用户拍板：头部三颗图标换成 14px 线条 SVG（JSON＝大括号 / 导出/导入＝托盘+箭头）
-import { iconJsonBraces, iconExportTray, iconImportTray } from './header-icons';
+//   ★ 同日追加「按钮大小/形式/颜色都统一下」⇒ 其余 6 颗 emoji 也一并换成同规格线条图标
+import {
+  iconJsonBraces, iconExportTray, iconImportTray,
+  iconCanvas, iconParams, iconSave, iconHistory, iconSchedule, iconRunLog,
+} from './header-icons';
 initHoverTips();
 
 
@@ -102,6 +106,29 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
       h: typeof raw?.h === 'number' ? clampNum(raw.h, 400, 220, 1400) : null,
     }),
   ));
+
+  // ★ 2026-10-15 用户拍板（头部按钮重排方案 A「频率对称带」+ 窄屏收纳）：
+  //   ① 所有功能按钮收进一条 `.dsh-wf-btnband`，在「标识区之后到右边缘」之间居中（左右 auto margin，
+  //      不用绝对定位 ⇒ 面板再窄也不会压到工作流名输入框）；内部排列＝越靠中间越常用：
+  //      正中 ▶ 运行，紧邻 🎨 画布 / 💾 保存，再外 {} /🧾，最外 导出/导入/⏰/✍️。
+  //   ② 面板窄到放不下时，把最低频的三颗（导入 / 导出 / ⏰ 定时任务）收进「⋯ 更多」菜单。
+  //   ★ 标识区（logo + 工作流名输入框 + 保存状态）一个像素都不动 —— 用户明确要求「只动按钮」。
+  const headerRef = useRef<HTMLElement | null>(null);
+  const [headerNarrow, setHeaderNarrow] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [moreAt, setMoreAt] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    // 阈值：标识区约 272 + 按钮带满配约 406 + 内边距/间隙约 28 = 706，再留出运行中「⏹ 取消」约 90 的余量。
+    // 收纳掉导入/导出/定时后按钮带约 295 ⇒ 窄屏下仍有富余。
+    const NARROW_AT = 800;
+    const apply = () => setHeaderNarrow(el.clientWidth < NARROW_AT);
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    apply();
+    return () => ro.disconnect();
+  }, []);
 
   // 自动缓存：def 变化即通过 onCache 上报（供关闭后重开恢复）
   useEffect(() => {
@@ -741,6 +768,16 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     }
   }, [handleDefChange]);
 
+  // ★ 2026-10-15 头部按钮重排：导入入口现在有**两处**（头部按钮 + 窄屏「⋯ 更多」菜单）⇒ 抽成一处，
+  //   避免同一段 file-input 逻辑抄两份（改一处忘另一处是这类"两入口"最典型的回归）。
+  const pickImportFile = useCallback(() => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = '.json,application/json';
+    inp.onchange = () => { const f = inp.files?.[0]; if (f) void importFile(f); };
+    inp.click();
+  }, [importFile]);
+
   // A3 工作流参数编辑弹窗：状态与 openInputs/pushInputs 拆至 dialogs/inputs-dialog.tsx
   //   （hook 仍在本组件实例上调用——改动即自动保存的数据流零变化）
   const inputsDlg = useInputsDialog({ def, onDefChange: handleDefChange });
@@ -892,7 +929,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
     // 顶部 header
     createElement(
       'header',
-      { className: 'dsh-wf-header' },
+      { className: 'dsh-wf-header', ref: headerRef },
       createElement('span', { className: 'dsh-wf-logo', title: '工作流搭建器' },
         createElement('svg', {
           width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none',
@@ -945,25 +982,24 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         : autoSave === 'saving' ? '⏳ 自动保存中…'
         : autoSave === 'error' ? '⚠ 自动保存失败（请手动保存）'
         : '● 未保存（将自动保存）'),
-      // ★ 2026-10-15 用户要求：画布 / JSON 拆成**独立按钮**（不再共用 tabs 组），与导入/导出同款按钮风格；
-      //   图标同日拍板：JSON＝大括号线条 SVG（iconJsonBraces）；画布保持 🎨。
-      createElement('button', {
-        className: `dsh-wf-btn${tab === 'canvas' ? ' is-on' : ''}`,
-        'aria-pressed': tab === 'canvas',
-        title: '画布',
-        onClick: () => setTab('canvas'),
-      }, '🎨'),
-      createElement('button', {
-        className: `dsh-wf-btn${tab === 'json' ? ' is-on' : ''}`,
-        'aria-pressed': tab === 'json',
-        title: '查看 / 编辑工作流 JSON',
-        onClick: () => setTab('json'),
-      }, iconJsonBraces()),
-      // 导入导出紧跟 JSON 按钮（2026-10-02 用户指定头部排列）
-      //   ★ 2026-10-09：导出从「直接导出 JSON」改成**导出菜单**（导出 JSON / 导出图片 PNG）——
+      // ★ 2026-10-15 用户要求：画布 / JSON 拆成**独立按钮**（不再共用 tabs 组）；
+      //   ★ 同日二次拍板：按使用频率重排成「频率对称带」——所有功能按钮收进下面这一条按钮带，
+      //     在「标识区之后到右边缘」之间居中（`.dsh-wf-btnband` 用左右 auto margin，不用绝对定位，
+      //     所以面板再窄也不会压到工作流名输入框）。排列＝**越靠中间越常用**：
+      //     正中 ▶ 运行，紧邻 🎨 画布 / 💾 保存，再外 {} /🧾，最外 导出/导入/⏰/✍️。
+      //   ★ 窄屏（headerNarrow，见组件顶部的 ResizeObserver）：把最低频的 导入 / 导出 / ⏰ 收进
+      //     「⋯ 更多」菜单（渲染在 body 末尾 moreOpen 段）。
+      //   ★ 标识区（logo + 工作流名输入框 + 保存状态）一个像素都不动 —— 用户明确要求「只动按钮」。
+      createElement('div', { className: 'dsh-wf-btnband' },
+      // —— 左外侧 → 内：导入、导出、JSON、画布（频率递增，最常用的紧邻中轴）——
+      !headerNarrow && createElement(
+        'button',
+        { className: 'dsh-wf-btn', title: '从 .json 文件导入工作流', onClick: pickImportFile },
+        iconImportTray(),
+      ),
+      // ★ 2026-10-09：导出从「直接导出 JSON」改成**导出菜单**（导出 JSON / 图片 PNG / 矢量图 SVG）——
       //   用户原话「导出 json 已经有导出按钮了，导出图片可以集成到一起」。
-      //   ★ 2026-10-15 图标拍板：导出＝托盘+下箭头 / 导入＝托盘+上箭头（拍照板方案 J，均为线条 SVG）。
-      createElement(
+      !headerNarrow && createElement(
         'button',
         {
           className: `dsh-wf-btn${exportMenuOpen ? ' is-on' : ''}`,
@@ -973,39 +1009,30 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
             if (r) setExportMenuAt({ left: r.left, top: r.bottom + 6 });
             setExportMenuOpen((v) => !v);
           },
-          title: '导出（JSON / 图片 PNG）',
+          title: '导出（JSON / 图片 PNG / 矢量图 SVG）',
         },
         iconExportTray(),
       ),
-      createElement(
-        'button',
-        {
-          className: 'dsh-wf-btn',
-          title: '从 .json 文件导入工作流',
-          onClick: () => {
-            const inp = document.createElement('input');
-            inp.type = 'file';
-            inp.accept = '.json,application/json';
-            inp.onchange = () => { const f = inp.files?.[0]; if (f) void importFile(f); };
-            inp.click();
-          },
-        },
-        iconImportTray(),
-      ),
-      createElement('div', { className: 'dsh-wf-spacer' }),
-      // 右侧按钮顺序：工作流参数 → 开始(运行) → 保存 → 版本（2026-10-02 用户指定）
-      createElement(
-        'button',
-        { className: 'dsh-wf-btn', onClick: openInputs, title: '工作流参数（仅当前工作流可用；节点参数里用 {{inputs.名称}} 引用）' },
-        '✍️',
-      ),
+      createElement('button', {
+        className: `dsh-wf-btn${tab === 'json' ? ' is-on' : ''}`,
+        'aria-pressed': tab === 'json',
+        title: '查看 / 编辑工作流 JSON',
+        onClick: () => setTab('json'),
+      }, iconJsonBraces()),
+      createElement('button', {
+        className: `dsh-wf-btn${tab === 'canvas' ? ' is-on' : ''}`,
+        'aria-pressed': tab === 'canvas',
+        title: '画布',
+        onClick: () => setTab('canvas'),
+      }, iconCanvas()),
+      // —— 正中：运行（最高频）——
       // ★ 运行按钮：运行中变**动态**状态（方案 D = 弧线旋转环 + 按钮呼吸外发光 + 扫光 + 「运行中」；
       //   2026-10-03 用户在候选原型里拍板 D，弃漏斗/弃字符 ◌）；跑完恢复 ▶
-      //   且**排在取消按钮前面**（用户要求「运行中的按钮要放到取消按钮前面」）
+      //   `is-icolike`＝静态时与相邻纯图标按钮**同宽**（否则 ▶ 这个字符只有 ~16px，比旁边窄一截）。
       createElement(
         'button',
         {
-          className: `dsh-wf-btn dsh-wf-btn-success${running ? ' is-running' : ''}${selfcheckState?.phase === 'checking' ? ' is-checking' : ''}`,
+          className: `dsh-wf-btn is-icolike dsh-wf-btn-success${running ? ' is-running' : ''}${selfcheckState?.phase === 'checking' ? ' is-checking' : ''}`,
           onClick: () => void handleRun(),
           disabled: running || selfcheckState?.phase === 'checking',
           title: running
@@ -1024,7 +1051,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
                 '自检中…')
             : '▶',
       ),
-      // ★ 取消按钮：运行中才出现，排在运行按钮**之后**，且红色
+      // ★ 取消按钮：运行中才出现，紧跟运行按钮，且红色
       //   ★ 2026-10-08：取消是异步的（host 要等当前节点收尾）→ 取消中时按钮禁用、文案改「取消中…」，
       //   避免用户连点；真正的落定由后台监视器在 host 确认结束后完成。
       running && createElement(
@@ -1037,6 +1064,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         },
         cancelling ? '⏳ 取消中…' : '⏹ 取消',
       ),
+      // —— 右侧：由内向外频率递减：保存 → 日志 → 历史 → 定时 → 参数 ——
       createElement(
         'button',
         {
@@ -1054,22 +1082,9 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
             }
           },
         },
-        '💾',
+        iconSave(),
       ),
-      createElement(
-        'button',
-        { className: 'dsh-wf-btn', onClick: () => void openVersions(), title: '历史版本（手动保存生成快照，可回载）' },
-        '🕘',
-      ),
-      // ★ 定时任务（2026-10-03 用户拍板方案 v1，docs/SCHEDULE-PLAN.md §6）：加在「工作流参数/运行/保存/版本」
-      //   这一组**之后**（不打断用户 2026-10-02 定下的顺序）；每个工作流可配多条 cron 定时，执行由宿主调度器负责
-      createElement(
-        'button',
-        { className: 'dsh-wf-btn', onClick: openSchedules, title: '定时任务（cron 定时执行本工作流；dsh web 需常驻才会触发）' },
-        '⏰',
-      ),
-      // ★ 运行日志 🧾（2026-10-04 用户需求：「工作流执行黑盒」；用户 2026-10-04 明确要求
-      //   「运行日志按钮现在在底部，放到定时任务的后面」→ 必须留在**头部这一排**、紧跟 ⏰ 之后）
+      // ★ 运行日志（2026-10-04 用户需求：「工作流执行黑盒」；用户当时明确要求它留在**头部这一排**）
       createElement(
         'button',
         {
@@ -1077,9 +1092,41 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
           title: '运行日志：每个节点的入参/引用/出参/错误/耗时（运行中自动刷新）',
           onClick: () => setLogOpen((v) => !v),
         },
-        '🧾',
+        iconRunLog(),
+      ),
+      createElement(
+        'button',
+        { className: 'dsh-wf-btn', onClick: () => void openVersions(), title: '历史版本（手动保存生成快照，可回载）' },
+        iconHistory(),
+      ),
+      // ★ 定时任务（2026-10-03 用户拍板方案 v1，docs/SCHEDULE-PLAN.md §6）：每个工作流可配多条 cron 定时
+      !headerNarrow && createElement(
+        'button',
+        { className: 'dsh-wf-btn', onClick: openSchedules, title: '定时任务（cron 定时执行本工作流；dsh web 需常驻才会触发）' },
+        iconSchedule(),
+      ),
+      createElement(
+        'button',
+        { className: 'dsh-wf-btn', onClick: openInputs, title: '工作流参数（仅当前工作流可用；节点参数里用 {{inputs.名称}} 引用）' },
+        iconParams(),
+      ),
+      // ★ 窄屏收纳入口：只在这一条放不下时出现（菜单内容＝导入/导出三项/定时任务）
+      headerNarrow && createElement(
+        'button',
+        {
+          className: `dsh-wf-btn${moreOpen ? ' is-on' : ''}`,
+          title: '更多（导入 / 导出 / 定时任务）',
+          onClick: (e: { currentTarget?: { getBoundingClientRect?: () => { left: number; right: number; bottom: number } } }) => {
+            const r = e?.currentTarget?.getBoundingClientRect?.();
+            // 这颗按钮贴在最右，菜单**右对齐**才不会超出视口
+            if (r) setMoreAt({ left: Math.max(8, r.right - 210), top: r.bottom + 6 });
+            setMoreOpen((v) => !v);
+          },
+        },
+        '⋯',
       ),
       // 人工确认等待态（2026-10-03 方案 A）：accent 描边徽标，点击重开确认弹窗
+      //   ★ 放在按钮带**内部最右**——它是状态徽标不是按钮，但必须跟着带一起居中，否则会把带推歪
       manualWait && createElement(
         'span',
         {
@@ -1090,6 +1137,7 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
         },
         '⏸ 等待人工确认',
       ),
+      ),   // ← 按钮带结束
       // ★ 2026-10-08 用户拍板：**右侧结果条整个撤掉** ✗（原来是「✓ 运行成功」/「✗ 运行失败」的可点徽标）——
       //   运行结果改由**顶部浮窗**提示（成功=自动消失；失败=常驻可点开详情），与「取消成功」同一形态。
       //   历史：2026-10-02 曾把行内报错改成这个徽标；2026-10-08 再改为浮窗（用户口径）。
@@ -1177,6 +1225,69 @@ export function FlowPanel({ ctx, onClose, onCache }: FlowPanelProps) {
             title: '导出矢量图 SVG（同 PNG 的画法，但可无限缩放、可用设计工具再编辑）',
           },
           '🧩 导出矢量图（SVG）',
+        ),
+      ),
+    ),
+    // ★ 2026-10-15 窄屏收纳菜单（方案 A 的配套）：头部放不下时把 导入 / 导出三项 / 定时任务 收在这里。
+    //   复用导出菜单那一套（透明背板点外面关闭 + `.dsh-wf-export-item` 行样式），不再造第二套菜单语言。
+    moreOpen && createElement(
+      'div',
+      { style: { position: 'fixed', inset: 0, zIndex: 10000 }, onClick: () => setMoreOpen(false) },
+      createElement(
+        'div',
+        {
+          className: 'dsh-wf-export-menu dsh-wf-more-menu',
+          style: {
+            position: 'fixed', left: moreAt.left, top: moreAt.top, minWidth: 200, padding: 6,
+            background: 'var(--wf-panel, #101a2b)', border: '1px solid var(--wf-border2, #29405f)',
+            borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.45)', fontSize: 12,
+          },
+          onClick: (e: { stopPropagation: () => void }) => e.stopPropagation(),
+        },
+        createElement(
+          'button',
+          {
+            className: 'dsh-wf-export-item',
+            onClick: () => { setMoreOpen(false); exportFile(); },
+            title: '把工作流定义存成 .json 文件',
+          },
+          '📄 导出 JSON',
+        ),
+        createElement(
+          'button',
+          {
+            className: 'dsh-wf-export-item',
+            onClick: () => { setMoreOpen(false); void exportImage(); },
+            title: '把画布画成一张 PNG 图片（按当前布局矢量绘制，2 倍光栅化）',
+          },
+          '🖼 导出图片（PNG）',
+        ),
+        createElement(
+          'button',
+          {
+            className: 'dsh-wf-export-item',
+            onClick: () => { setMoreOpen(false); exportSvg(); },
+            title: '导出矢量图 SVG（同 PNG 的画法，但可无限缩放、可用设计工具再编辑）',
+          },
+          '🧩 导出矢量图（SVG）',
+        ),
+        createElement(
+          'button',
+          {
+            className: 'dsh-wf-export-item',
+            onClick: () => { setMoreOpen(false); pickImportFile(); },
+            title: '从 .json 文件导入工作流',
+          },
+          '📥 导入工作流',
+        ),
+        createElement(
+          'button',
+          {
+            className: 'dsh-wf-export-item',
+            onClick: () => { setMoreOpen(false); openSchedules(); },
+            title: '定时任务（cron 定时执行本工作流；dsh web 需常驻才会触发）',
+          },
+          '⏰ 定时任务',
         ),
       ),
     ),

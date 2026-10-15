@@ -228,7 +228,8 @@
   border-color: var(--wf-accent, #6f8fff);
   box-shadow: 0 0 0 3px var(--wf-focus, rgba(111,143,255,.18));
 }
-.dsh-wf-spacer { flex: 1; }
+/* ★ 2026-10-15：头部原来那个「左右两簇之间的撑开块」规则随「频率对称带」重排退役 ——
+   头部不再需要撑开，按钮带用左右 auto margin 自己居中。全量 grep（src 下 ts/tsx/css 递归）确认零引用后删除。 */
 
 /* ========== Tabs ========== */
 /* ★ 2026-10-15 用户要求「画布和 {} 按钮不放一起，都放成独立按钮」：原来这对标签组（一个 flex 壳 + 若干项、
@@ -249,6 +250,27 @@
 .dsh-wf-header .dsh-wf-btn-primary,
 .dsh-wf-header .dsh-wf-btn-success {
   padding-inline: 10px;
+}
+
+/* ★ 2026-10-15 用户拍板方案 A「频率对称带」：头部功能按钮全部收进这一条，在「标识区之后到右边缘」
+   之间居中。为什么不用 position:absolute / translateX 居中 —— 绝对定位会**脱离文档流**，面板一窄就叠到
+   工作流名输入框上；左右 auto margin 是 flex 里的"吸收剩余空间"，剩余空间为 0 时自然退化成紧贴标识区，
+   永远不会重叠（窄到一定程度还会由 headerNarrow 收掉三颗低频按钮，见 FlowPanel 顶部 ResizeObserver）。 */
+.dsh-wf-header .dsh-wf-btnband {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  margin-right: auto;
+  min-width: 0;
+}
+/* 静态时是单个字符、运行时会变成文字的按钮（如 ▶ 运行）：给它一个与纯图标按钮一致的下限宽。
+   为什么需要：▶ 只有约 16px，夹在一排 30px 的图标按钮中间会明显窄一截（用户要求「按钮大小都统一下」）；
+   为什么用 min-width 而不是 width：运行时「运行中…」/「⏹ 取消」必须能自然撑开，写死宽度会裁字。
+   padding-inline 覆盖上面的 `.dsh-wf-btn-success{padding-inline:10px}`，否则静态 ▶ 会是 36px。 */
+.dsh-wf-header .dsh-wf-btn.is-icolike {
+  min-width: 30px;
+  padding-inline: 7px;
 }
 
 /* ========== 按钮（统一体系） ========== */
