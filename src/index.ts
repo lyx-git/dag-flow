@@ -11,6 +11,7 @@
 
 import { initSafety, isSafeMode, getDriftReport } from './adapter/safety.js';
 import { HOST_INJECT } from './dsh-gate/host.js';
+import { describeAttachments } from './dsh-gate/attachments.js';
 import { createLogger } from './adapter/logger.js';
 import { attachToHost } from './adapter/cli.js';
 import { registerBuiltinNodes } from './registry/builtin.js';
@@ -40,8 +41,10 @@ export const name = 'dag-flow';
 // ★ inject 名单唯一来源 = 防腐层 dsh-gate/host.ts 的 HOST_INJECT（服务名清单/访问语义
 // /三层容错都在防腐层维护；2026-10-02 防腐层改造后业务代码不感知 DSH 服务名）。
 // 现名单：webServer（client HTTP API）、tools（dagflow 工具）、workspaceRegistry
-// （存储根固定 <DSH_HOME>/.dag-flow/，2026-10-11 起与工作区无关）、llm（自带模型发现与 viaHost 分发）。
-// ★ 0.2.0 cordis 无 optional inject——新增名字前必须先经 cordis_inspect 查证宿主确有此服务。
+// （存储根固定 <DSH_HOME>/.dag-flow/，2026-10-11 起与工作区无关）、llm（自带模型发现与 viaHost 分发）、
+// attachments（多模态传图用的宿主附件服务，2026-10-15 Step 0 加入，门面 dsh-gate/attachments.ts）。
+// ★ 0.2.0 cordis 无 optional inject——新增名字前必须先查证宿主确有此服务
+// （查证方式见 dsh-gate/host.ts 顶部注释；本机 cordis_inspect 已不可用）。
 export const inject: string[] = HOST_INJECT;
 
 /** 注册结果（cli.attachToHost / api.registerApiRoutes 的统一返回形状）。 */
@@ -114,8 +117,13 @@ export function apply(ctx: any, config?: any): void {
     const status = (r: AttachResult) => (r.registered ? 'registered' : `skipped${r.reason ? ` (${r.reason})` : ''}`);
     try {
       logger.info(
-        `[dag-flow] loaded (host v20261011-runtime2), ${WorkflowNodeRegistry.list().length} nodes, dagflow tool ${status(toolResult)}, api ${status(apiResult)}, scheduler ${status(schedResult)}, ${driftMsg}`
+        `[dag-flow] loaded (host v20261015-mmstep0), ${WorkflowNodeRegistry.list().length} nodes, dagflow tool ${status(toolResult)}, api ${status(apiResult)}, scheduler ${status(schedResult)}, ${driftMsg}`
       );
+      // ★ 2026-10-15 多模态 Step 0：**只读诊断**宿主附件服务是否可用 + 图片限制。
+      //   打得出 `attachments ok (...)` ⇒ 多模态传图的宿主通路（saveImage → ImageReference →
+      //   messages[].content 的 image 块）已就绪；打 `unavailable` ⇒ 别往下做 Step 1。
+      //   任何异常都吞掉：诊断不参与启动成败（fail-soft）。
+      logger.info(`[dag-flow] ${describeAttachments()}`);
     } catch {}
   } catch (e) {
     try { console.error('[dag-flow] apply failed (non-fatal):', e); } catch {}

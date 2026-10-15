@@ -489,7 +489,7 @@ export function apply(ctx: any): void {
     wireDockOpenRequest();
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261015-labelfix · apply OK');
+    console.log('[dag-flow] client v20261015-nodeid · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

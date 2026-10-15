@@ -142,8 +142,10 @@ const reqJson = async (method, p, body) => {
 // ===== 加载宿主 bundle =====
 const mod = await import('file:///D:/workspace/pluginspace/dag-flow/dist/index.js');
 t('dist/index.js 导出 apply / name / inject', typeof mod.apply === 'function' && mod.name === 'dag-flow' && Array.isArray(mod.inject));
-t('inject 必须声明 webServer + tools + workspaceRegistry + llm（apply 等服务就绪）',
-  mod.inject.includes('webServer') && mod.inject.includes('tools') && mod.inject.includes('workspaceRegistry') && mod.inject.includes('llm') && mod.inject.length === 4,
+// ★ 2026-10-15 更新：名单加 `attachments`（多模态传图用宿主附件服务，见 dsh-gate/attachments.ts）。
+//   判据用数组 every + 长度，保证"不多不少"；以后再加服务名只改这个数组一处。
+t('inject 必须声明 webServer + tools + workspaceRegistry + llm + attachments（apply 等服务就绪）',
+  ['webServer', 'tools', 'workspaceRegistry', 'llm', 'attachments'].every((k) => mod.inject.includes(k)) && mod.inject.length === 5,
   JSON.stringify(mod.inject));
 
 const EXPECTED = [

@@ -228,7 +228,14 @@ export function NodeQuickPanel(props: any) {
     const suffix = Math.random().toString(36).slice(2, 6);
     onSelect({
       nodeType: m.type,
-      nodeJSON: { data: { label: `${m.label}_${suffix}`, ...(m.defaultParams ?? {}) } },
+      // ★ 2026-10-15 修 bug：**顶层显式给 id**——FlowGram 的 createWorkflowNodeByType 只在
+      //   `json.id === undefined` 时用 `` `1${nanoid()}` `` 兜底（id 必然数字开头），
+      //   会撞 WORKFLOW_SCHEMA 的 `^[a-zA-Z]` ⇒ 存盘后引擎解析被拦（运行/定时全失败）。
+      //   `${type}_${后缀}` 与 label 同后缀；type 一律小写字母开头，必然合法。
+      nodeJSON: {
+        id: `${m.type}_${suffix}`,
+        data: { label: `${m.label}_${suffix}`, ...(m.defaultParams ?? {}) },
+      },
       selectEvent: e,
     });
   };

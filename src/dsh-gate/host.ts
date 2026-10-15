@@ -5,14 +5,20 @@
 //   DSH 升版导致服务访问方式变化时，只改本文件；业务代码（adapter/registry/executor/
 //   client）通过本模块的稳定签名访问宿主，不感知 DSH 版本。
 //
-// 宿主服务清单（2026-10-02）：
+// 宿主服务清单（2026-10-15）：
 //   webServer          — dsh-auto-compact / dsh-versions 同款（client HTTP API 注册）
 //   tools              — dsh-vision-router 同款（/workflow 工具注册）
 //   workspaceRegistry  — dsh-workspace 提供（工作区时代用于锚定存储根；2026-10-11 起存储根固定
 //                        <DSH_HOME>/.dag-flow/，此服务只在 migrateFromLegacyRoots 里当迁移来源探测）
 //   llm                — LlmRuntime（listProviders/listModels/stream，DSH 自带模型发现与分发）
-// ★ 0.2.0 cordis 4.x 没有 optional inject——声明宿主不存在的服务名会让插件永不 apply。
-//   新增名字前必须先经 cordis_inspect 查证宿主确有此服务（教训见 2026-10-01 404 事故）。
+//   attachments        — AttachmentStore（@deepseek-ai/dsh-attachment-local 提供；多模态传图用：
+//                        saveImage → ImageAttachmentRef → messages[].content 的 {type:'image'} 块）。
+//                        门面见 dsh-gate/attachments.ts；启动日志会打一行只读诊断。
+// ★ 0.2.0 cordis 4.x 没有 optional inject——声明宿主不存在的服务名会让插件**永不 apply**。
+//   新增名字前必须先查证宿主确有此服务（教训见 2026-10-01 404 事故）。查证方式（2026-10-15 更新，
+//   本机 cordis_inspect 已不可用）：①看 dsh 包的 `<pkg>/cordis.patch.yml` 是否挂了它
+//   （如 dsh-base 的默认挂载清单里有 `- id: attachment-local`）；②看依赖它的工具在不在
+//   （`read_image` 只在 ctx.inject(['attachments']) 下注册 ⇒ 能调它就说明服务已挂载）。
 
 /** DSH 传给 apply(ctx) 的根对象（cordis Context）。业务代码不要假设它的形状。 */
 export type DshHost = unknown;
@@ -21,7 +27,7 @@ export type DshHost = unknown;
  * 本插件依赖的宿主服务名（= src/index.ts 的 inject 数组唯一来源）。
  * cordis fiber.store 只快照 inject 名单里的服务，名单变更 = 本常量一处改动。
  */
-export const HOST_INJECT: string[] = ['webServer', 'tools', 'workspaceRegistry', 'llm'];
+export const HOST_INJECT: string[] = ['webServer', 'tools', 'workspaceRegistry', 'llm', 'attachments'];
 
 let _host: DshHost = null;
 

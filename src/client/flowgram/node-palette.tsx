@@ -80,12 +80,20 @@ export function NodePalette() {
       });
       // startDragCard 内部读 event.currentTarget 克隆拖影并定位——shim 钉死为面板项元素
       Object.defineProperty(shim, 'currentTarget', { value: itemEl });
+      // ★ 2026-10-15 修 bug：**新建节点必须显式给 id**。FlowGram 的 `createWorkflowNodeByType`
+      //   只在 `json.id === undefined` 时用 `` `1${nanoid()}` `` 兜底 ⇒ id **必然数字开头**，
+      //   撞 WORKFLOW_SCHEMA 的 `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$`（types.ts + client JsonView 两份）
+      //   ⇒ 存盘后引擎解析（executor/parse.ts）直接拦下：**点运行与定时执行全部失败**。
+      //   真机实证：用户日报 06:00 定时因新建节点 id `153823` 报「工作流结构校验未通过」。
+      //   这里显式给 `${type}_${后缀}`——type 一律小写字母开头，必然合法；后缀与 label 一致便于对照。
+      const suffix = idSuffix();
       try {
         // ★ shim 是**原生** MouseEvent（React 类型声明要合成事件——nocheck 时代掩盖）；
         //   startDragCard 内部只读 clientX/Y + currentTarget（拖影克隆/定位），行为一直如此
         void dragService.startDragCard(type, shim as any, {
+          id: `${type}_${suffix}`,
           data: {
-            label: `${meta.label}_${idSuffix()}`,
+            label: `${meta.label}_${suffix}`,
             ...(meta.defaultParams ?? {}),
           },
         });
