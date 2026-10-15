@@ -587,10 +587,11 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
                     : null,
                 );
               }),
-              createElement('div', { className: 'dsh-wf-var-group' },
-                createElement('div', { className: 'dsh-wf-var-node' }, '全局变量（不来自上游，任意位置都能引用）'),
-                createElement('div', { className: 'dsh-wf-var-list' }, ...chipsOf(globalItems(false))),
-              ),
+              // ★ 2026-10-15 用户报 bug「画布右侧面板打开变量弹窗，弹窗里面有两份全局变量」：
+              //   这里原来在上游列表末尾**又渲染了一遍** `chipsOf(globalItems(false))`，与紧接着下面
+              //   那一行「🌐 全局变量（vars N · inputs M · 点击复制）」完全重复（同数据、同 chip、同顺序）。
+              //   删掉这一份 —— 下面那行才是正式的那份：它有计数、有空态提示，而且上游为空时的提示语
+              //   「下面的全局变量仍然可用」指的就是它（留着重复这份反而让那句提示指错地方）。
             ),
             createElement('div', { className: 'dsh-wf-panel-row' },
               createElement('label', { className: 'dsh-wf-panel-label' },
