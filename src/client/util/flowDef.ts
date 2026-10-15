@@ -113,6 +113,11 @@ export function fromRF(def: WorkflowDef, rfNodes: RFNode[], rfEdges: RFEdge[]): 
     const dataCopy: Record<string, unknown> = { ...rn.data };
     delete (dataCopy as { label?: string }).label;
     Object.assign(paramsCopy, dataCopy);
+    // ★ 2026-10-15 净化：`_label` 是显示名 bug 时期被误写进 params 的幽灵键（零消费者）。
+    //   这是「画布 → def」的唯一写出路径 ⇒ 用户只要动一次画布并保存，全图历史污染自动清掉。
+    //   ★ 顺序要紧：必须放在上面那次 Object.assign **之后**——toRF 会把 params（含 `_label`）
+    //     展开进画布 data，fromRF 又整份拷回来；删早了会被原样加回去（离线契约 E3/E4 当场抓到）。
+    delete (paramsCopy as { _label?: unknown })._label;
 
     // ★ 2026-10-04 轮 5 修 bug：旧实现**逐个字段白名单**重建节点 → `tolerate`（以及将来任何新字段）
     //   会在一次画布编辑后就静默丢失。改成**以模板节点为基础覆盖**：只显式处理

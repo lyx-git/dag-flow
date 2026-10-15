@@ -228,15 +228,28 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
       //   旧实现是浅合并 `{...n.params, ...params}`，于是 {count: null} 会在 def 里留下 "count": null——
       //   节点 schema 里 count 是 integer、over 是 array，落盘后是脏数据。codePath 清空等既有调用点
       //   本来就按「清掉这个键」的意图传 null，所以这里统一成 delete 才是各方真正的期望。
+      // ★ 2026-10-15 修 bug：`_label` 是「显示名 (label)」的**专用提交键**（NodeInspector 发
+      //   `{ _label: 新名 }`），过去这里把它当**普通参数**并进 params ⇒ ①`node.label` 永不更新
+      //   （画布卡片标题、失败详情里的「显示名_id」都看不到新名）②def 的 params 里多一个
+      //   零消费者的幽灵键 `_label`（用户真实工作流已污染 3 处）。现在抽出它写**顶层 label**：
+      //   空串 = 清掉 label（画布回退显示节点 id），且不再让它进 params。
+      const { _label, ...rest } = params;
+      const hasLabel = Object.prototype.hasOwnProperty.call(params, '_label');
+      const labelText = typeof _label === 'string' ? _label.trim() : '';
       const patch: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(params)) if (v !== null) patch[k] = v;
+      for (const [k, v] of Object.entries(rest)) if (v !== null) patch[k] = v;
       const next: WorkflowDef = {
         ...def,
         nodes: def.nodes.map((n) => {
           if (n.id !== id) return n;
           const merged: Record<string, unknown> = { ...(n.params ?? {}), ...patch };
-          for (const [k, v] of Object.entries(params)) if (v === null) delete merged[k];
-          return { ...n, params: merged as typeof n.params };
+          for (const [k, v] of Object.entries(rest)) if (v === null) delete merged[k];
+          delete merged._label; // 顺带清掉 bug 期间写进去的历史幽灵键
+          const nextNode: typeof n = { ...n, params: merged as typeof n.params };
+          if (!hasLabel) return nextNode;
+          if (labelText) return { ...nextNode, label: labelText };
+          delete (nextNode as { label?: string }).label;
+          return nextNode;
         }),
       };
       setDef(next);

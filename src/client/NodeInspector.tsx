@@ -509,6 +509,9 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
         className: 'dsh-wf-input',
         defaultValue: node.label ?? node.id,
         onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+          // `_label` ＝ 显示名的**专用提交键**：FlowPanel.handleNodeChange 会把它抽出来写
+          // **顶层 `node.label`**（不是 params）。空串＝清掉显示名、画布回退显示节点 id。
+          // 别改成普通参数键，否则又会退回"改名静默无效 + params 污染"。
           onParamsChange({ _label: e.target.value });
         },
       }),

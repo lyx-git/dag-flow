@@ -66,6 +66,48 @@ import { Minimap, StatusBar, Toolbar } from './canvas-chrome';
 export { disposeCanvasNode };
 export type { EdgeKeyEditPayload };
 
+// ================= 位置变化的上抛节流（2026-10-15：拖动卡顿修复「签名短路」）=================
+// 背景（实测）：`onContentChange` 在**任何画布内容变化**时都会跑，里面无条件做
+// 「整图 toJSON → fromFG → 全图签名 → 上抛 onChange」；上抛会让 FlowPanel `setDef` ⇒
+// **整个面板整树重渲染**。拖节点时 transform 每帧变 ⇒ 这条链每帧跑：
+// 实测一次拖动 = def 写回 **38~40 次**，而"按在空白没拖到节点" = **0 次**（天然对照）。
+// 真机上每帧预算被序列化+签名+React 提交吃满 ⇒ 表现为拖动卡顿。
+// 修法：`structSigOf` **刻意不含 position**（见 canvas-utils.ts）⇒ 签名与上次相同就说明"只有位置变了"，
+// 这种情况**不再逐帧上抛**，改为「拖拽静止 180ms 后补写一次」+「mouseup 立即补写」（覆盖"拖完马上保存"）。
+// ★ 行为变更（已单列上报）：拖动**过程中** def 不再逐帧更新；松手/静止后落盘一次，位置不丢。
+let posFlushTimer: number | null = null;
+/** 画布文档句柄类型：与 `fromFG` 的形参对齐（不引入 any） */
+type PosDoc = { toJSON: () => Parameters<typeof fromFG>[0] };
+let pendingPosCtx: { document: PosDoc } | null = null;
+let boundPosFlush = false;
+
+/** 把"只有位置变化"的那次同步真正落回 def（幂等；无待写则什么都不做） */
+function flushPosition(): void {
+  if (posFlushTimer != null) { window.clearTimeout(posFlushTimer); posFlushTimer = null; }
+  const ctx = pendingPosCtx;
+  pendingPosCtx = null;
+  if (!ctx) return;
+  try {
+    const { nodes, edges } = fromFG(ctx.document.toJSON());
+    lastEmittedSig.current = structSigOf(nodes, edges);
+    onChangeRef.current?.(nodes, edges);
+  } catch (e) {
+    console.warn('[dag-flow] flush position failed:', e);
+  }
+}
+
+/** 记下"待补写"并安排静止后补写（重复调用只刷新计时器，不叠加上抛） */
+function schedulePositionFlush(ctx: { document: PosDoc }): void {
+  pendingPosCtx = ctx;
+  if (!boundPosFlush) {
+    boundPosFlush = true;
+    // capture：画布层有 stopPropagation，capture 阶段才稳
+    window.addEventListener('mouseup', flushPosition, true);
+  }
+  if (posFlushTimer != null) window.clearTimeout(posFlushTimer);
+  posFlushTimer = window.setTimeout(flushPosition, 180);
+}
+
 // ================= 编辑器 props =================
 
 function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
@@ -98,7 +140,11 @@ function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
         // ★ switch 单点端口（2026-10-03 用户拍板 B）：先按节点上选中的 chip 给**刚画的**线定分支键
         adoptChipCaseForNewLines(ctx);
         const { nodes, edges } = fromFG(ctx.document.toJSON());
-        lastEmittedSig.current = structSigOf(nodes, edges);
+        const sig = structSigOf(nodes, edges);
+        // ★ 2026-10-15 签名短路（拖动卡顿修复）：签名没变＝只有位置变了（structSigOf 刻意不含 position）
+        //   ⇒ 不逐帧上抛（那会每帧一次 FlowPanel 整树重渲染），改为静止/松手后补写一次。
+        if (sig === lastEmittedSig.current) { schedulePositionFlush(ctx); return; }
+        lastEmittedSig.current = sig;
         onChangeRef.current?.(nodes, edges);
       } catch (e) {
         console.warn('[dag-flow] serialize failed:', e);

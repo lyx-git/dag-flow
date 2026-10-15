@@ -140,5 +140,31 @@ console.log('== D. 显式假值原样保留（不静默改写用户数据）==')
   eq(back.nodes.find((n) => n.id === 'start').tolerate, false, 'D1. tolerate:false 原样保留（引擎只认 === true，行为等同未设置；但数据不被静默改写）');
 }
 
+console.log('== E. 显示名（label）与 `_label` 幽灵键（2026-10-15 修 bug）==');
+{
+  // 背景：右侧面板「显示名 (label)」过去把新名字当**普通参数**提交（`{_label: 新名}`），
+  //   而 `_label` 全仓库零消费者 ⇒ ①改名静默无效（node.label 永不更新，画布卡片标题/失败详情
+  //   里的「显示名_id」都看不到新名）②def 的 params 被污染（用户真实工作流 3 处已中招）。
+  //   修法＝FlowPanel.handleNodeChange 抽出 `_label` 写**顶层 label**；fromRF 兜底剔除该键
+  //   （画布→def 的唯一写出路径 ⇒ 动一次画布并保存，全图历史污染自动清掉）。
+  //   本段锁"写出路径的净化 + 顶层 label 往返"，handleNodeChange 的行为面在 CDP `label-rename`。
+  const def = {
+    name: 'w9', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', params: {}, next: 'a' },
+      { id: 'a', type: 'log', params: { message: 'x', _label: '日报配置' }, label: '日志A' },
+      { id: 'end', type: 'end' },
+    ],
+    edges: [{ from: 'start', to: 'a' }],
+  };
+  const { nodes: rf, edges: rfe } = toRF(def);
+  eq(rf.find((n) => n.id === 'a').data.label, '日志A', 'E1. 顶层 label 进画布 data.label（画布卡片标题读的就是它）');
+  const back = fromRF(def, rf, rfe);
+  const a = back.nodes.find((n) => n.id === 'a');
+  eq(a.label, '日志A', 'E2. label 往返后仍落在**顶层字段**（不是 params）');
+  eq('_label' in (a.params || {}), false, 'E3. ★params 里的历史幽灵键 `_label` 被剔除（不再落盘）');
+  eq(a.params, { message: 'x' }, 'E4. 剔除幽灵键不影响其它参数');
+}
+
 console.log(`\n=== flowDef 往返契约：${pass} passed, ${fail} failed ===`);
 process.exit(fail ? 1 : 0);
