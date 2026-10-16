@@ -327,6 +327,65 @@ const target = (r) => r.body?.summary?.results?.target;
   const rAgain = await runNode('doc_parse', { path: docxPath });
   t('21g6. 重复解析幂等（同名同内容不重写，reused=true）', target(rAgain)?.status === 'success' && target(rAgain)?.out?.images?.[0]?.reused === true, JSON.stringify(target(rAgain)?.out?.images)?.slice(0, 160));
 
+  // ★ 21g7–21g10（2026-10-16 第二轮：PDF 抽图）：含 DCTDecode(JPEG) 图的最小 PDF ⇒ 端到端跑通
+  //   「抽图 → 落统一图片目录 → 文本就地标注真实文件名 → 幂等」。
+  const pdfWithImage = (() => {
+    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(24, 0x33), Buffer.from([0xff, 0xd9])]);
+    const content = 'BT /F1 12 Tf 72 720 Td (PDF figure) Tj ET q /Im1 Do Q';
+    const parts = [Buffer.from('%PDF-1.4\n', 'latin1')];
+    const obj = (num, body) => { parts.push(Buffer.from(`${num} 0 obj\n`, 'latin1'), body, Buffer.from('\nendobj\n', 'latin1')); };
+    obj(1, Buffer.from('<< /Type /Catalog /Pages 2 0 R >>', 'latin1'));
+    obj(2, Buffer.from('<< /Type /Pages /Kids [3 0 R] /Count 1 >>', 'latin1'));
+    obj(3, Buffer.from('<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> /XObject << /Im1 7 0 R >> >> /Contents 5 0 R >>', 'latin1'));
+    obj(4, Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', 'latin1'));
+    obj(5, Buffer.from(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`, 'latin1'));
+    obj(7, Buffer.concat([
+      Buffer.from(`<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`, 'latin1'),
+      jpeg,
+      Buffer.from('\nendstream', 'latin1'),
+    ]));
+    parts.push(Buffer.from('trailer\n<< /Root 1 0 R >>\n%%EOF\n', 'latin1'));
+    return { buf: Buffer.concat(parts), jpeg };
+  })();
+  const pdfPath = join(process.cwd(), 'matrix-with-image.pdf');
+  writeFileSync(pdfPath, pdfWithImage.buf);
+  const rPdf = await runNode('doc_parse', { path: pdfPath });
+  const oPdf = target(rPdf)?.out;
+  t('21g7. ★ PDF 抽图：文本里就地标注真实文件名（且在该页文本之后）', target(rPdf)?.status === 'success' && /PDF figure\n\[图片：matrix-with-image-1\.jpg\]/.test(String(oPdf?.text)), JSON.stringify(oPdf?.text)?.slice(0, 200));
+  const pdfLanded = existsSync(join(imgDir, 'matrix-with-image-1.jpg'));
+  t('21g8. ★ PDF 抽出的图落进统一图片目录（.dag-flow/images/）', pdfLanded && Number(oPdf?.meta?.imageCount) === 1, `landed=${pdfLanded} meta=${JSON.stringify(oPdf?.meta)?.slice(0, 160)}`);
+  t('21g9. PDF out.images：JPEG 原样落盘（字节数一致）+ source 注明页码', oPdf?.images?.[0]?.mediaType === 'image/jpeg' && Number(oPdf?.images?.[0]?.bytes) === pdfWithImage.jpeg.length && /第 1 页/.test(String(oPdf?.images?.[0]?.source)), JSON.stringify(oPdf?.images)?.slice(0, 200));
+  const rPdfAgain = await runNode('doc_parse', { path: pdfPath });
+  t('21g10. PDF 重复解析幂等（reused=true）', target(rPdfAgain)?.status === 'success' && target(rPdfAgain)?.out?.images?.[0]?.reused === true, JSON.stringify(target(rPdfAgain)?.out?.images)?.slice(0, 160));
+
+  // ★ 21g11–21g13（2026-10-16 第二轮·用户追加：「只有图没有文字的，text 里面说明抽出来的图片地址就行」）：
+  //   扫描件（无文本层 + 整页图片）+ OCR 关 ⇒ **不再报错**，文本给出抽出的图片名（落盘后的真实地址）。
+  const scanImgPdf = (() => {
+    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(20, 0x44), Buffer.from([0xff, 0xd9])]);
+    const content = 'q 100 0 0 100 50 600 cm /Im1 Do Q';          // 没有 BT/ET ⇒ 无文本层
+    const parts = [Buffer.from('%PDF-1.4\n', 'latin1')];
+    const obj = (num, body) => { parts.push(Buffer.from(`${num} 0 obj\n`, 'latin1'), body, Buffer.from('\nendobj\n', 'latin1')); };
+    obj(1, Buffer.from('<< /Type /Catalog /Pages 2 0 R >>', 'latin1'));
+    obj(2, Buffer.from('<< /Type /Pages /Kids [3 0 R] /Count 1 >>', 'latin1'));
+    obj(3, Buffer.from('<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im1 7 0 R >> >> /Contents 5 0 R >>', 'latin1'));
+    obj(5, Buffer.from(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`, 'latin1'));
+    obj(7, Buffer.concat([
+      Buffer.from(`<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`, 'latin1'),
+      jpeg,
+      Buffer.from('\nendstream', 'latin1'),
+    ]));
+    parts.push(Buffer.from('trailer\n<< /Root 1 0 R >>\n%%EOF\n', 'latin1'));
+    return { buf: Buffer.concat(parts), jpeg };
+  })();
+  const scanImgPath = join(process.cwd(), 'matrix-scan-img.pdf');
+  writeFileSync(scanImgPath, scanImgPdf.buf);
+  const rOnly = await runNode('doc_parse', { path: scanImgPath });
+  const oOnly = target(rOnly)?.out;
+  t('21g11. ★ 纯图 PDF（无文本层）+ OCR 关 ⇒ 成功返回、文本给出图片地址', target(rOnly)?.status === 'success' && /\[图片：matrix-scan-img-1\.jpg\]/.test(String(oOnly?.text)) && oOnly?.meta?.imagesOnly === true, JSON.stringify(oOnly?.text)?.slice(0, 200) + ' / ' + String(target(rOnly)?.error?.code));
+  t('21g12. 纯图 PDF 抽出的图落进统一图片目录（且字节原样）', existsSync(join(imgDir, 'matrix-scan-img-1.jpg')) && Number(oOnly?.meta?.imageCount) === 1 && Number(oOnly?.images?.[0]?.bytes) === scanImgPdf.jpeg.length, JSON.stringify(oOnly?.meta) + ' ' + JSON.stringify(oOnly?.images)?.slice(0, 160));
+  const rOnlyOff = await runNode('doc_parse', { path: scanImgPath, extractImages: 'off' });
+  t('21g13. 纯图 PDF + extractImages:off ⇒ 保持原报错（契约不变）', target(rOnlyOff)?.error?.code === 'DOC_NO_TEXT_LAYER', String(target(rOnlyOff)?.error?.code));
+
   // ★ 21h–21l（2026-10-11 轮 2：图片 OCR）。用**假引擎**（DAGFLOW_OCR_* 逃生舱 + node 冒充解释器）
   //   ⇒ 链路完整、但整链仍然**离线**、不依赖真引擎装没装。
   const fakeEngine = join(process.cwd(), 'matrix-ocr-engine');

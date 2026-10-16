@@ -7,6 +7,31 @@
 
 ---
 
+// v20261016-pdfimg：**PDF 抽图**（2026-10-16 用户：「开始PDF 抽图」）。
+//   · host（本轮改动都在 host；客户端无功能变化，标记同步升位以保持两侧产物组合可辨识）：
+//     新增 `src/registry/doc-image-pdf.ts`（零依赖）——扫对象表找 `/Subtype /Image`：
+//       `/DCTDecode` ⇒ **原样取 JPEG**（零重编码，覆盖绝大多数 PDF 里的照片）；
+//       `/FlateDecode` ⇒ 扫描时已 inflate 的**原始像素** ⇒ 现场编码 PNG（8 位灰度/真彩，
+//         IHDR/IDAT/IEND + CRC32，`node:zlib` 压缩）；`/DecodeParms` 的 Predictor 2（TIFF）
+//         与 10–15（PNG 系列）先反预测再编码。
+//       `/JPXDecode`（JPEG2000）`/CCITTFaxDecode`/`/JBIG2Decode`/`/LZWDecode`/`/RunLengthDecode`/
+//         `/ImageMask`/非 8 位/调色板/长度对不上 ⇒ **明确跳过并计数原因**（绝不产出打不开的图）。
+//     页归属：按页 `/Resources` 里的 `/XObject` 引用反查 ⇒ 文本标记能落在**对应页**文本之后；
+//       没被任何页引用的图像对象排文末（page=0），保证落盘的图在文本里都有出处。
+//     `src/registry/doc-pdf.ts` 的 `extractPdf` 新增返回 `pages[]`（**纯加法**：逐页文本，
+//       与 pageNums 一一对应含空页）；`doc-extract.ts` 的 `.pdf` 分支只在**真抽到图**时才用
+//       `pages` 重排文本并插 `[图片 #N]` ⇒ 无图 PDF 的输出与改动前**逐字相同**。
+//   · 落盘/命名/幂等复用既有的 `adapter/image-library`（`<doc>-<n>.<ext>`），节点侧无需改动。
+//   · 轮内追加（用户：「只有图没有文字的，text 里面说明抽出来的图片地址就行」）：**无文本层但整页是图**的
+//     扫描件，在 OCR 关着时不再一律抛 `DOC_NO_TEXT_LAYER`——能抽出图就**成功返回**：
+//       文本 = 一行说明 + 每张一行 `[图片：<文件名>]`（落盘后的真实文件名，文件就在统一图片目录里
+//       ⇒ 这段文本就是"图片地址清单"）；`meta.imagesOnly = true`；`out.images` 照常给出。
+//     边界（都是"行为不变"）：OCR 自动/强制 ⇒ 照旧栅格化 + OCR（既有通路不动）；`extractImages:'off'`
+//       或一张图都抽不出来 ⇒ 保持原来的报错与提示。
+//     节点侧把落盘+替换占位抽成 `landImages()`，主流程与"纯图 PDF"共用，避免两份落盘代码分叉。
+//   · 真机证据（`tmp-test/build/scan-sample.pdf`，2 页真实扫描件）：内核零损失抽出 2 张 1240×420 JPEG
+//     （31004B / 25033B，SOI/EOI 完整）⇒ 节点文本逐行给出 `[图片：scan-sample-1.jpg]` / `-2.jpg`。
+//
 // v20261016-modality：**P2 不静默降级**（2026-10-16 用户：「开始P2 不静默降级」）。
 //   · host：新增 `checkImageModality(endpoint, count)`（`src/adapter/llm-modality.ts`）——按 `images` 的
 //     **真实条数**判模态：`count > 0` 而模型 `input` 不含 image ⇒ **发调用之前**直接失败

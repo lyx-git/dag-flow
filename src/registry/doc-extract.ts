@@ -13,6 +13,7 @@
 
 import { inflateRawSync, inflateSync } from 'node:zlib';
 import { extractPdf } from './doc-pdf.js';
+import { extractPdfImages } from './doc-image-pdf.js';
 
 /** 带错误码的解析异常（错误码与 docs/ERROR_REFERENCE.md 对齐） */
 export class DocError extends Error {
@@ -37,6 +38,10 @@ interface DocResult {
   /** ★ 2026-10-16 用户需求「doc_parse 抽图落统一目录 + 在文本相应位置注明图片位置」：
    *  文档内嵌图片（**只回引用与字节，不落盘**——落盘由节点侧走 `src/adapter/image-library.ts`）。 */
   images: DocImageRef[];
+  /** ★ 2026-10-16 第二轮（PDF 抽图）：跳过的图片**原因**（如 `{ JPXDecode: 3 }`）——PDF 里含
+   *  JPEG2000/传真压缩/1 位掩码这类抽不出来的图时，让用户一眼看出"为什么只抽到 2 张"。
+   *  只在真的有跳过时出现（无图/全抽出来的文档不带这个字段，输出与改动前一致）。 */
+  skippedImageReasons?: Record<string, number>;
 }
 
 /** 从文档里抽出的内嵌图片（文本里 `[图片 #index]` 与它一一对应） */
@@ -123,10 +128,30 @@ export function extractDocument(buf: Buffer, filename: string, opts: ExtractOpti
   //   落盘由节点侧（adapter/image-library）负责，内核保持"零依赖纯函数、不写盘"。
   let images: DocImageRef[] = [];
   let skippedImages = 0;
+  let skippedImageReasons: Record<string, number> | undefined;
 
   switch (ext) {
-    case '.pdf':
-      format = 'pdf'; { const r = extractPdf(buf); text = r.text; meta = { ...meta, ...r.meta }; } break;
+    case '.pdf': {
+      const r = extractPdf(buf);
+      format = 'pdf';
+      text = r.text;
+      meta = { ...meta, ...r.meta };
+      // 2026-10-16 第二轮：PDF 内嵌图片（DCTDecode 原样取 JPEG / FlateDecode 现场编码 PNG）。
+      // ★ 只有真的抽到图时才重排文本；没图时 text 就是 extractPdf 的原样输出（逐字不变）。
+      const hit = extractPdfImages(buf);
+      skippedImages = hit.skipped;
+      if (hit.skipped > 0 && Object.keys(hit.reasons).length) skippedImageReasons = hit.reasons;
+      if (hit.images.length) {
+        images = hit.images.map((im, i) => ({
+          index: i + 1,
+          source: im.page > 0 ? `第 ${im.page} 页 (对象 ${im.objNum})` : `未引用对象 ${im.objNum}`,
+          bytes: im.bytes,
+          mediaType: im.mediaType,
+        }));
+        text = markPdfImages(r.pages, hit.images, text);
+      }
+      break;
+    }
     case '.docx': {
       const xml = zipEntry(buf, ['word/document.xml'], base);
       const raw = unzipText(buf);
@@ -169,7 +194,7 @@ export function extractDocument(buf: Buffer, filename: string, opts: ExtractOpti
   if (images.length > 0) meta = { ...meta, images: images.length };
   const truncated = text.length > maxChars;
   const out = truncated ? text.slice(0, maxChars) : text;
-  return { format, text: out, chars: out.length, truncated, meta, images };
+  return { format, text: out, chars: out.length, truncated, meta, images, ...(skippedImageReasons ? { skippedImageReasons } : {}) };
 }
 
 // ==================== 文本/HTML ====================
@@ -202,6 +227,41 @@ export function squeezeLines(s: string): string {
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/**
+ * 把 PDF 内嵌图片按页标注到该页文本尾部（`[图片 #N]`，N 与 DocImageRef.index 一致）。
+ * 只在"确实抽到图片"时被调用 ⇒ 无图片的 PDF 输出与旧版逐字相同。
+ * 未被任何页引用的图像对象（page=0）挂在文末，保证每张落盘的图在文本里都有出处。
+ */
+function markPdfImages(
+  pages: { text: string }[],
+  imgs: { page: number }[],
+  fallbackText: string,
+): string {
+  const marksOfPage = new Map<number, number[]>();
+  const orphans: number[] = [];
+  imgs.forEach((im, i) => {
+    if (im.page > 0) {
+      const arr = marksOfPage.get(im.page) ?? [];
+      arr.push(i + 1);
+      marksOfPage.set(im.page, arr);
+    } else orphans.push(i + 1);
+  });
+  const orphanLine = orphans.map((n) => `[图片 #${n}]`).join(' ');
+  if (!pages.length) {
+    // 页树没解析出来（罕见 → extractPdf 走了全流兜底）：没有页边界可挂，统一附在文末
+    const all = imgs.map((_, i) => i + 1);
+    return squeezeLines([fallbackText, all.map((n) => `[图片 #${n}]`).join(' ')].filter((x) => x.trim()).join('\n\n'));
+  }
+  const out: string[] = [];
+  pages.forEach((p, idx) => {
+    const marks = (marksOfPage.get(idx + 1) ?? []).map((n) => `[图片 #${n}]`).join(' ');
+    const t = marks ? (p.text ? `${p.text}\n${marks}` : marks) : p.text;
+    if (t.trim()) out.push(t.trim());
+  });
+  if (orphanLine) out.push(orphanLine);
+  return squeezeLines(out.join('\n\n'));
 }
 
 const decodeEntities = (s: string): string =>
@@ -458,3 +518,6 @@ function extractPptx(buf: Buffer): { text: string; meta: Record<string, string |
 // extractPdf / CMap / parseCMap / contentToText / decodeShowString 都在那边；
 // 对外符号保持不变：extractPdf 在这里 import（extractDocument 分发要用）+ 再导出（历史导入路径不变）。
 export { extractPdf };
+// ★ 2026-10-16 第二轮：PDF 抽图内核也在这里再导出——节点侧要判「没有文本层但整页是图」的场景
+//   （用户：「只有图没有文字的，text 里面说明抽出来的图片地址就行」）。
+export { extractPdfImages };

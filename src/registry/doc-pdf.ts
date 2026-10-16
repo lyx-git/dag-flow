@@ -8,7 +8,12 @@ import { DocError, safeChar, squeezeLines } from './doc-extract.js';
 type PdfObj = { num: number; body: string; stream?: Buffer };
 
 /** 极简 PDF：对象表 → 页树顺序 → 每页字体 CMap + 内容流文本 */
-export function extractPdf(buf: Buffer): { text: string; meta: Record<string, string | number | boolean> } {
+export function extractPdf(buf: Buffer): {
+  text: string;
+  meta: Record<string, string | number | boolean>;
+  /** 逐页文本（**与 pageNums 一一对应，含空文本页**）——doc-extract 在有内嵌图片时用它按页标注 `[图片 #N]` */
+  pages: { text: string }[];
+} {
   const raw = buf.toString('latin1');        // latin1 ⇒ 字符下标 == 字节下标（便于切 stream）
   // ★ 加密 PDF：内容流与字符串都是密文，再往下走只会得到「没有文本层」这种误导性结论（真实文件踩过：
   //   orimi pdf-test.pdf 带 /Encrypt，被误报成扫描版）。这里直接给专门的码，让用户知道该去解密而不是去 OCR。
@@ -90,10 +95,11 @@ export function extractPdf(buf: Buffer): { text: string; meta: Record<string, st
   }
 
   const parts: string[] = [];
+  const pages: { text: string }[] = [];      // 与 pageNums 一一对应（空文本/无内容流的页补 ''）——保证 下标+1 == 页号
   let textPages = 0;
   for (const pn of pageNums) {
     const page = objs.get(pn);
-    if (!page) continue;
+    if (!page) { pages.push({ text: '' }); continue; }
     // 该页字体资源：/F1 5 0 R → fontObjNum
     const fontNameToObj = new Map<string, number>();
     const resBlock = /\/Resources\b[\s\S]{0,400}?\/Font\s*<<([\s\S]*?)>>/.exec(page.body)?.[1] ?? '';
@@ -109,8 +115,9 @@ export function extractPdf(buf: Buffer): { text: string; meta: Record<string, st
     const streams: string[] = [];
     if (contents) { const s = objs.get(Number(contents))?.stream; if (s) streams.push(s.toString('latin1')); }
     if (contentsArr) for (const r of contentsArr.matchAll(/(\d+)\s+\d+\s+R/g)) { const s = objs.get(Number(r[1]))?.stream; if (s) streams.push(s.toString('latin1')); }
-    if (!streams.length) continue;
+    if (!streams.length) { pages.push({ text: '' }); continue; }
     const pageText = contentToText(streams.join('\n'), fontCmaps, globalCmap);
+    pages.push({ text: pageText.trim() });
     if (pageText.trim()) { textPages++; parts.push(pageText.trim()); }
   }
 
@@ -125,7 +132,7 @@ export function extractPdf(buf: Buffer): { text: string; meta: Record<string, st
   if (!text.trim()) {
     throw new DocError('DOC_NO_TEXT_LAYER', '这个 PDF 没有可提取的文本层（疑似扫描版/图片型）——本节点不做 OCR，请改用 OCR 工具或索取文字版');
   }
-  return { text, meta: { pages: pageNums.length, pagesWithText: textPages } };
+  return { text, meta: { pages: pageNums.length, pagesWithText: textPages }, pages };
 }
 
 /** ToUnicode 映射 + 码宽（由 CMap 的 codespacerange 决定，别按 key 大小猜） */

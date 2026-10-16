@@ -5,7 +5,7 @@
 //   跑法：node test/doc-extract.test.mjs
 import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { deflateRawSync } from 'node:zlib';
+import { deflateRawSync, inflateSync } from 'node:zlib';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -144,6 +144,186 @@ function pdfNoText() {
     [3, '<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im1 7 0 R >> >> /Contents 5 0 R >>'],
     [5, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`],
     [7, '<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 1 >>\nstream\n\u0000\nendstream'],
+  ]);
+}
+
+// ---------- fixture：带内嵌图片的 PDF（2026-10-16 第二轮：PDF 抽图） ----------
+// 假 JPEG：解析器只认 /DCTDecode 后**原样**取字节，不校验 JPEG 结构（所以能构造确定性 fixture）
+const FAKE_JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(20, 0x5a), Buffer.from([0xff, 0xd9])]);
+const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+function pdfStreamObj(dict, data) {
+  return Buffer.concat([Buffer.from(`<< ${dict} /Length ${data.length} >>\nstream\n`, 'latin1'), data, Buffer.from('\nendstream', 'latin1')]);
+}
+/** 正向 PNG Up 预测（filter=2，逐行减上一行）——用来验证内核的反预测 */
+function pngUpPredict(pixels, width, channels, height) {
+  const stride = width * channels;
+  const out = Buffer.alloc((stride + 1) * height);
+  for (let y = 0; y < height; y++) {
+    out[y * (stride + 1)] = 2;
+    for (let x = 0; x < stride; x++) {
+      const cur = pixels[y * stride + x];
+      const up = y > 0 ? pixels[(y - 1) * stride + x] : 0;
+      out[y * (stride + 1) + 1 + x] = (cur - up) & 0xff;
+    }
+  }
+  return out;
+}
+/** 极简 PNG 解码（校验 CRC + 还原像素），用于证明"现场编码的 PNG 内容正确" */
+function pngDecode(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 8 || !buf.subarray(0, 8).equals(PNG_SIG)) return null;
+  const chunks = [];
+  let p = 8, crcOk = true;
+  while (p + 12 <= buf.length) {
+    const len = buf.readUInt32BE(p);
+    const type = buf.toString('latin1', p + 4, p + 8);
+    const data = buf.subarray(p + 8, p + 8 + len);
+    const crc = buf.readUInt32BE(p + 8 + len);
+    if (crc32(Buffer.concat([Buffer.from(type, 'latin1'), data])) !== crc) crcOk = false;
+    chunks.push({ type, data });
+    p += 12 + len;
+  }
+  const ihdr = chunks.find((c) => c.type === 'IHDR')?.data;
+  if (!ihdr) return null;
+  const width = ihdr.readUInt32BE(0), height = ihdr.readUInt32BE(4), colorType = ihdr[9];
+  const raw = inflateSync(Buffer.concat(chunks.filter((c) => c.type === 'IDAT').map((c) => c.data)));
+  const channels = colorType === 2 ? 3 : 1;
+  const stride = width * channels;
+  const pixels = Buffer.alloc(stride * height);
+  let filtersOk = true;
+  for (let y = 0; y < height; y++) {
+    if (raw[y * (stride + 1)] !== 0) filtersOk = false;
+    raw.copy(pixels, y * stride, y * (stride + 1) + 1, y * (stride + 1) + 1 + stride);
+  }
+  return { width, height, colorType, bits: ihdr[8], pixels, crcOk, filtersOk, types: chunks.map((c) => c.type) };
+}
+const LATIN_FONT = [4, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+/** 1 页带文本 + 1 张 DCTDecode(JPEG) 图的 PDF */
+function pdfWithJpeg() {
+  const content = 'BT /F1 12 Tf 72 720 Td (Hello PDF) Tj ET q 100 0 0 100 50 600 cm /Im1 Do Q';
+  return makePdf([
+    [1, '<< /Type /Catalog /Pages 2 0 R >>'],
+    [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> /XObject << /Im1 7 0 R >> >> /Contents 5 0 R >>'],
+    LATIN_FONT,
+    [5, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`],
+    [7, pdfStreamObj('/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode', FAKE_JPEG)],
+  ]);
+}
+/** 1 页 FlateDecode 灰度图（带 /Predictor 12 ⟺ PNG Up） */
+function pdfWithFlateGray() {
+  const px = Buffer.from([0, 85, 170, 255]);              // 2×2 灰度
+  const data = deflateRawSync(pngUpPredict(px, 2, 1, 2));
+  const content = 'BT /F1 12 Tf 72 720 Td (Gray fig) Tj ET';
+  return makePdf([
+    [1, '<< /Type /Catalog /Pages 2 0 R >>'],
+    [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> /XObject << /Im1 7 0 R >> >> /Contents 5 0 R >>'],
+    LATIN_FONT,
+    [5, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`],
+    [7, pdfStreamObj('/Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /DecodeParms << /Predictor 12 /Colors 1 /BitsPerComponent 8 /Columns 2 >>', data)],
+  ]);
+}
+/** 2 页（每页各 1 图）+ 1 张 FlateDecode RGB 无预测图，用来验证"标记落在对应页文本后" */
+function pdfTwoPagesWithImages() {
+  const c1 = 'BT /F1 12 Tf 72 720 Td (Page one) Tj ET q /ImA Do Q';
+  const c2 = 'BT /F1 12 Tf 72 720 Td (Page two) Tj ET q /ImB Do Q';
+  const rgb = Buffer.from([255, 0, 0, 0, 255, 0]);         // 2×1 真彩
+  return makePdf([
+    [1, '<< /Type /Catalog /Pages 2 0 R >>'],
+    [2, '<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> /XObject << /ImA 9 0 R >> >> /Contents 5 0 R >>'],
+    LATIN_FONT,
+    [5, `<< /Length ${c1.length} >>\nstream\n${c1}\nendstream`],
+    [6, '<< /Type /Page /Parent 2 0 R /Resources << /XObject << /ImB 10 0 R >> >> /Contents 7 0 R >>'],
+    [7, `<< /Length ${c2.length} >>\nstream\n${c2}\nendstream`],
+    [9, pdfStreamObj('/Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode', deflateRawSync(rgb))],
+    [10, pdfStreamObj('/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode', FAKE_JPEG)],
+  ]);
+}
+/** 各种"明确不支持"的图像对象：必须只计数不产出（避免落盘一堆打不开的文件） */
+function pdfUnsupportedImages() {
+  const content = 'BT /F1 12 Tf 72 720 Td (Skip me) Tj ET';
+  const mk = (num, dict, body) => [num, pdfStreamObj(dict, body)];
+  return makePdf([
+    [1, '<< /Type /Catalog /Pages 2 0 R >>'],
+    [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> /XObject << /A 7 0 R /B 8 0 R /C 9 0 R /D 10 0 R /E 11 0 R >> >> /Contents 5 0 R >>'],
+    LATIN_FONT,
+    [5, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`],
+    mk(7, '/Type /XObject /Subtype /Image /Width 4 /Height 4 /Filter /JPXDecode', Buffer.from([1, 2, 3])),
+    mk(8, '/Type /XObject /Subtype /Image /Width 4 /Height 4 /Filter /CCITTFaxDecode', Buffer.from([1, 2, 3])),
+    [9, '<< /Type /XObject /Subtype /Image /Width 2 /Height 2 /ImageMask true /BitsPerComponent 1 /Length 1 >>\nstream\n\u0000\nendstream'],
+    mk(10, '/Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /FlateDecode', deflateRawSync(Buffer.from([0]))),
+    mk(11, '/Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /LZWDecode', Buffer.from([1, 2, 3])),
+  ]);
+}
+/** Predictor 10（PNG None）但流里**没有** filter 字节（部分生成器如此）⇒ 靠流长度判定，照样还原 */
+function pdfFlateNoFilterByte() {
+  const px = Buffer.from([10, 20, 30, 40]);              // 2×2 灰度
+  const content = 'BT /F1 12 Tf 72 720 Td (NoFt) Tj ET';
+  return makePdf([
+    [1, '<< /Type /Catalog /Pages 2 0 R >>'],
+    [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> /XObject << /Im1 7 0 R >> >> /Contents 5 0 R >>'],
+    LATIN_FONT,
+    [5, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`],
+    [7, pdfStreamObj('/Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /DecodeParms << /Predictor 10 /Colors 1 /BitsPerComponent 8 /Columns 2 >>', deflateRawSync(px))],
+  ]);
+}
+/** 正向 PNG 预测（逐行按 filters 指定 filter type）——覆盖 None/Sub/Up/Average/Paeth 五个分支 */
+function pngPredict(pixels, width, channels, height, filters) {
+  const stride = width * channels;
+  const out = Buffer.alloc((stride + 1) * height);
+  for (let y = 0; y < height; y++) {
+    const ft = filters[y % filters.length];
+    out[y * (stride + 1)] = ft;
+    const off = y * stride, prev = (y - 1) * stride;
+    for (let x = 0; x < stride; x++) {
+      const cur = pixels[off + x];
+      const left = x >= channels ? pixels[off + x - channels] : 0;
+      const up = y > 0 ? pixels[prev + x] : 0;
+      const ul = (y > 0 && x >= channels) ? pixels[prev + x - channels] : 0;
+      let pred = 0;
+      if (ft === 1) pred = left;
+      else if (ft === 2) pred = up;
+      else if (ft === 3) pred = (left + up) >> 1;
+      else if (ft === 4) {
+        const pa = Math.abs(up - ul), pb = Math.abs(left - ul), pc = Math.abs(left + up - 2 * ul);
+        pred = (pa <= pb && pa <= pc) ? left : (pb <= pc ? up : ul);
+      }
+      out[y * (stride + 1) + 1 + x] = (cur - pred) & 0xff;
+    }
+  }
+  return out;
+}
+/** 5 行 RGB 图，逐行 filter = None/Sub/Up/Average/Paeth + /Predictor 15 ⇒ 反预测五个分支都要走对 */
+function pdfPredictor15() {
+  const W = 4, H = 5, CH = 3;
+  const px = Buffer.alloc(W * H * CH);
+  for (let i = 0; i < px.length; i++) px[i] = (i * 37 + 11) & 0xff;       // 有梯度、有重复，能咬出预测错误
+  const data = deflateRawSync(pngPredict(px, W, CH, H, [0, 1, 2, 3, 4]));
+  const content = 'BT /F1 12 Tf 72 720 Td (Pred15) Tj ET';
+  return {
+    pdf: makePdf([
+      [1, '<< /Type /Catalog /Pages 2 0 R >>'],
+      [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+      [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> /XObject << /Im1 7 0 R >> >> /Contents 5 0 R >>'],
+      LATIN_FONT,
+      [5, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`],
+      [7, pdfStreamObj('/Type /XObject /Subtype /Image /Width 4 /Height 5 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /DecodeParms << /Predictor 15 /Colors 3 /BitsPerComponent 8 /Columns 4 >>', data)],
+    ]),
+    pixels: px,
+  };
+}
+/** 图像对象存在但没有任何页引用它 ⇒ page=0，标记挂文末（保证落盘的图在文本里都有出处） */function pdfOrphanImage() {
+  const content = 'BT /F1 12 Tf 72 720 Td (Orphan) Tj ET';
+  return makePdf([
+    [1, '<< /Type /Catalog /Pages 2 0 R >>'],
+    [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>'],
+    LATIN_FONT,
+    [5, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`],
+    [9, pdfStreamObj('/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode', FAKE_JPEG)],
   ]);
 }
 
@@ -330,6 +510,77 @@ console.log('== 5. pdf ==');
 
   const r5 = extractDocument(pdfTjArray(), 'tj-array.pdf');
   t('pdf：TJ 数组里多个字符串各自解码后拼接（无 ) ( 残渣）', r5.text.trim() === 'Lorem ipsum', JSON.stringify(r5.text));
+}
+
+// ==================== 5b. PDF 内嵌图片（2026-10-16 第二轮） ====================
+console.log('== 5b. PDF 内嵌图片 ==');
+{
+  // ① DCTDecode ⇒ 原样取 JPEG（零转换、零重编码）
+  const r = extractDocument(pdfWithJpeg(), '带图.pdf');
+  t('pdf 抽图：DCTDecode 抽出 1 张', r.images.length === 1, JSON.stringify(r.images.map((i) => i.source)));
+  t('pdf 抽图：JPEG 字节**逐字节原样**（含 FFD8 头 / FFD9 尾）', r.images[0]?.bytes.equals(FAKE_JPEG) === true, String(r.images[0]?.bytes.length));
+  t('pdf 抽图：mediaType=image/jpeg', r.images[0]?.mediaType === 'image/jpeg', String(r.images[0]?.mediaType));
+  t('pdf 抽图：index 从 1 开始且与标记一致', r.images[0]?.index === 1);
+  t('pdf 抽图：source 注明页号与对象号', r.images[0]?.source === '第 1 页 (对象 7)', String(r.images[0]?.source));
+  t('★ pdf 文本：图片标记落在该页文本之后', /Hello PDF\n\[图片 #1\]/.test(r.text), JSON.stringify(r.text));
+  t('pdf 抽图：meta.images 记数', r.meta.images === 1, JSON.stringify(r.meta));
+  t('pdf 抽图：本用例无跳过', r.meta.skippedImages === undefined, JSON.stringify(r.meta));
+
+  // ② FlateDecode 原始像素 ⇒ 现场编码 PNG；带 /Predictor 12（PNG Up）需反预测
+  const g = extractDocument(pdfWithFlateGray(), '灰度图.pdf');
+  const png = pngDecode(g.images[0]?.bytes);
+  t('pdf 抽图：FlateDecode 灰度图 → PNG 容器', g.images[0]?.mediaType === 'image/png' && png !== null, String(g.images[0]?.mediaType));
+  t('pdf 抽图：PNG 宽高取自 /Width /Height', png?.width === 2 && png?.height === 2, JSON.stringify(png && { w: png.width, h: png.height }));
+  t('pdf 抽图：PNG colorType=0（灰度）8 位', png?.colorType === 0 && png?.bits === 8, JSON.stringify(png && { ct: png.colorType, b: png.bits }));
+  t('★ pdf 抽图：Predictor 12 反预测后像素与原图逐字节相同', png?.pixels.equals(Buffer.from([0, 85, 170, 255])) === true, JSON.stringify(png?.pixels));
+  t('pdf 抽图：PNG 三个 chunk 齐全且 CRC 全部正确', png?.types.join(',') === 'IHDR,IDAT,IEND' && png?.crcOk === true, JSON.stringify(png && { types: png.types, crc: png.crcOk }));
+  t('pdf 抽图：PNG 每行 filter 为 0（解码器都能读）', png?.filtersOk === true);
+
+  // ③ 两页各一图 ⇒ 标记落在**各自页**的文本后面（这就是用户要的"相应位置"）
+  const m = extractDocument(pdfTwoPagesWithImages(), '两页.pdf');
+  const iPage1 = m.text.indexOf('[图片 #1]'); const iPage2 = m.text.indexOf('[图片 #2]');
+  t('pdf 抽图：两页各抽 1 张', m.images.length === 2, JSON.stringify(m.images.map((i) => i.source)));
+  t('pdf 抽图：第 1 张属于第 1 页、第 2 张属于第 2 页', m.images[0]?.source.startsWith('第 1 页') && m.images[1]?.source.startsWith('第 2 页'), JSON.stringify(m.images.map((i) => i.source)));
+  t('★ pdf 文本：标记顺序为 页1文本 → #1 → 页2文本 → #2', m.text.indexOf('Page one') >= 0 && iPage1 > m.text.indexOf('Page one') && iPage2 > m.text.indexOf('Page two') && iPage1 < m.text.indexOf('Page two'), JSON.stringify(m.text));
+  t('pdf 抽图：RGB 无预测图同样现场编码 PNG', pngDecode(m.images[0]?.bytes)?.pixels.equals(Buffer.from([255, 0, 0, 0, 255, 0])) === true);
+  t('pdf 抽图：第 2 页 JPEG 原样', m.images[1]?.bytes.equals(FAKE_JPEG) === true);
+
+  // ④ 不支持的类型：只计数、不产出（JPX/CCITT/ImageMask/1 位/LZW）
+  const s = extractDocument(pdfUnsupportedImages(), '怪图.pdf');
+  t('pdf 抽图：不支持的类型一张都不产出', s.images.length === 0, JSON.stringify(s.images.map((i) => i.mediaType)));
+  t('pdf 抽图：跳过 5 个都计入 skippedImages', s.meta.skippedImages === 5, JSON.stringify(s.meta));
+  t('★ pdf 抽图：跳过原因清单可直接看出"为什么没抽到"', (() => {
+    const keys = Object.keys(s.skippedImageReasons ?? {});
+    return keys.length === 5
+      && keys.some((k) => k.startsWith('JPXDecode'))
+      && keys.some((k) => k.startsWith('CCITTFaxDecode'))
+      && keys.some((k) => k.startsWith('LZWDecode'))
+      && keys.some((k) => k.includes('ImageMask'))
+      && keys.some((k) => k.includes('BitsPerComponent'));
+  })(), JSON.stringify(s.skippedImageReasons));
+  t('★ pdf 文本：没有产出图片时文本里不出现 [图片 标记', !s.text.includes('[图片'), JSON.stringify(s.text));
+
+  // ⑤ 孤儿图像对象：page=0，标记挂文末（落盘的图在文本里一定有出处）
+  const o = extractDocument(pdfOrphanImage(), '孤儿图.pdf');
+  t('pdf 抽图：未被页引用的图仍被抽出（source 标注未引用）', o.images.length === 1 && o.images[0]?.source === '未引用对象 9', JSON.stringify(o.images.map((i) => i.source)));
+  t('pdf 抽图：孤儿图标记附在文末', /Orphan\n\n\[图片 #1\]/.test(o.text), JSON.stringify(o.text));
+
+  // ⑤b Predictor 声明了但流里没有 filter 字节（部分生成器）⇒ 长度判定兜底，不能把像素解错位
+  const nf = pngDecode(extractDocument(pdfFlateNoFilterByte(), 'nf.pdf').images[0]?.bytes);
+  t('pdf 抽图：Predictor 10 且无 filter 字节 ⇒ 按流长度兜底还原', nf?.pixels.equals(Buffer.from([10, 20, 30, 40])) === true, JSON.stringify(nf?.pixels));
+
+  // ⑤c Predictor 15 + 逐行混合 filter（None/Sub/Up/Average/Paeth）⇒ 反预测五个分支全走对
+  const p15 = pdfPredictor15();
+  const d15 = pngDecode(extractDocument(p15.pdf, 'p15.pdf').images[0]?.bytes);
+  t('★ pdf 抽图：Predictor 15 逐行混合 filter（含 Paeth/Average）像素逐字节还原', d15?.pixels.equals(p15.pixels) === true && d15?.width === 4 && d15?.height === 5 && d15?.colorType === 2, JSON.stringify(d15 && { w: d15.width, h: d15.height, ct: d15.colorType, same: d15.pixels.equals(p15.pixels) }));
+
+  // ⑥ 无图片的 PDF：输出与改动前逐字一致（红线：不能影响现有功能）
+  const plain = extractDocument(pdfLatin(), 'latin2.pdf');
+  t('★ 无图 PDF：text 与旧行为逐字相同', plain.text === 'Hello PDF\nsecond line', JSON.stringify(plain.text));
+  t('无图 PDF：images 为空数组、不写 skippedImages', plain.images.length === 0 && plain.meta.skippedImages === undefined, JSON.stringify(plain.meta));
+  t('无图 PDF：不带 skippedImageReasons 字段（输出与改动前一致）', plain.skippedImageReasons === undefined);
+  const cjk = extractDocument(pdfCjk(true), '公文2.pdf');
+  t('★ 无图 PDF（中文）：text 与旧行为逐字相同', cjk.text === '你好', JSON.stringify(cjk.text));
 }
 
 // ==================== 6. 错误路径 ====================
