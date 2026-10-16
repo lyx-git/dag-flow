@@ -18,7 +18,7 @@ await build({ entryPoints: ['src/client/undo-stack.ts'], bundle: true, format: '
 const U = await import(pathToFileURL(OUT).href);
 const {
   observeDef, resetUndo, undo, redo, undoCan, redoCan, undoStats,
-  setUndoApplier, diffKeyOf, MAX_STEPS, COALESCE_MS, APPLY_QUIET_MS,
+  setUndoApplier, diffKeyOf, MAX_STEPS, COALESCE_MS, APPLY_QUIET_MS, resetUndoPending,
 } = U;
 
 // def 夹具：两个节点 + layout（位置是 def.layout[nodeId]，见 util/flowDef.ts 的布局持久化）
@@ -158,6 +158,20 @@ console.log('== E. 栈上限 ==');
   }
   eq(undoStats().size, MAX_STEPS, `E1. 栈深被限制在 MAX_STEPS=${MAX_STEPS}（超出丢最旧）`);
   eq(undoCan(), true, 'E2. 超限后仍可撤销');
+}
+
+console.log('== F. resetUndoPending：导入/换工作流清栈，下一条 def 当基线 ==');
+{
+  setUndoApplier(() => {});
+  resetUndo(mkDef());
+  observeDef(moved('a', 10, 10));
+  eq(undoCan(), true, 'F1. 先做出一条可撤销的记录');
+  resetUndoPending();
+  eq(undoStats().size, 0, 'F2. ★resetUndoPending 清空旧工作流的历史（导入路径用）');
+  eq(undoCan(), false, 'F3. 清完不能撤销');
+  observeDef({ nodes: [], edges: [], layout: {}, name: 'another-workflow' });
+  eq(undoStats().size, 1, 'F4. ★下一条观察到的 def 成为新基线');
+  eq(undoCan(), false, 'F5. 新基线本身不可撤销（不会撤到上一个工作流上）');
 }
 
 console.log(`\n结果：${pass} passed, ${fail} failed`);

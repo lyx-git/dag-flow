@@ -29,7 +29,7 @@ import { Canvas } from './flowgram/FlowGramCanvas';
 import { disposeCanvasNode, hasPendingPosFlush } from './flowgram/FlowGramCanvas';
 // ★ 2026-10-16 用户拍板方案 B：撤销/重做走**自建快照栈**（FlowGram 自带 history 在本项目恒为空 ——
 //   位移走自建拖拽引擎绕过 operationService，且每次 def→fromJSON 都触发 onReload→clear，详见该文件头注释）
-import { observeDef, resetUndo, setUndoApplier, undo, redo, undoStats, undoKeys, undoDump } from './undo-stack';
+import { observeDef, resetUndo, resetUndoPending, setUndoApplier, undo, redo, undoStats, undoKeys, undoDump } from './undo-stack';
 import { applyNodePositionsRef } from './flowgram/canvas-utils';
 // ★ 2026-10-14 重构轮 6：模块级工具与检查器字段表单拆至 panel-utils.ts / inspector-fields.tsx（纯搬运）
 //   ★ 2026-10-14 弹窗专项收尾：轮 6 搬走的工具在主文件的引用随弹窗拆分全部迁入 dialogs/*
@@ -145,15 +145,12 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
   // 覆盖范围：位移 / 参数 / 增删节点与连线 / 装饰…（不受 FlowGram `historyService.clear()` 影响）
   const defRef = useRef(def);
   defRef.current = def;
-  const wfNameRef = useRef<string>(((def as { name?: string }).name ?? ''));
   useEffect(() => {
-    const nm = (def as { name?: string }).name ?? '';
-    if (nm !== wfNameRef.current) {
-      // 换工作流 ⇒ 历史清零（否则可能"撤销"到另一个工作流的状态上）
-      wfNameRef.current = nm;
-      resetUndo(def);
-      return;
-    }
+    // ★ 为什么这里**不再**判断"换工作流"（2026-10-17 修）：原先拿 `def.name` 变化当判据，但**重命名工作流
+    //   也是改 def.name**（handleRename 每键都写）⇒ 改个名字就把撤销历史清空了（用户报的"额外问题"）。
+    //   实际情况：打开/新建、进入子工作流都经 dock 的 bump 版本号**重挂载 FlowPanel**（见 dock.tsx:57 注释），
+    //   挂载时的 `resetUndo(def)` 已经是干净基线；导入是唯一的"同实例换 def"路径，由 importFile 自己
+    //   显式清（resetUndoPending）。所以这里只管记录。
     // ★ 记录时机（2026-10-16 CDP 实测教训）：拖动会多次上抛（中途静止补写 + 松手落定），而**首次拖动
     //   的那次上抛还顺带把 def 的 edges/nodes 归一化**（key 变成 struct:…）⇒ 逐次记录会把一次拖动拆成
     //   "归一化一步 + 位移一步"，第一下撤销只退回拖动中途（用户看到的就是"没退回原位"）。
@@ -860,6 +857,9 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
       }
       if (!parsed.name) parsed.name = normalizeWorkflowName(file.name.replace(/\.json$/i, '')) || 'imported';
       if (!parsed.version) parsed.version = 1;
+      // ★ 导入＝同实例换了一整份工作流 ⇒ 撤销栈必须清零，否则会"撤销"到导入前那份工作流的编辑上
+      //   （换工作流/进子工作流走的是 dock 重挂载，那条路由挂载时的 resetUndo 负责）
+      resetUndoPending();
       handleDefChange(parsed);
       setTab('canvas');
       setImportMsg({ ok: true, text: `已导入「${parsed.name}」（${parsed.nodes.length} 节点），记得💾保存落盘` });

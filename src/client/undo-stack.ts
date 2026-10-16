@@ -72,6 +72,20 @@ export function resetUndo(def: unknown): void {
   notify();
 }
 
+/** 载入/导入新工作流、但**拿不到最终 def** 时用（如导入要经 canonicalize 归一化）：
+ *  清栈并把**下一条**观察到的 def 当作新基线（observeDef 见 index=-1 会直接建基线）。
+ *  ★为什么不用它判断"换工作流"：打开/新建、进入子工作流都走 dock 的 bump 重挂载，挂载时
+ *  `resetUndo(def)` 就是准确基线；这里只服务"同实例换 def"的导入路径。 */
+export function resetUndoPending(): void {
+  stack = [];
+  index = -1;
+  lastKey = '';
+  lastAt = 0;
+  lastDef = null;
+  applyingUntil = 0;
+  notify();
+}
+
 /**
  * 归类一次 def 变化（**决定能否与上一条合并**）：
  *   · `'pos'`            = 只有 `layout`（节点位置）变了 ⇒ 连续拖动/补写合成一条
