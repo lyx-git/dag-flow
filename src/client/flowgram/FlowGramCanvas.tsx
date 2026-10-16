@@ -325,11 +325,10 @@ export function Canvas(props: {
       createElement(EditorRenderer, { className: 'dsh-wf-fg-editor' }),
       createElement(CanvasInteractions, { nodes, edges, onChange: props.onChange }),
       createElement(NodePalette),
-      createElement(Toolbar, {
-        problemCount: problems.length,
-        showProblems,
-        onToggleProblems: () => setShowProblems((v) => !v),
-      }),
+      // ★ 2026-10-16：Toolbar 不再收问题相关 props —— 上部那颗「⚠ 问题」按钮已按用户要求删掉
+      //   （「上部有个问题面板和左下角校验是同一个东西，只保留左下角的校验就行」）⇒ 问题入口只剩
+      //   左下角状态栏的「⚠ N 个问题（点击查看）」，见 canvas-chrome.tsx 的 StatusBar。
+      createElement(Toolbar),
       showProblems && createElement(ProblemPanel, {
         problems,
         onClose: () => setShowProblems(false),

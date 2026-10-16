@@ -19,7 +19,7 @@ import { undo, redo, undoCan, redoCan, subscribeUndo } from '../undo-stack';
 
 // ================= 工具条（撤销/重做/整理/适应/缩放） =================
 
-export function Toolbar(props: { problemCount?: number; showProblems?: boolean; onToggleProblems?: () => void }) {
+export function Toolbar() {
   const ctx = useClientContext();
   const tools = usePlaygroundTools();
   // ★ 2026-10-16 用户报「画布上的撤销和重做按钮好像被改坏了…没反应了」⇒ 排查定性：**不是本轮改动**
@@ -35,7 +35,6 @@ export function Toolbar(props: { problemCount?: number; showProblems?: boolean; 
   }), []);
   const btn = (label: string, title: string, onClick: () => void, disabled?: boolean, primary?: boolean) =>
     createElement('button', { key: label + title, className: `dsh-wf-fg-tb${primary ? ' primary' : ''}`, title, onClick, disabled }, label);
-  const problemCount = props.problemCount ?? 0;
   const zoomPct = Math.round((tools.zoom ?? 1) * 100);
   /** 当前缩放：优先读画布配置实体（比 hook 里的 state 更即时） */
   const zoomNow = (): number => {
@@ -89,8 +88,9 @@ export function Toolbar(props: { problemCount?: number; showProblems?: boolean; 
     }, `${zoomPct}%`),
     btn('＋', `放大（下一档：${Math.round(nextZoomStep(zoomNow(), 1) * 100)}%）`, () => zoomTo(nextZoomStep(zoomNow(), 1))),
     btn('1:1', '一键回到 100%（实际大小，改参数时最常用）', () => zoomTo(1)),
-    createElement('span', { key: 's3', className: 'dsh-wf-fg-tb-sep' }),
-    btn(`⚠ 问题${problemCount ? `(${problemCount})` : ''}`, '问题面板（校验/孤立节点）', () => props.onToggleProblems?.(), false, false),
+    // ★ 2026-10-16 用户：「上部有个问题面板和左下角校验是同一个东西，只保留左下角的校验就行，
+    //   上部的问题面板按钮可用删掉」⇒ 工具条那颗「⚠ 问题」连同它的分隔符一并删掉
+    //   （问题面板仍可从**左下角状态栏**的「⚠ N 个问题（点击查看）」打开，StatusBar 一行没改）。
   );
 }
 

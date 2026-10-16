@@ -2,7 +2,7 @@
 // DSH 客户端入口：暴露 apply(ctx)（bundle 协议在 scripts/build-client.mjs；客户端防腐点在 src/client/dsh-gate.ts）。
 // 装配：主题初始化 + 侧栏入口 + 主区域停靠面板（DockedMainPanel）+ 停靠切面板接线 + bundle 版本标记。
 // ★ 各版本的变更原因与用户原话已归档：docs/CLIENT-VERSION-NOTES.md（本文件不再追加历史）。
-// 当前版本标记：v20261016-undo（必须与 apply() 里的 console.log 一致；改客户端必升位）
+// 当前版本标记：v20261016-oneprob（必须与 apply() 里的 console.log 一致；改客户端必升位）
 
 import { applyTheme, getThemeMode } from './theme';
 import { mountSidebarEntry } from './sidebar';
@@ -50,7 +50,7 @@ export function apply(ctx: any): void {
     wireDockOpenRequest();
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261016-undo · apply OK');
+    console.log('[dag-flow] client v20261016-oneprob · apply OK');
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }
