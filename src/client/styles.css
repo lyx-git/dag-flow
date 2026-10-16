@@ -734,6 +734,83 @@
   line-height: 1.4;
 }
 
+/* ========== 小问号 + 单击解释气泡（2026-10-16：静态解释不再平铺） ==========
+   口径：静态解释收进问号；⚠ 警告 / 空态引导 / 测试结果 / 当前值回显仍走 .dsh-wf-panel-hint 平铺。
+   线条图标规格与项目其它图标一致：14×14 / viewBox 24 / strokeWidth 2 / round。 */
+.dsh-wf-info-wrap {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  vertical-align: middle;
+}
+.dsh-wf-info {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--wf-border3, #365173);
+  background: var(--wf-panel3, #172640);
+  color: var(--wf-muted, #91a4bf);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  line-height: 0;
+  flex: 0 0 auto;
+}
+.dsh-wf-info svg {
+  width: 11px;
+  height: 11px;
+  display: block;
+}
+.dsh-wf-info:hover {
+  color: var(--wf-text, #dce7f8);
+  border-color: var(--wf-accent, #6f8fff);
+  background: var(--wf-panel3h, #1d3150);
+}
+.dsh-wf-info.on {
+  color: var(--wf-on-accent, #07111f);
+  background: var(--wf-accent, #6f8fff);
+  border-color: var(--wf-accent, #6f8fff);
+}
+/* 气泡：Portal 到 body（面板/弹窗遮罩的 backdrop-filter 会给 fixed 造包含块）。
+   ★不做位移/缩放，只 opacity 淡入 —— 有几何依赖的浮层若做 transform 会让 getBoundingClientRect 量错。 */
+.dsh-wf-info-pop {
+  position: fixed;
+  z-index: 10030;
+  max-width: 440px;
+  min-width: 160px;
+  background: var(--wf-panel3h, #1d3150);
+  color: var(--wf-text, #dce7f8);
+  border: 1px solid var(--wf-border3, #365173);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .05);
+  opacity: 0;
+  transition: opacity 140ms ease;
+  pointer-events: none;
+}
+.dsh-wf-info-pop.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+.dsh-wf-info-pop::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: var(--dsh-wf-info-arrow, 14px);
+  width: 8px;
+  height: 8px;
+  background: var(--wf-panel3h, #1d3150);
+  border-left: 1px solid var(--wf-border3, #365173);
+  border-top: 1px solid var(--wf-border3, #365173);
+  transform: rotate(45deg);
+}
+
 /* 顶部渐变 logo（对齐 wf-toolbar__logo） */
 .dsh-wf-logo {
   display: inline-flex;

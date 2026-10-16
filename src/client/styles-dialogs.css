@@ -279,28 +279,41 @@
   border-color: var(--wf-accent, #4f8cff); color: #dbe7ff;
 }
 .dsh-wf-params-meta { margin-left: auto; font-size: 11px; color: var(--wf-muted2, #647895); font-family: ui-monospace, Consolas, monospace; }
-/* 每个参数一行：名字 + 值 + ⤢ 单行/多行 + ✕ */
+/* 2026-10-16：静态解释收进小问号——标题栏那个（弹窗级说明）与紧贴参数名框的那个（字段说明）。
+   ★弹窗级问号必须留在标题行：原先挂在页签行末尾（`.dsh-wf-params-meta` 的 margin-left:auto 之后），
+   天生顶在弹窗右内边上（用户报「在最右边线边上」）；标题行是 flex + gap:8px、关闭按钮自带
+   margin-left:auto，插在标题文字与关闭按钮之间就能稳定停在左上区 ⇒ 这里只锁 flex:none，
+   左右间距交给 gap（别再写 margin-left）。 */
+.dsh-wf-params-tip { flex: none; }
+.dsh-wf-params-k-tip { margin-left: -5px; margin-top: 6px; }
+.dsh-wf-params-jsonfoot { display: flex; justify-content: flex-end; margin-top: 8px; }
+/* 变量抽屉的提示行：动态计数/命中数平铺 + 静态说明收进问号（2026-10-16） */
+.dsh-wf-varpick-hint { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* 每个参数一行：名字 + 值 + ✕（★ 2026-10-16 方案 A：类型与形态按钮都已撤掉——类型自动推断、
+   形态自动；"升级为多行"是单行框内右侧的小把手，"改回单行"在富文本工具栏里） */
 .dsh-wf-params-row { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
 .dsh-wf-params-k { flex: 0 0 210px; }
 .dsh-wf-params-v { flex: 1; min-width: 0; }
-.dsh-wf-params-form,
-.dsh-wf-params-type,
 .dsh-wf-params-del {
   flex: none; width: 30px; min-height: 38px; border-radius: 9px;
   border: 1px solid var(--wf-border2, #29405f); background: var(--wf-panel2, #111e32);
   color: var(--wf-muted, #8b9bb3); cursor: pointer; font-size: 12px; font-family: inherit;
 }
-.dsh-wf-params-form:hover,
-.dsh-wf-params-type:hover { border-color: var(--wf-accent, #4f8cff); color: var(--wf-text, #e6edf7); }
-/* 图标（内联 SVG）居中；类型开关用等宽字，保证 T / {} 在任何字体下都清晰、宽度稳定 */
-.dsh-wf-params-form svg { display: block; }
-.dsh-wf-params-type { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; letter-spacing: -0.5px; }
-/* 类型开关：文（字符串，默认）/ {}（按 JSON 解析） */
-.dsh-wf-params-type.on {
-  background: color-mix(in srgb, var(--wf-accent, #4f8cff) 20%, transparent);
-  border-color: var(--wf-accent, #4f8cff); color: #dbe7ff; font-family: ui-monospace, Consolas, monospace;
-}
 .dsh-wf-params-del:hover { border-color: #f87171; color: #f87171; }
+/* 单行形态：输入框 + 框内右侧小把手（点了升级为多行框） */
+.dsh-wf-params-single { position: relative; display: flex; }
+.dsh-wf-params-single > .dsh-wf-input { width: 100%; padding-right: 30px; }
+.dsh-wf-params-grow {
+  position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+  width: 22px; height: 22px; padding: 0; border-radius: 6px; line-height: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; background: transparent;
+  color: var(--wf-muted2, #647895); cursor: pointer;
+}
+.dsh-wf-params-grow svg { width: 13px; height: 13px; display: block; }
+.dsh-wf-params-grow:hover {
+  color: var(--wf-text, #dce7f8); border-color: var(--wf-border2, #29405f); background: var(--wf-panel3, #172640);
+}
 .dsh-wf-params-addbar { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
 .dsh-wf-params-err { margin-top: 8px; font-size: 11.5px; color: var(--wf-danger, #f87171); font-family: ui-monospace, Consolas, monospace; }
 /* 面板里的只读参数摘要（同一件事只留一个入口：编辑在弹窗里做） */

@@ -13,6 +13,7 @@ import type { VarPickGroup } from './var-picker';
 import type { TestResult } from './test-result';
 import { varMatch } from './util/varSearch';
 import { fieldsCacheOf, paramsSummary, codeSummary, truncLabel, reqMark } from './panel-utils';
+import { InfoTip } from './info-tip';
 import { SessionInputFields, MediaFields, WebFields } from './inspector-fields';
 // ★ 2026-10-15 用户拍板「复制反馈在按钮本身」：变量 chips 的复制走公共 hook（无浮窗）
 import { useCopyFlash } from './use-copy-flash';
@@ -221,9 +222,8 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
       },
     });
     const out: React.ReactNode[] = [
-      createElement('label', { className: 'dsh-wf-panel-label', key: 'loop-label' }, '🔁 循环设置'),
-      createElement('div', { className: 'dsh-wf-panel-hint', key: 'loop-hint' },
-        'loop 只产出迭代序列（out.count / out.items），「不会重复执行下游节点」：它算出「跑几次 / 跑哪些项」，由下游节点自己逐项处理。三种边界同时只按一个生效，优先级 over > count > while。'),
+      createElement('label', { className: 'dsh-wf-panel-label', key: 'loop-label' }, '🔁 循环设置',
+        createElement(InfoTip, { text: 'loop 只产出迭代序列（out.count / out.items），「不会重复执行下游节点」：它算出「跑几次 / 跑哪些项」，由下游节点自己逐项处理。三种边界同时只按一个生效，优先级 over > count > while。' })),
       createElement('select', {
         className: 'dsh-wf-input', key: 'loop-bound', value: loopBound,
         onChange: (e: React.ChangeEvent<HTMLSelectElement>) => setLoopBound(e.target.value),
@@ -261,7 +261,8 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
       'while 到上限后继续（dangerouslyAllowInfinite，慎用）',
     ));
     // —— 循环体：子工作流（方案 A）——
-    out.push(createElement('label', { className: 'dsh-wf-panel-label', key: 'loop-body-label' }, '🔁 循环体（可选）'));
+    out.push(createElement('label', { className: 'dsh-wf-panel-label', key: 'loop-body-label' }, '🔁 循环体（可选）',
+      createElement(InfoTip, { text: '每轮调用该子工作流：值里可用 {{vars.loopItem}}（当轮的项或轮次序号）与 {{vars.loopIndex}}（序号），也可引用上游 {{节点id.out.x}}；子工作流 end 节点的输出会依次收进本节点的 out.items，下游写法不变。' })));
     out.push(createElement('select', {
       className: 'dsh-wf-input', key: 'loop-body-sel', value: loopBody.workflowName ?? '',
       onChange: (e: React.ChangeEvent<HTMLSelectElement>) => writeLoopBody(e.target.value, bodyRows),
@@ -272,8 +273,6 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
         ? [createElement('option', { value: loopBody.workflowName, key: 'lb-cur' }, `${loopBody.workflowName}（当前值）`)] : []),
     ));
     if (loopBody.workflowName) {
-      out.push(createElement('div', { className: 'dsh-wf-panel-hint', key: 'loop-body-hint' },
-        '每轮调用该子工作流：值里可用 {{vars.loopItem}}（当轮的项或轮次序号）与 {{vars.loopIndex}}（序号），也可引用上游 {{节点id.out.x}}；子工作流 end 节点的输出会依次收进本节点的 out.items，下游写法不变。'));
       bodyRows.forEach((row, i) => out.push(createElement('div', { key: 'loop-body-row-' + i, style: { display: 'flex', gap: 6, marginBottom: 6 } },
         createElement('input', {
           className: 'dsh-wf-input', placeholder: '输入名（子工作流 inputs.x）', value: row.k, style: { flex: '0 0 42%' },
@@ -551,11 +550,13 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
       createElement('label', { className: 'dsh-wf-panel-label' }, '🔗 变量引用'),
       createElement('button', {
         className: 'dsh-wf-btn',
-        title: '打开变量弹窗：可按「政策 / 日期 / rq / tzjy」口语化搜索，点 chip 复制 {{}} 引用',
+        title: '打开变量弹窗',
         onClick: () => setVarDlgOpen(true),
       }, '🔗 打开变量弹窗'),
-      createElement('div', { className: 'dsh-wf-panel-hint' },
-        `上游 ${upstream.length} · 输出 ${selfFields.list.length} · 全局 ${globalVars.length + inputKeys.length} —— 变量都在弹窗里，可按「政策 / 日期 / rq / tzjy」口语化搜 ✓`),
+      // 变量入口的静态说明收进问号；计数属于"当前值回显"⇒ 仍平铺（同一行放问号）
+      createElement('div', { className: 'dsh-wf-panel-hint', style: { display: 'flex', alignItems: 'center', gap: 6 } },
+        `上游 ${upstream.length} · 输出 ${selfFields.list.length} · 全局 ${globalVars.length + inputKeys.length}`,
+        createElement(InfoTip, { text: '变量都在弹窗里，可按「政策 / 日期 / rq / tzjy」口语化搜索（支持拼音首字母），点 chip 复制 {{}} 引用。' })),
     ),
     varDlgOpen && createPortal(
       createElement('div', {
@@ -569,7 +570,8 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
             className: 'dag-flow-picker-body dsh-wf-var-dlg-body',
           },
             createElement('div', { className: 'dsh-wf-panel-row' },
-              createElement('label', { className: 'dsh-wf-panel-label' }, '🔎 变量搜索（节点名 / 字段说明 / 拼音首字母）'),
+              createElement('label', { className: 'dsh-wf-panel-label' }, '🔎 变量搜索（节点名 / 字段说明 / 拼音首字母）',
+                createElement(InfoTip, { text: '输入关键词即可跨「上游 / 输出 / 全局」检索；支持口语化与拼音首字母（如 rq=日期、tzjy=投资建议），多个词按 AND 匹配。' })),
               createElement('input', {
                 className: 'dsh-wf-var-search',
                 value: varQ,
@@ -580,7 +582,7 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
                 ? createElement('div', { className: 'dsh-wf-panel-hint' },
                     varHitCount > 0 ? `命中 ${varHitCount} 项（已自动展开；清空搜索即回到分组收起）`
                       : '没有匹配的变量——换个词试试（支持拼音首字母，如 rq=日期）')
-                : createElement('div', { className: 'dsh-wf-panel-hint' }, '输入关键词即可跨「上游 / 输出 / 全局」检索'),
+                : null,
             ),
             createElement('div', { className: 'dsh-wf-panel-row' },
               createElement('label', { className: 'dsh-wf-panel-label' },
@@ -623,13 +625,13 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
                 : null,
             ),
             createElement('div', { className: 'dsh-wf-panel-row' },
-              createElement('label', { className: 'dsh-wf-panel-label' }, '📤 本节点输出（下游可直接引用 · 点击复制）'),
+              createElement('label', { className: 'dsh-wf-panel-label' }, '📤 本节点输出（下游可直接引用 · 点击复制）',
+                createElement(InfoTip, { text: `下游这样用：参数里写 {{${node.id}.out.字段}}；if/switch/loop 表达式里不带 {{}}。` })),
               createElement('div', { className: 'dsh-wf-var-list' },
                 refChip(`{{${node.id}.out}}`, `本节点的整份输出${selfSpec.note ? `（${selfSpec.note}）` : ''}`, 'self-all', true),
                 ...selfFields.list.map((x) => refChip(`{{${node.id}.out.${x.path}}}`, x.desc || '自定义字段', `self-${x.path}`, true)),
                 refChip(`{{results.${node.id}}}`, '本节点的执行状态/耗时（不是业务输出）', 'self-res', true),
               ),
-              createElement('div', { className: 'dsh-wf-var-legend' }, '下游这样用：参数里写 {{' + node.id + '.out.字段}}；if/switch/loop 表达式里不带 {{}}。'),
             ),
           ),
         ),
@@ -713,9 +715,8 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
     //   每个 case 键在画布上生成一个输出口（外加 * 兜底口）——从对应口拖线到目标节点，
     //   边的 when 自动=case 键，执行器按 value 匹配激活对应分支、其余跳过。
     node.type === 'switch' && createElement('div', { className: 'dsh-wf-panel-row' },
-      createElement('label', { className: 'dsh-wf-panel-label' }, reqMark(), '🔀 分支设置（case 列表）'),
-      createElement('div', { className: 'dsh-wf-panel-hint' },
-        '每个 case 在画布上生成一个输出口（从对应口拖线连目标，边自动带条件）；value 与 case 值相等时激活该分支，其余跳过。value 支持 {{上游.out}} 引用或字面量。'),
+      createElement('label', { className: 'dsh-wf-panel-label' }, reqMark(), '🔀 分支设置（case 列表）',
+        createElement(InfoTip, { text: '每个 case 在画布上生成一个输出口（从对应口拖线连目标，边自动带条件）；value 与 case 值相等时激活该分支，其余跳过。value 支持 {{上游.out}} 引用或字面量。' })),
       caseRows.length === 0 && createElement('div', { className: 'dsh-wf-panel-hint' }, '暂无 case——点下方按钮添加（至少 1 个才能画分支）。'),
       caseRows.map((row, i) => createElement('div', { key: i, style: { display: 'flex', gap: 6, marginBottom: 6 } },
         createElement('input', {
@@ -744,10 +745,9 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
     //   「🧪 参数与试跑」弹窗**（它们本质就是 params.code / params.codePath）——面板这里只留一行只读摘要，
     //   改代码不再需要第二个弹窗；弹窗里 code 行是语言感知的代码编辑器（python/bash 高亮 + 行号 + Tab）。
     (node.type === 'python' || node.type === 'bash') && createElement('div', { className: 'dsh-wf-panel-row' },
-      createElement('label', { className: 'dsh-wf-panel-label' }, '📄 代码'),
+      createElement('label', { className: 'dsh-wf-panel-label' }, '📄 代码',
+        createElement(InfoTip, { text: '代码与代码文件都在「🧪 参数与试跑」弹窗里改（一个弹窗搞定，改完可直接试跑）。' })),
       createElement('div', { className: 'dsh-wf-params-summary' }, codeSummary(node.params as Record<string, unknown> | undefined, workflowName)),
-      createElement('div', { className: 'dsh-wf-panel-hint' },
-        '代码与代码文件都在「🧪 参数与试跑」弹窗里改（一个弹窗搞定，改完可直接试跑）。'),
     ),
     // #1 单节点试跑（2026-10-11 用户拍板方案 A：整块搬进「🧪 参数与试跑」弹窗——试跑输入按工作流参数
     //   逐字段填（默认值预填）、参数与试跑同屏、结果就地展开；面板不再放输入框与按钮，只留下面的结果区，
@@ -756,7 +756,8 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
     //   试跑已整块搬进「🧪 参数与试跑」弹窗，结果**只在弹窗里就地显示**，面板不再重复渲染一份
     //   （结果状态仍留在 NodeInspector 里，因为要作为 prop 传给弹窗）。
     node.type === 'subagent' && createElement('div', { className: 'dsh-wf-panel-row' },
-      createElement('label', { className: 'dsh-wf-panel-label' }, reqMark(), '选择模型'),
+      createElement('label', { className: 'dsh-wf-panel-label' }, reqMark(), '选择模型',
+        createElement(InfoTip, { text: '模型自动发现自 dsh 配置（存在 profile 的 cordis.patch.yml 里，旧版是 settings.yaml），密钥由 dsh 统一管理，无需在此录入。必须选择执行模型（必选）；prompt 留空（或上游输出为空）时本节点不执行，流程在此中断。' })),
       createElement('select', {
         className: 'dsh-wf-input',
         value: selectedModel,
@@ -788,9 +789,6 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
         ? 'dsh 未发现可用模型——请先在 dsh 侧配置模型后刷新。未选择模型前，本节点无法试跑、无法保存。'
         : '⚠ 必须选择执行模型后，本节点才能试跑与保存。',
     ),
-    node.type === 'subagent' && createElement('div', { className: 'dsh-wf-panel-hint' },
-      '模型自动发现自 dsh 配置（dsh 存在 profile 的 cordis.patch.yml 里，旧版是 settings.yaml），密钥由 dsh 统一管理，无需在此录入。必须选择执行模型（必选）；prompt 留空（或上游输出为空）时本节点不执行，流程在此中断。',
-    ),
     // ★ 保底不丢 id（用户 2026-10-03：下拉显示模型显示名，不用 id；但对照 JSON/排查时要能看到真实 id）
     node.type === 'subagent' && selectedModel && createElement('div', { className: 'dsh-wf-panel-hint' },
       `执行 id：${selectedModel}（下拉里显示的是模型显示名，运行时按这个 id 调用）`,
@@ -817,15 +815,13 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
     // ★ 2026-10-11 用户反馈：「画布右侧编辑框里面的显示名应该放到面板的上面，放在中间有点奇怪」
     //   → 「显示名 (label)」已挪到面板最上面（节点 ID 之前），这里不再渲染。
     createElement('div', { className: 'dsh-wf-panel-row' },
-      createElement('label', { className: 'dsh-wf-panel-label' }, '参数与试跑'),
+      createElement('label', { className: 'dsh-wf-panel-label' }, '参数与试跑',
+        createElement(InfoTip, { text: '可用上游数据引用：{{节点id.out}} / {{节点id.out.字段}} / {{vars.变量}} / {{inputs.输入}}' })),
       createElement('button', {
         className: 'dsh-wf-btn', style: { width: '100%' },
         title: '打开「参数与试跑」：每个参数一行（可新增 / 修改 / 删除，长文本用代码级多行框），底部可直接试跑本节点',
         onClick: () => setParamsOpen(true),
       }, `🧪 参数与试跑（${Object.keys(node.params ?? {}).length} 项）`),
-      createElement('div', { className: 'dsh-wf-panel-hint' },
-        '可用上游数据引用：{{节点id.out}} / {{节点id.out.字段}} / {{vars.变量}} / {{inputs.输入}}',
-      ),
       createElement('div', { className: 'dsh-wf-params-summary' }, paramsSummary(node.params as Record<string, unknown> | undefined)),
     ),
     createElement('div', { className: 'dsh-wf-panel-row' },
@@ -840,7 +836,7 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
       varGroups: varPickGroups,
       // ★ 2026-10-11（用户拍板）：「删掉画布右侧编辑画板里面的变量引用」→ 变量只在抽屉里出现，
       //   原面板入口行那句「上游 N · 输出 N · 全局 N + 口语化搜」的说明挪到抽屉顶部（跟着抽屉显示）。
-      varHint: `上游 ${upstream.length} · 输出 ${selfFields.list.length} · 全局 ${globalVars.length + inputKeys.length} · 点变量插入到值框光标处；顶部搜索支持口语化（政策 / 日期 / rq / tzjy）`,
+      varHint: `上游 ${upstream.length} · 输出 ${selfFields.list.length} · 全局 ${globalVars.length + inputKeys.length}`,
       // ★ 方案 A：python/bash 的 `code` 行在弹窗里用**语言感知的代码编辑器**（取代原「📝 编辑代码」弹窗）；
       //   `codePath` 行给该字段专用说明（约定路径 / 填了文件优先于内联代码）。
       codeLang: node.type === 'bash' ? 'bash' : node.type === 'python' ? 'python' : undefined,

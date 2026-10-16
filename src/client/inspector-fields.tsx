@@ -5,6 +5,7 @@
 
 import { createElement, useEffect, useState } from 'react';
 import { reqMark } from './panel-utils';
+import { InfoTip } from './info-tip';
 
 export function SessionInputFields({ node, onParamsChange }: {
   node: import('./types').ClientNode;
@@ -70,7 +71,8 @@ export function SessionInputFields({ node, onParamsChange }: {
       ),
     ),
     createElement('div', { className: 'dsh-wf-panel-row' },
-      createElement('label', { className: 'dsh-wf-panel-label' }, '取最近对话条数'),
+      createElement('label', { className: 'dsh-wf-panel-label' }, '取最近对话条数',
+        createElement(InfoTip, { text: '运行时会读取所选会话最近的对话内容作为本节点输出，可连给后续 AI/其他节点使用。' })),
       createElement('input', {
         className: 'dsh-wf-input',
         type: 'number',
@@ -79,9 +81,6 @@ export function SessionInputFields({ node, onParamsChange }: {
         value: limit,
         onChange: (e: React.ChangeEvent<HTMLInputElement>) => handleLimit(e.target.value),
       }),
-    ),
-    createElement('div', { className: 'dsh-wf-panel-hint' },
-      '运行时会读取所选会话最近的对话内容作为本节点输出，可连给后续 AI/其他节点使用。',
     ),
   );
 }
@@ -95,11 +94,13 @@ export function MediaFields({ node, onParamsChange }: {
   const [imageTesting, setImageTesting] = useState(false);
   const [imageTestMsg, setImageTestMsg] = useState<string | null>(null);
   // label 以「!」开头 = 必填行：名称前渲染红星标识（纯视觉，2026-10-02 用户需求）
+  // ★ 2026-10-16（用户：「解释的信息统一放到合适的地方用个小问号，单击显示解释内容，现在平铺解释信息很乱」）：
+  //   `hint` 不再平铺在行下方，而是变成**标签右侧的小问号**（单击展开解释）。
   const row = (label: string, el: any, hint?: string) =>
     createElement('div', { className: 'dsh-wf-panel-row', key: label },
       createElement('label', { className: 'dsh-wf-panel-label' },
-        label.startsWith('!') ? reqMark() : null, label.replace(/^!/, '')), el,
-      hint ? createElement('div', { className: 'dsh-wf-panel-hint' }, hint) : null,
+        label.startsWith('!') ? reqMark() : null, label.replace(/^!/, ''),
+        hint ? createElement(InfoTip, { text: hint }) : null), el,
     );
   const text = (key: string, placeholder: string, type = 'text') =>
     createElement('input', {
@@ -135,7 +136,7 @@ export function MediaFields({ node, onParamsChange }: {
         className: 'dsh-wf-input', rows: 3, placeholder: '描述想生成的画面…',
         defaultValue: typeof p.prompt === 'string' ? p.prompt : '',
         onBlur: (e: React.FocusEvent<HTMLTextAreaElement>) => onParamsChange({ prompt: e.target.value }),
-      })),
+      }), '运行后图片直接保存到 <DSH_HOME>/.dag-flow/ 目录，输出含相对路径。测试会真实生成 1 张最小图（产生少量费用）。'),
       row('!API 地址 (baseURL)', text('baseURL', 'https://…/compatible-mode/v1'), 'OpenAI images/generations 兼容接口'),
       row('模型', text('model', 'wanx-v1'), '必须是该 API 服务支持的图片模型（用下方测试验证）'),
       row('尺寸', text('size', '1024*1024')),
@@ -148,17 +149,15 @@ export function MediaFields({ node, onParamsChange }: {
         title: '真实发一次最小生成请求，验证 baseURL/Key/模型组合是否可用',
       }, imageTesting ? '⏳ 测试中…' : '🔍 测试连接')),
       imageTestMsg && createElement('div', { className: 'dsh-wf-panel-hint' }, imageTestMsg),
-      createElement('div', { className: 'dsh-wf-panel-hint' }, '运行后图片直接保存到 <DSH_HOME>/.dag-flow/ 目录，输出含相对路径。测试会真实生成 1 张最小图（产生少量费用）。'),
     );
   }
   if (node.type === 'video_generate') {
     return createElement('div', null,
-      row('!任务提交地址', text('submitUrl', 'https://…/video/generation（POST）')),
+      row('!任务提交地址', text('submitUrl', 'https://…/video/generation（POST）'), '异步任务模式：提交 → 按 interval 轮询 statusPath → videoUrlPath 有值即完成，视频直接下载到 <DSH_HOME>/.dag-flow/ 目录。'),
       row('!任务查询地址', text('pollUrl', 'https://…/video/task?taskId={taskId}'), '支持 {taskId} 占位符'),
       row('Key 环境变量名 / apiKey', text('apiKeyEnv', 'DASHSCOPE_API_KEY')),
       row('轮询间隔 (ms)', text('pollIntervalMs', '5000')),
       row('最长等待 (ms)', text('maxWaitMs', '600000'), '超时后节点失败并给出最后任务状态'),
-      createElement('div', { className: 'dsh-wf-panel-hint' }, '异步任务模式：提交 → 按 interval 轮询 statusPath → videoUrlPath 有值即完成，视频直接下载到 <DSH_HOME>/.dag-flow/ 目录。'),
     );
   }
   // file_save
@@ -193,11 +192,13 @@ export function WebFields({ node, onParamsChange }: {
 }) {
   const p = node.params ?? {};
   // label 以「!」开头 = 必填行：名称前渲染红星标识（纯视觉，2026-10-02 用户需求）
+  // ★ 2026-10-16（用户：「解释的信息统一放到合适的地方用个小问号，单击显示解释内容，现在平铺解释信息很乱」）：
+  //   `hint` 不再平铺在行下方，而是变成**标签右侧的小问号**（单击展开解释）。
   const row = (label: string, el: any, hint?: string) =>
     createElement('div', { className: 'dsh-wf-panel-row', key: label },
       createElement('label', { className: 'dsh-wf-panel-label' },
-        label.startsWith('!') ? reqMark() : null, label.replace(/^!/, '')), el,
-      hint ? createElement('div', { className: 'dsh-wf-panel-hint' }, hint) : null,
+        label.startsWith('!') ? reqMark() : null, label.replace(/^!/, ''),
+        hint ? createElement(InfoTip, { text: hint }) : null), el,
     );
   const text = (key: string, placeholder: string, type = 'text') =>
     createElement('input', {
@@ -212,7 +213,7 @@ export function WebFields({ node, onParamsChange }: {
         className: 'dsh-wf-input', rows: 3, placeholder: '要搜索的内容…（可引用 {{u.out.xxx}}）',
         defaultValue: typeof p.query === 'string' ? p.query : '',
         onBlur: (e: React.FocusEvent<HTMLTextAreaElement>) => onParamsChange({ query: e.target.value }),
-      })),
+      }), '内置 5 个免 key 引擎，任何 DSH 零配置可用；auto 模式下若宿主装有 dsh-free-search 会优先走宿主（自动继承你配置的付费引擎与密钥），失败自动回落内置引擎链（Bing→DDG Lite→DDG→SearXNG→AnySearch）。query 留空时节点不执行、流程在此中断。'),
       row('搜索引擎', createElement('select', {
         className: 'dsh-wf-input',
         value: typeof p.provider === 'string' ? p.provider : 'auto',
@@ -238,15 +239,12 @@ export function WebFields({ node, onParamsChange }: {
         createElement('option', { value: 'month' }, '一月内'),
         createElement('option', { value: 'year' }, '一年内'),
       )),
-      createElement('div', { className: 'dsh-wf-panel-hint' },
-        '内置 5 个免 key 引擎，任何 DSH 零配置可用；auto 模式下若宿主装有 dsh-free-search 会优先走宿主（自动继承你配置的付费引擎与密钥），失败自动回落内置引擎链（Bing→DDG Lite→DDG→SearXNG→AnySearch）。query 留空时节点不执行、流程在此中断。',
-      ),
     );
   }
   if (node.type === 'doc_parse') {
     return createElement('div', null,
       row('!文件路径 (path)', text('path', 'documents/公告.pdf 或 D:\\文件\\报告.docx（可引用 {{u.out.path}}）'),
-        '相对路径锚定 <DSH_HOME>/.dag-flow/；支持 pdf / docx / xlsx / pptx / txt / md / csv / json / html'),
+        '相对路径锚定 <DSH_HOME>/.dag-flow/；支持 pdf / docx / xlsx / pptx / txt / md / csv / json / html。\n把 PDF / Office 文档 / 图片抽成纯文本喂给下游（PDF / Office 零依赖，不需要装任何库；图片和扫描版 PDF 走 OCR 引擎）。扫描版 PDF 有文本层就直接读、没有文本层才转图片识别（OCR 选「关」时它会明确报错告诉你怎么开）；旧版 .doc/.xls/.ppt 请先另存为 docx/xlsx/pptx。path 与 url 都为空时节点不执行、流程在此中断。'),
       row('或：下载地址 (url)', text('url', 'https://…/公告.pdf'),
         '填了 url 就忽略 path（会先下载再解析，60s 超时）'),
       row('文本上限 (字符)', text('maxChars', '200000', 'number'), '默认 20 万；超出会截断并把 truncated 置为 true'),
@@ -267,14 +265,11 @@ export function WebFields({ node, onParamsChange }: {
         createElement('option', { value: 'auto' }, '自动（默认）—— 抽到就存进统一图片目录，并在文本相应位置标注文件名'),
         createElement('option', { value: 'off' }, '关 —— 只解析文本（老行为）'),
       ), '抽出的图片存到 <DSH_HOME>/.dag-flow/images/（与 AI 节点 images 参数**同一个目录**，可直接被 AI 节点引用）；文档文本里会在图片原来的位置插入「[图片：文件名]」。Word / PPT 能定位到段落、页；Excel 的浮动图统一标在文末。反复解析同一份文档不会堆副本（同名同内容不重写）。'),
-      createElement('div', { className: 'dsh-wf-panel-hint' },
-        '把 PDF / Office 文档 / 图片抽成纯文本喂给下游（PDF / Office 零依赖，不需要装任何库；图片和扫描版 PDF 走 OCR 引擎）。扫描版 PDF 有文本层就直接读、没有文本层才转图片识别（OCR 选「关」时它会明确报错告诉你怎么开）；旧版 .doc/.xls/.ppt 请先另存为 docx/xlsx/pptx。path 与 url 都为空时节点不执行、流程在此中断。',
-      ),
     );
   }
   // web_fetch
   return createElement('div', null,
-    row('!抓取地址 (url)', text('url', 'https://…（可引用 {{u.out.url}}）')),
+    row('!抓取地址 (url)', text('url', 'https://…（可引用 {{u.out.url}}）'), '抓取网页：HTML 自动剥离标签取正文文本，JSON 自动解析为对象；常与「网页搜索→网页抓取→AI」串联。url 留空时节点不执行、流程在此中断。'),
     row('正文上限 (字符)', text('maxChars', '8000', 'number'), 'HTML 自动剥标签取正文；200-200000'),
     row('原样返回', createElement('select', {
       className: 'dsh-wf-input',
@@ -284,8 +279,5 @@ export function WebFields({ node, onParamsChange }: {
       createElement('option', { value: '0' }, '否（剥 HTML / 解析 JSON，推荐）'),
       createElement('option', { value: '1' }, '是（返回原始响应体）'),
     )),
-    createElement('div', { className: 'dsh-wf-panel-hint' },
-      '抓取网页：HTML 自动剥离标签取正文文本，JSON 自动解析为对象；常与「网页搜索→网页抓取→AI」串联。url 留空时节点不执行、流程在此中断。',
-    ),
   );
 }

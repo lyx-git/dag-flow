@@ -27,8 +27,11 @@ import { useCopyFlash } from './use-copy-flash';
 import type { TestResult } from './test-result';
 // ★ 2026-10-16 用户拍板「方案 A」：图片类参数支持从**统一图片目录**勾选多张（替代一个个复制文件名）。
 import { ImagePickerDialog } from './dialogs/image-picker';
+import { InfoTip } from './info-tip';
 
-type Row = { k: string; text: string; kind: 'string' | 'other'; multi: boolean; auto?: boolean; placeholder?: string };
+// ★ 2026-10-16（用户拍板方案 A：去掉「T/{}」类型按钮）——Row 不再记录"按字符串还是按 JSON 存"，
+//   落盘类型由**值文本自动推断**（见 valueOfText）；形态 multi 仍保留（含换行/长文本自动为多行）。
+type Row = { k: string; text: string; multi: boolean; auto?: boolean; placeholder?: string };
 
 const MULTI_THRESHOLD = 60;
 
@@ -41,6 +44,18 @@ const SVG_ICON = {
   width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor',
   strokeWidth: 1.5, strokeLinecap: 'round', 'aria-hidden': 'true',
 } as const;
+
+/**
+ * 参数弹窗的**静态说明**（2026-10-16 用户：「解释的信息统一放到合适的地方用个小问号，单击显示解释内容，
+ * 现在平铺解释信息很乱」）——原先平铺在字段视图顶部、新增按钮旁、富文本工具栏末端的三四行文字，合并进
+ * 弹窗标题区的一个小问号。★动态信息（试跑态、错误、结果）仍留在外面。
+ */
+const PARAMS_TIPS = [
+  '值里可用上游数据引用：{{节点id.out}} / {{节点id.out.字段}} / {{vars.变量}} / {{inputs.输入}}。',
+  '长文本点该行框内右侧的「多行框」图标切成代码级编辑框（不用写 JSON 转义）；要改回单行，点编辑器工具栏上的「单行框」图标。',
+  '值类型自动识别：纯数字、true / false、{…} / […] 会按对应类型保存，其余按原文字符串；要强制当字符串时切「JSON 视图」给值加引号。',
+  'Tab = 4 空格缩进 · 改动即自动保存。',
+].join('\n');
 
 /**
  * 单行输入（扁框 + 一横线）
@@ -73,7 +88,6 @@ function toText(v: unknown): string {
 
 function rowsFromParams(params: Record<string, unknown>, codeLang?: CodeLang, fieldHints?: Record<string, string>, fieldPlaceholders?: Record<string, string>): Row[] {
   const rows: Row[] = Object.entries(params ?? {}).map(([k, v]) => {
-    const kind: 'string' | 'other' = typeof v === 'string' ? 'string' : 'other';
     const text = toText(v);
     // ★ 2026-10-11：代码行默认就用富文本框（脚本天生多行）；其余行按内容长度自动判断——
     //   但**控件与按钮完全一致**（其它行也能点「单行/富文本」切过来）。
@@ -84,13 +98,13 @@ function rowsFromParams(params: Record<string, unknown>, codeLang?: CodeLang, fi
     //   连示例占位和「🖼 选图」工具栏一起消失。
     const ph = fieldPlaceholders?.[k];
     const multi = (k === 'code' && !!codeLang) || !!ph || text.includes('\n') || text.length > MULTI_THRESHOLD;
-    return { k, text, kind, multi, ...(ph ? { placeholder: ph } : {}) };
+    return { k, text, multi, ...(ph ? { placeholder: ph } : {}) };
   });
   // ★ 2026-10-11 方案 A：python/bash 的 `codePath` 是"二选一"的另一个入口——节点默认参数里没有这个键，
   //   但用户要能填。原面板是"永远显示输入框"，所以这里**自动补一行**（auto=true：留空时不写进 def，
   //   保持"清空 = 删键"的既有语义，也不会凭空多出 "codePath": "" 脏值）。
   if (codeLang && !rows.some((r) => r.k === 'codePath')) {
-    rows.push({ k: 'codePath', text: '', kind: 'string', multi: false, auto: true });
+    rows.push({ k: 'codePath', text: '', multi: false, auto: true });
   }
   // ★ 2026-10-16 P1：凡是 `fieldHints` 里登记了专用说明、而 params 里还没有的键（如 subagent 的 `images`）
   //   ⇒ 自动补一行，沿用上面的 `auto` 语义：**留空不写进 def**（默认零行为变更，也不会凭空多出空键）。
@@ -99,7 +113,7 @@ function rowsFromParams(params: Record<string, unknown>, codeLang?: CodeLang, fi
   for (const k of Object.keys(fieldHints ?? {})) {
     if (!rows.some((r) => r.k === k)) {
       const ph = fieldPlaceholders?.[k];
-      rows.push({ k, text: '', kind: 'string', multi: true, auto: true, ...(ph ? { placeholder: ph } : {}) });
+      rows.push({ k, text: '', multi: true, auto: true, ...(ph ? { placeholder: ph } : {}) });
     }
   }
   return rows;
@@ -109,29 +123,47 @@ function rowsFromParams(params: Record<string, unknown>, codeLang?: CodeLang, fi
  *  input 的 placeholder 不认换行，把多行示例折成一行「a / b / c」展示；没登记示例时回退通用文案） */
 function singleLinePlaceholder(r: Row): string {
   if (r.placeholder) return r.placeholder.replace(/\n+/, ' ').replace(/\n+/g, ' / ');
-  return r.kind === 'string' ? '值（字符串）' : '值（JSON：数字 / true / false）';
+  return '值';
 }
 
-/** 行 → params 对象（空名字的行忽略；auto 行留空则忽略；非字符串值按 JSON 解析，解析失败按字符串留原文） */
+/** 文本看起来像 JSON 对象/数组吗（只用于**语法高亮**；落盘类型判定见 valueOfText） */
+function looksJsonLike(text: string): boolean {
+  const s = text.trim();
+  if (!/^[[{]/.test(s)) return false;
+  try { const v = JSON.parse(s); return v !== null && typeof v === 'object'; } catch { return false; }
+}
+
+/**
+ * 值文本 → 落盘值（★ 2026-10-16 用户拍板方案 A：**去掉「T/{}」类型按钮，改为自动推断**）。
+ * 判据：纯数字样 → 数字；true/false → 布尔；`{…}`/`[…]` 且能解析 → 对象/数组；其余一律**按原文字符串**存。
+ * 真机实测（5 份工作流 118 个参数）：62 个字符串里**没有一个**"看起来像数字/布尔/JSON" ⇒ 自动推断零误判。
+ * ⚠ 已知代价（方案 A 时已向用户说明）：`"0012"`、`"1.0"` 这类"看起来像数字的字符串"会被存成数字——
+ *   真需要字符串时切 JSON 视图手写引号即可。
+ */
+function valueOfText(text: string): unknown {
+  const s = text.trim();
+  if (s === '') return '';
+  if (s !== text) return text;                                    // 有首尾空白 ⇒ 不猜，按原文存
+  if (/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(s)) return Number(s);
+  if (s === 'true') return true;
+  if (s === 'false') return false;
+  if (s === 'null') return null;                                  // null 在 def 里＝"没有这个键"（既有语义）
+  if (/^[[{]/.test(s)) {
+    try { const v = JSON.parse(s); if (v !== null && typeof v === 'object') return v; } catch { /* 不合法就按字符串 */ }
+  }
+  return text;
+}
+
+/** 行 → params 对象（空名字的行忽略；auto 行留空则忽略；值类型由 valueOfText 自动推断） */
 function paramsFromRows(rows: Row[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const r of rows) {
     const k = r.k.trim();
     if (!k) continue;
-    // ★ 2026-10-16 修 bug：auto 行的"留空＝没有这个参数"必须**先于类型分支**判断——
-    //   原实现只在 `kind === 'string'` 分支里跳过，于是把类型切成 `{}`（other）后：
-    //   空文本走 JSON.parse 失败 → 落回字符串分支 → 往 def 里写了 `"images": ""` 脏值。
+    // ★ auto 行的"留空＝没有这个参数"必须先判断（否则会往 def 里写 `"images": ""` 脏值）
     if (r.auto && r.text.trim() === '') continue;
-    if (r.kind === 'string') {
-      out[k] = r.text;
-      continue;
-    }
-    try {
-      const parsed = JSON.parse(r.text);
-      if (parsed !== null) out[k] = parsed; // null 在 def 里等于"没有这个键"（既有语义），不写入
-    } catch {
-      out[k] = r.text;
-    }
+    const v = valueOfText(r.text);
+    if (v !== null) out[k] = v;                                   // null = 删键语义，不写入
   }
   return out;
 }
@@ -213,7 +245,12 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
     }, '🧹 清空'),
     // 已点一次「清空」时给一句文字提示，避免看不出"处于确认态"
     clearArmKey === r.k ? createElement('span', { className: 'dsh-wf-code-armed' }, '再点一次清空') : null,
-    createElement('span', { className: 'dsh-wf-panel-hint' }, 'Tab = 4 空格缩进 · 改动即自动保存'),
+    // ★ 2026-10-16 方案 A：形态切换的"降级"这一半挪进富文本工具栏（"升级"那半是单行框右侧的小把手）
+    createElement('button', {
+      className: 'dsh-wf-copy-btn dsh-wf-params-shrink',
+      title: '改成单行输入',
+      onClick: () => pushRows(rows.map((x) => (x.k === r.k ? { ...x, multi: false } : x))),
+    }, createElement(IconSingleLine)),
   ];
   /** 按参数名改值（行内编辑器与放大弹窗共用） */
   const writeRowText = (key: string, text: string): void => {
@@ -221,8 +258,8 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
     if (idx < 0) return;
     pushRows(rows.map((r, j) => (j === idx ? { ...r, text } : r)));
   };
-  /** 富文本框的语言（code 行按节点类型高亮，其余按类型 text/json） */
-  const langOf = (r: Row): CodeLang => (r.k === 'code' && codeLang ? codeLang : (r.kind === 'string' ? 'text' : 'json'));
+  /** 富文本框的语言（code 行按节点类型高亮；其余按内容——像 JSON 对象/数组就用 json 着色） */
+  const langOf = (r: Row): CodeLang => (r.k === 'code' && codeLang ? codeLang : (looksJsonLike(r.text) ? 'json' : 'text'));
   const [inputVals, setInputVals] = useState<Record<string, string>>(() =>
     Object.fromEntries(Object.entries(inputDefaults ?? {}).map(([k, v]) => [k, toText(v)])));
   const inputKeys = Object.keys(inputDefaults ?? {});
@@ -310,6 +347,10 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
         value: r.k,
         onChange: (e: React.ChangeEvent<HTMLInputElement>) => setRow({ k: e.target.value }),
       }),
+      // ★ 2026-10-16 用户需求（「解释的信息统一放到合适的地方用个小问号，单击显示解释内容，现在平铺解释信息很乱」）：
+      //   字段的**静态说明**收进小问号，紧跟在参数名输入框右侧（原来平铺在值框下方，`images` 那种 180 字说明
+      //   会把一行撑到 4 行高、参数之间挤在一起）。
+      hint ? createElement(InfoTip, { text: hint, className: 'dsh-wf-params-k-tip' }) : null,
       createElement('div', { className: 'dsh-wf-params-v' },
         r.multi
           ? createElement(CodeText, {
@@ -317,36 +358,29 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
               onChange: (v: string) => setRow({ text: v }),
               lang: langOf(r),
               height: 150,
+              // 占位只留"示例/该填什么"，解释性文字进问号（弹窗级问号里有完整说明）
               placeholder: r.placeholder ?? (r.k === 'code' && codeLang
                 ? (codeLang === 'bash' ? "echo 'hello'\ndate" : "import datetime\nprint('你好，当前时间：' + datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))")
-                : (r.kind === 'string' ? '值（字符串；提示词这类长文本直接写，不用转义）' : '值（JSON：数字 / true / false / 对象 / 数组）')),
+                : '值'),
               toolbar: codeToolbar(r),
               expand: { expanded: false, onToggle: () => setExpandedKey(r.k) },
             })
-          : createElement('input', {
-              className: 'dsh-wf-input',
-              placeholder: singleLinePlaceholder(r),
-              value: r.text,
-              onChange: (e: React.ChangeEvent<HTMLInputElement>) => setRow({ text: e.target.value }),
-            }),
-        hint ? createElement('div', { className: 'dsh-wf-panel-hint', style: { marginTop: 6 } }, hint) : null,
+          // ★ 2026-10-16 用户拍板方案 A：形态不再占用行内按钮——单行框右侧留一个小把手（点了升级为多行框），
+          //   多行框的"改回单行"在富文本工具栏里（见 codeToolbar）。类型也自动推断 ⇒ 行内按钮只剩「✕」。
+          : createElement('div', { className: 'dsh-wf-params-single' },
+              createElement('input', {
+                className: 'dsh-wf-input',
+                placeholder: singleLinePlaceholder(r),
+                value: r.text,
+                onChange: (e: React.ChangeEvent<HTMLInputElement>) => setRow({ text: e.target.value }),
+              }),
+              createElement('button', {
+                className: 'dsh-wf-params-grow',
+                title: '改成富文本框（多行）',
+                onClick: () => setRow({ multi: true }),
+              }, createElement(IconMultiLine)),
+            ),
       ),
-      createElement('button', {
-        className: `dsh-wf-params-type${r.kind === 'string' ? '' : ' on'}`,
-        title: r.kind === 'string'
-          ? 'T = 按字符串存（推荐）；点一下改成 JSON 值（数字 / true / false / 对象 / 数组）'
-          : '{} = 按 JSON 解析；点一下改回字符串（T）',
-        // ★ 2026-10-16 修 bug（用户报「参数里输入框和富文本框切换失效」的真因）：
-        //   原实现顺带写 `multi: false`——把类型切换和形态（单行/富文本）耦在一起，
-        //   于是**从富文本点一下类型开关就被压成单行、且再也回不去**（实测点回来仍是单行）。
-        //   类型与形态本是两个正交维度 ⇒ 这里只切类型，形态由右边的「单行/富文本」按钮单独控制。
-        onClick: () => setRow({ kind: r.kind === 'string' ? 'other' : 'string' }),
-      }, r.kind === 'string' ? 'T' : '{}'),
-      createElement('button', {
-        className: 'dsh-wf-params-form',
-        title: r.multi ? '改成单行输入' : '改成富文本框',
-        onClick: () => setRow({ multi: !r.multi }),
-      }, createElement(r.multi ? IconSingleLine : IconMultiLine)),
       createElement('button', {
         className: 'dsh-wf-params-del',
         title: '删除该参数',
@@ -371,6 +405,11 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
     },
       createElement('div', { className: 'dag-flow-picker-title', style: { fontSize: 16 } },
         `🧪 参数与试跑（${nodeLabel ?? ''} · ${nodeId}）`,
+        // ★ 2026-10-16 用户：「这段话的小问号在最右边线边上，调整下位置」——原先挂在页签行末尾
+        //   （`.dsh-wf-params-meta` 的 margin-left:auto 之后），天生就顶在弹窗右内边上；
+        //   现挪到标题文字右侧（左上区）：标题行 flex+gap:8px，关闭按钮自带 margin-left:auto，
+        //   插在两者之间即可稳定停在标题旁，不贴任何边线。
+        createElement(InfoTip, { text: PARAMS_TIPS, className: 'dsh-wf-params-tip' }),
         createElement('button', { className: 'dag-flow-picker-close', title: '关闭', onClick: onClose }, '✕'),
       ),
       createElement('div', { className: 'dsh-wf-params-tabs' },
@@ -394,15 +433,12 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
       createElement('div', { className: 'dsh-wf-params-main' },
       tab === 'fields'
         ? createElement('div', { className: 'dsh-wf-params-body' },
-            createElement('div', { className: 'dsh-wf-panel-hint', style: { marginBottom: 10 } },
-              '值里可用上游数据引用：{{节点id.out}} / {{节点id.out.字段}} / {{vars.变量}} / {{inputs.输入}}。长文本点该行的「多行框」图标用代码级编辑框（不用写 JSON 转义）；要数字 / true / false / 对象时，把「T」点成「{}」。'),
             rows.map(rowEl),
             createElement('div', { className: 'dsh-wf-params-addbar' },
               createElement('button', {
                 className: 'dsh-wf-inputs-add', title: '添加一个参数',
-                onClick: () => pushRows([...rows, { k: '', text: '', kind: 'string', multi: false }]),
+                onClick: () => pushRows([...rows, { k: '', text: '', multi: false }]),
               }, '+'),
-              createElement('span', { className: 'dsh-wf-panel-hint' }, '新参数默认按字符串存；「T / {}」控制该行是否按 JSON 解析'),
             ),
           )
         : createElement('div', null,
@@ -415,8 +451,10 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
             }),
             jsonError
               ? createElement('div', { className: 'dsh-wf-params-err' }, `✗ ${jsonError}`)
-              : createElement('div', { className: 'dsh-wf-panel-hint', style: { marginTop: 8 } },
-                  '整份 params 的 JSON；解析失败不会写回，改对即生效。切回「字段视图」看逐参数编辑。'),
+              : createElement('div', { className: 'dsh-wf-params-jsonfoot' },
+                  // JSON 视图的静态说明收进小问号（原来平铺一行在编辑器下方）
+                  createElement(InfoTip, { text: '整份 params 的 JSON；解析失败不会写回，改对即生效。切回「字段视图」看逐参数编辑。' }),
+                ),
           ),
       ),
       varOpen
@@ -424,7 +462,8 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
             createElement(VarPicker, {
               groups: varGroups,
               onPick: (c) => insertRef(c.text),
-              actionHint: varHint ?? '点变量插入到当前值框的光标处（先点一下值框，光标在哪就插在哪）',
+              // 静态说明已收进抽屉里的小问号（var-picker 自带），这里只在面板传了计数时才显示
+              actionHint: varHint,
             }),
             pickHint ? createElement('div', { className: 'dsh-wf-params-err' }, pickHint) : null,
           )
@@ -448,8 +487,9 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
                 title: '试跑输入（工作流参数）：按字段填，默认值已预填；可用 {{inputs.名称}} 在参数里引用',
                 onClick: () => setInputsOpen((v) => !v),
               }, `试跑输入（${inputKeys.length} 项）`)
-            : createElement('span', { className: 'dsh-wf-panel-hint' }, '本工作流没有输入参数（没有 {{inputs.x}} 可引用），直接试跑即可'),
-          createElement('span', { className: 'dsh-wf-panel-hint' }, '参数取当前节点的 params——改完即可就地试跑'),
+            : createElement('span', { className: 'dsh-wf-panel-hint' }, '本工作流没有输入参数，直接试跑即可'),
+          // 试跑条的静态说明收进小问号（原来平铺两行文字）
+          createElement(InfoTip, { text: '参数取当前节点的 params——改完即可就地试跑。试跑输入（工作流参数）按字段填、默认值已预填，可用 {{inputs.名称}} 在参数里引用；本工作流没有输入参数时不用填。' }),
         ),
         inputsOpen && inputKeys.length
           ? createElement('div', { className: 'dsh-wf-testbar-inputs' },

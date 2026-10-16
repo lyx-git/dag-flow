@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { createElement } from 'react';
 import { varMatch } from './util/varSearch';
+import { InfoTip } from './info-tip';
 
 export type VarChip = { text: string; desc: string; isOut?: boolean };
 export type VarPickGroup = {
@@ -53,10 +54,13 @@ export function VarPicker({ groups, onPick, actionHint, placeholder, emptyHint }
       placeholder: placeholder ?? '口语化搜：政策 · 日期 · rq · tzjy · ai_policy.out …',
       onChange: (e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value),
     }),
-    createElement('div', { className: 'dsh-wf-panel-hint' },
+    createElement('div', { className: 'dsh-wf-panel-hint dsh-wf-varpick-hint' },
       q
         ? (hitCount > 0 ? `命中 ${hitCount} 项（已自动展开；清空搜索回到分组收起）` : (emptyHint ?? '没有匹配的变量——换个词试试（支持拼音首字母，如 rq=日期）'))
-        : (actionHint ?? '点变量即填入当前值框的光标处')),
+        : (actionHint ?? null),
+      // ★ 2026-10-16：静态说明收进小问号；命中数/无匹配这类动态信息仍平铺
+      !q ? createElement(InfoTip, { text: '点变量即填入当前值框的光标处（先点一下值框，光标在哪就插在哪）；顶部搜索支持口语化与拼音首字母（政策 / 日期 / rq / tzjy）。' }) : null,
+    ),
     visibleGroups.length === 0
       ? null
       : createElement('div', { className: 'dsh-wf-var-groups' },
@@ -72,7 +76,9 @@ export function VarPicker({ groups, onPick, actionHint, placeholder, emptyHint }
                 title: [(g.titleFull ?? g.title), g.collapsible ? (isOpen ? '点击收起该节点字段' : '点击展开该节点字段') : '']
                   .filter(Boolean).join('\n') || undefined,
                 onClick: toggle,
-              }, `${g.collapsible ? (isOpen ? '▾' : '▸') + ' ' : ''}${g.title}${g.note ? ` · ${g.note}` : ''}`),
+              }, `${g.collapsible ? (isOpen ? '▾' : '▸') + ' ' : ''}${g.title}${g.note ? ` · ${g.note}` : ''}`,
+                // ★ 2026-10-16：分组说明（实测字段 / 本节点输出是什么）从组内底部平铺改成标题行的小问号
+                g.legend ? createElement(InfoTip, { text: g.legend }) : null),
               isOpen
                 ? createElement('div', { className: 'dsh-wf-var-list' },
                     ...chips.map((c) => createElement('span', {
@@ -83,7 +89,6 @@ export function VarPicker({ groups, onPick, actionHint, placeholder, emptyHint }
                     }, c.text)),
                   )
                 : null,
-              isOpen && g.legend ? createElement('div', { className: 'dsh-wf-var-legend' }, g.legend) : null,
             );
           }),
         ),
