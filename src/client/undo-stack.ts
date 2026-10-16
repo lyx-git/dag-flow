@@ -28,7 +28,11 @@ export const COALESCE_MS = 700;
 /** 位移（`pos:`）的合并窗口：放宽到 5s —— "拖一下、停一下、接着拖"在用户眼里仍是一次拖动 */
 export const POS_COALESCE_MS = 5000;
 /** 回放静默期：撤销/重做之后画布会回抛一次（位置直改触发的落定 + edges/nodes 归一化），
- *  这段时间内的"非位移/非参数"差异只**吸收进当前条目**，不许当新编辑（否则会切掉 redo 分支）。 */
+ *  这段时间内的差异只**吸收进当前条目**，不许当新编辑（否则会切掉 redo 分支、重做按钮变灰）。
+ *  ★2026-10-17 调参记录：曾按独立审查建议缩到 400ms（怕把撤销后 1 秒内的**真实编辑**也吸收掉），
+ *  但 CDP 实测（慢环境每步往返远超真机）涟漪会 >400ms 才到 ⇒ 被当新编辑、切掉 redo 分支，
+ *  复现"撤销后重做按钮还是灰的"（正是用户最初报的症状）⇒ 回到 1200ms 兜底，
+ *  并**只吸收不含位移的差异**（见 observeDef）：撤销后立刻拖动属真实编辑，照常记条。 */
 export const APPLY_QUIET_MS = 1200;
 
 let applyingUntil = 0;
@@ -122,6 +126,22 @@ export function diffKeyOf(prev: unknown, next: unknown): string {
   return `struct:${differing.slice().sort().join(',')}`;
 }
 
+/** ★ 待落栈的 def（2026-10-17 修"刚编辑完立刻撤销没反应"）：记录本身是在观察者那里**去抖 220ms**
+ *  才落的，若用户在这之前就按 Ctrl+Z / 点了 ↶，栈里还没有这次编辑 ⇒ 表现为"点了没反应"或"多撤一步"
+ *  （独立审查报的第 ② 条）。⇒ 观察者在 def 一变化时就 `markPending(def)`（同步、不入栈），
+ *  `undo()/redo()` 开头先 `flushPending()` 把它补成一条。 */
+let pendingDef: unknown = null;
+
+/** 登记"当前 def 还没落栈"（观察者在 def 变化时立刻调用） */
+export function markPending(def: unknown): void { pendingDef = def; }
+
+/** 把待落栈的 def 立刻入栈（幂等：与栈顶相同会被 observeDef 忽略；静默期内的回放涟漪仍会被吸收） */
+export function flushPending(): void {
+  const d = pendingDef;
+  pendingDef = null;
+  if (d !== null && d !== undefined) observeDef(d);
+}
+
 /** 观察一次 def（FlowPanel 在 def 变化处调用）。相同快照 = 回放，直接返回 */
 export function observeDef(def: unknown): void {
   const snap = JSON.stringify(def ?? null);
@@ -133,7 +153,9 @@ export function observeDef(def: unknown): void {
   //   （edges/nodes 会被归一化，key 形如 `struct:nodes`）⇒ 若当新编辑记，`slice(0, index+1)`
   //   会**切掉 redo 分支**（表现为"撤销后重做按钮还是灰的、位置也回不去"）。
   //   这段时间里只把这版快照**并进当前条目**（不动 index），涟漪过去后一切照旧。
-  if (now < applyingUntil && index >= 0) {
+  //   ★ 只吸收"**不含位移**"的差异（涟漪＝edges/nodes 归一化；位移是 pos: 开头）⇒ 撤销后立刻拖动属
+  //   真实编辑、照常记条：既不切掉 redo 分支，也不吞掉用户的拖动。
+  if (now < applyingUntil && index >= 0 && !key.startsWith('pos:')) {
     stack[index] = { snap, key: stack[index].key };
     notify();
     return;
@@ -164,6 +186,7 @@ export function redoCan(): boolean { return index >= 0 && index < stack.length -
 
 /** 撤销：把上一个快照交给 applier。返回是否真的动了 */
 export function undo(): boolean {
+  flushPending();                            // ★ 先把"还没落栈的最新编辑"补进来（否则立刻撤销会没反应）
   if (!undoCan()) return false;
   index -= 1;
   lastKey = '';                              // 回放期间不与后续编辑合并
@@ -178,6 +201,7 @@ export function undo(): boolean {
 
 /** 重做：把下一个快照交给 applier。返回是否真的动了 */
 export function redo(): boolean {
+  flushPending();                            // 同上：先补落栈，避免"刚编辑完就重做"退错步
   if (!redoCan()) return false;
   index += 1;
   lastKey = '';
@@ -189,9 +213,6 @@ export function redo(): boolean {
   notify();
   return true;
 }
-
-/** 诊断（CDP/单测用）：每条记录的变化类型（排查"一次拖动为什么记成好几条"） */
-export function undoKeys(): string[] { return stack.map((e) => e.key); }
 
 /** 诊断（CDP 用）：每条记录的 key + 其中的 layout（看清"撤销到底会退到哪一版位置"） */
 export function undoDump(): { key: string; layout: Record<string, { x: number; y: number }> }[] {

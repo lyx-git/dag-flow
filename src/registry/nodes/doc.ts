@@ -7,7 +7,7 @@ import { readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Context, NodeDefinition, NodeResult } from '../../types.js';
 import { makeResult, safeNodeRun } from '../external.js';
-import { extractDocument, extractPdfImages, DocError, DOC_MAX_BYTES } from '../doc-extract.js';
+import { extractDocument, extractPdfImages, stripImageMarks, DocError, DOC_MAX_BYTES } from '../doc-extract.js';
 import { ocrImages, ocrPdf, normalizeOcrMode, OcrError } from '../../adapter/ocr.js';
 import { dagFlowTmpDir } from '../../adapter/workspace.js';
 // ★ 2026-10-16 用户需求「doc_parse 抽图落统一目录 + 文本相应位置注明图片位置」：写入侧（读取侧在 image-inputs）
@@ -154,11 +154,18 @@ async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeRes
       // ★ 2026-10-16（用户需求「图片抽到哪里去了，需要在文本资料里面相应位置注明图片位置」）：
       //   把文档内嵌图**落进统一图片目录**（与 AI 节点 images 参数同一个目录），再把文本里的
       //   `[图片 #N]` 占位换成真实文件名 ⇒ 文本里就地能看到「这张图在哪、叫什么」。
-      //   · 默认 `extractImages: auto`；填 `off` 则只解析文本、不落盘（老行为）。
+      //   · 默认 `extractImages: auto`；填 `off` 则只解析文本、不落盘。
       //   · **fail-soft**：落盘失败不拖垮整份解析——文本保留 `[图片 #N]`，meta.imageError 说明原因。
       const wantImages = String(p.extractImages ?? 'auto').toLowerCase() !== 'off';
       if (!wantImages || r.images.length === 0) {
-        return finish(t0, startedAt, { out: { ...r, images: [] } as never });
+        // ★ 2026-10-17 修：选「关」时，文本里的 `[图片 #N]` 占位必须洗掉 ——
+        //   占位是 extractDocument 按"有没有抽到图"无条件插入的，这里却把 images 清空了 ⇒ 留着就是
+        //   "指向不存在文件的假地址"，还会被下游 AI 当正文读。
+        const text = wantImages ? r.text : stripImageMarks(r.text);
+        // ★ 2026-10-17 修（独立审查报的 D2）：`{...r}` 会把 extractDocument 写下的 `meta.images = N`
+        //   原样带出，而这里已经把 out.images 清空 ⇒ 元数据假报"有 N 张图"（磁盘上一张都没有）。
+        const meta0 = wantImages ? r.meta : { ...r.meta, images: undefined };
+        return finish(t0, startedAt, { out: { ...r, text, chars: text.length, images: [], meta: meta0 } as never });
       }
       const landed = await landImages(name, r.text, r.images);
       const meta = {
@@ -188,6 +195,12 @@ async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeRes
             }));
             const outline = `（本 PDF 没有文字层，整页内容都是图片；下面是抽出的图片）\n${refs.map((r) => `[图片 #${r.index}]`).join('\n')}`;
             const landed = await landImages(name, outline, refs);
+            // ★ 2026-10-17 修：这条通路的**全部价值**就是那份"图片地址清单"（用户原话：「只有图没有文字的，
+            //   text 里面说明抽出来的图片地址就行」）⇒ 落盘全失败时清单是空的，不能算成功（否则用户拿到一堆
+            //   指向不存在文件的 `[图片 #N]`）。
+            if (!landed.images.length && landed.imageError) {
+              return fail('IMAGE_SAVE_FAILED', `抽出了 ${refs.length} 张图但落盘失败：${landed.imageError}（文本里的图片地址清单会指向不存在的文件，故按失败处理）`);
+            }
             const meta: Record<string, string | number | boolean> = {
               file: name.replace(/^.*[\\/]/, ''), bytes: buf.length, imagesOnly: true,
               ...(landed.images.length ? { imageCount: landed.images.length, imageDir: dagFlowImagesDir() } : {}),

@@ -176,8 +176,23 @@ function decodeImageObject(o: PdfObj, objs: Map<number, PdfObj>): { mediaType: s
   const body = o.body;
   if (!o.stream || !o.stream.length) return { skip: 'stream 为空' };
   if (/\/ImageMask\s+true/.test(body)) return { skip: 'ImageMask（1 位掩码，不是可视图片）' };
-  // ① JPEG：原样
-  if (/\/DCTDecode/.test(body)) return { mediaType: 'image/jpeg', bytes: o.stream };
+  // ① JPEG：原样 —— ★但只在"确实就是裸 JPEG 字节"时（2026-10-17 修）：复合 filter（如
+  //   [/ASCII85Decode /DCTDecode]、[/LZWDecode /DCTDecode]）里 DCT 数据外面还裹着别的编码，
+  //   原样写出就是**打不开的坏图**（与文件头"绝不产出坏图"的承诺不符）。两道闸：
+  //   ①数组里**还有别的编码**才跳过；②再用 JPEG 的 SOI(FF D8) 校验字节。
+  //   ★ 2026-10-17 收窄（用户拍板）：原来写的是"是数组就跳过"，但 `/Filter [/DCTDecode]` 是**合法单元素
+  //   数组**、里面就是真 JPEG ⇒ 白丢一张图；现在只对"数组里除 DCTDecode 外还有别的 filter"才跳。
+  if (/\/DCTDecode/.test(body)) {
+    const arr = /\/Filter\s*\[([^\]]*)\]/.exec(body);
+    if (arr) {
+      const others = arr[1].split('/').map((s) => s.trim()).filter((s) => s && s !== 'DCTDecode');
+      if (others.length) return { skip: '复合 filter（DCTDecode 外面还裹着别的编码，未解码）' };
+    }
+    if (o.stream.length < 3 || o.stream[0] !== 0xFF || o.stream[1] !== 0xD8) {
+      return { skip: 'DCTDecode 数据不是 JPEG（缺 SOI，可能被外层 filter 包裹）' };
+    }
+    return { mediaType: 'image/jpeg', bytes: o.stream };
+  }
   if (/\/JPXDecode/.test(body)) return { skip: 'JPXDecode（JPEG2000）' };
   if (/\/CCITTFaxDecode/.test(body)) return { skip: 'CCITTFaxDecode（传真压缩）' };
   if (/\/JBIG2Decode/.test(body)) return { skip: 'JBIG2Decode' };
@@ -278,8 +293,9 @@ export function extractPdfImages(buf: Buffer): PdfImageResult {
   };
   for (const num of pageOrder) {
     const o = objs.get(num);
+    // ★ 2026-10-17 修：页资源里的非 /Image 对象（最常见是 /Subtype /Form —— 表单/透明组/水印）
+    //   **不是图片**，原来一律 `skipped++` 会让 meta 谎报"跳过了 N 张图"（实际一张都没少抽）。
     if (o && /\/Subtype\s*\/Image/.test(o.body)) pushHit(o, objToPage.get(num) ?? 0);
-    else if (o) { skipped++; bump('被页引用但不是 /Image 对象'); }
   }
   for (const o of objs.values()) {
     if (objToPage.has(o.num)) continue;

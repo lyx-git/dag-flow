@@ -7,6 +7,98 @@
 
 ---
 
+// v20261017-refine：**按用户拍板收的三处整改**（2026-10-17；① 的"维持现状"未动）。
+//   · ②（host）**PDF 单元素 Filter 数组收窄**：`/Filter [/DCTDecode]` 是合法单元素数组、里面就是真 JPEG，
+//     原判据"是数组就跳过"白丢一张图 ⇒ 现只对"数组里除 DCTDecode 外还有别的编码"才跳，安全性仍由
+//     SOI(FF D8) 闸兜底。新增夹具 `pdfWithBracketFilter()` + 两条断言（单元素数组照抽 / 复合 filter 仍跳过）。
+//   · ③（client）**值层纯函数抽成 `src/client/params-value.ts`**：`params-editor.tsx` 575 → ~450 行（回到
+//     500 行软上限以内），并把最易错的 `valueOfText` / `paramsFromRows` / `diffPatch` / `rowsFromParams`
+//     变成**可离线单测**的纯模块 —— 新增 `test/params-value.test.mjs`（A–E 段，含 C3「删一行不污染别行」的
+//     高危回归锁），已注册进 `test:offline`。
+//   · ④（client）**客户端版本标记单一出处**：`src/client/index.tsx` 新增 `CLIENT_VERSION` 常量，头注释
+//     不再写死版本串（原先"头注释 + apply() 的 console.log"两处手写，升位时容易漏改一处）。
+//   · ①（AI 生成提示词里节点 schema 的 400 字预算）按用户选择**维持现状**、不动。
+//   · **host + client 都有改动 ⇒ 重启 `dsh web` + 硬刷新**。
+
+// v20261017-auditfix：**全量自检后的修复**（2026-10-17 用户「根据开发规范，全量自检，还有没有引发其他的新的额外的
+//   bug 和问题，报错和不符合规范的」；两位独立审查者分 host / client 侧审未提交 diff，我再逐条复核）。
+//   · **①-1 高危（client）**：参数弹窗里**删掉一行**会让它之后的所有行被误判"用户改过" ⇒ 这些行重新过
+//     `valueOfText`：`"0012"`→12、`"true"`→布尔、`"null"`→**参数键被整条删掉**（原判据按下标对齐 + 粘性 `edited`）。
+//     修法：去掉粘性标记，改判"这一行文本是否还等于从 def 读出的原值"（`paramsFromRows`）；`pushRows` 还原成 setRows。
+//   · **①-2 中（client）**：撤销回退位置只读 `tgt.layout` ⇒ def 里**没有 layout** 的节点（AI 生成／导入／CLI 模板）
+//     撤销时位置不动、这一步历史被白吃。修法：用与显示同源的 `toRF(tgt)` 坐标给缺失节点兜底。
+//   · **① 高危（host）**：`extractImages: off` 对**所有**文本无条件洗 ⇒ 解析普通 .md/.txt 也会被删掉行尾空格
+//     （Markdown 硬换行失效）、压缩连续空行、裁首尾缩进。修法：`stripImageMarks` 无占位立即原样返回。
+//   · **② 中（host）**：off 分支只清 `out.images`，`meta.images` 仍假报"有 N 张图"。修法：同时清 meta。
+//   · **规范**：`ERROR_REFERENCE.md` 补 `IMAGE_SAVE_FAILED`（doc_parse 行）+ 更新 `IMAGE_NOT_FOUND` 文案；
+//     删 `image-library.ts` 里不可达的 bmp 分支；去掉 `NodeInspector` / `inspector-fields` 用户可见文案里的
+//     Markdown `**`（裸星号，用户极敏感）。
+//   · 用例：`image-paths` 新增 B7（无占位文本原样返回）；`undo-stack` 新增 G（静默期内涟漪吸收 vs 真实位移记条）
+//     与 H（markPending / flushPending）两段。
+//   · **host + client 都有改动 ⇒ 重启 `dsh web` + 硬刷新**。
+
+// v20261017-imgbtn：**选图弹窗的按钮统一**（2026-10-17 用户报「选图按钮弹窗里面的重新读取和打开图片目录
+//   等其他按钮大小不一致」）。根因：「↻ 重新读取」「📁 打开图片目录」原本挂在**说明行**
+//   `.dsh-wf-imgpick-hint` 里，而该行带 `font-size` / `opacity` 又没有 `flex-wrap` ⇒ 按钮被一起压暗、
+//   并被长说明挤得文字折行（高度与工具条里的按钮不一致）。
+//   修法（用户追加要求「重新读取是不是放到输入框里面，点击重新加载一下就行」）：①「↻ 重新读取」做成
+//   **搜索框内的图标按钮** `.dsh-wf-imgpick-searchwrap > .dsh-wf-imgpick-reload`（规格抄参数行的框内把手
+//   `.dsh-wf-params-grow`：22×22、圆角 6、透明底、hover 才出色），不再占工具条里的一颗文字按钮；
+//   ②「📁 打开图片目录」与全选/清空勾选/写入已选同在工具条 `.dsh-wf-imgpick-bar`；
+//   ③工具条按钮 `.dsh-wf-imgpick-bar .dsh-wf-btn { flex:0 0 auto; white-space:nowrap }` 防被挤压折行；
+//   ④说明行只保留文字淡化 `{ opacity:.75 }`（不再把按钮一起压暗）。
+//   · 用例同步：`params-images` ⑥ 断言"刷新在搜索框内、打开目录在工具条里"，新增 ⑥b（工具条文字按钮
+//     同高、说明行无按钮）与 ⑥c（框内刷新按钮 22×22、opacity=1）。
+//   · **纯客户端** ⇒ 硬刷新即生效（host 标记不动）。
+
+// v20261017-offtext：**界面文案里去掉「老行为」这种字**（2026-10-17 用户真机看到 doc_parse 面板
+//   「抽取内嵌图片」下拉项后要求：「不要有老行为这种字」）。
+//   · 下拉项文案：`关 —— 只解析文本（老行为）` ⇒ `关 —— 只解析文本，不抽取图片`。
+//   · 顺带清掉同源字样（源码注释 / 文档 / 测试注释）：doc.ts、NodeInspector.tsx、FlowGramCanvas.tsx、
+//     workspace.ts、EXEC-MODEL-MERGE.md、test/*、tmp-test/picker-server.mjs。
+//   · **纯客户端**改动（host 标记不动）⇒ **硬刷新即生效**，不必重启 dsh web。
+//   · 断言：markers 新增「client 产物里不含『老行为』字样、且新下拉文案在」。
+
+// v20261017-imgfix：**修掉全量审查查出的 7 条真缺陷**（2026-10-17 用户"按开发规范全量扫描"后拍板全修；
+//   两条来自 host 侧独立审查、三条来自 client 侧独立审查，其余自查核实；每条我都读代码复核过）。
+//   ① **传图路径基准（高）**：上游产物 `image_generate.out.images[].path` 是相对 `<DSH_HOME>` 的
+//      `.dag-flow/images/x.png`（adapter/assets.ts 用 `path.relative(DSH_HOME, file)`），读侧却按统一图片目录再拼
+//      ⇒ 双层化 ⇒ 官方推荐的 `{{img.out.images}}` 传图必 `IMAGE_NOT_FOUND`（且 path 优先于可用的 url）。
+//      现按**候选顺序探测**：`imagePathCandidates()` = [统一图片目录（裸名）, `<DSH_HOME>/…`（兼容上游形态）]，
+//      失败信息列出全部探查路径。
+//   ② **bmp 白名单不一致（中）**：doc_parse 会落 `.bmp`，而宿主附件服务与「🖼 选图」只认 png/jpeg/webp/gif
+//      ⇒ "文本公布的地址自家读不了"。现把 bmp 移出 `IMAGE_MEDIA_TYPES`（三个收集器都走 `!mediaType` ⇒ 计入
+//      `skipped`，不会静默丢图）。
+//   ③ **extractImages:off 的假地址（中）**：占位符由 extractDocument 按"有没有抽到图"**无条件**插入，节点侧 off
+//      只清 images ⇒ 文本留下指向不存在文件的 `[图片 #N]`（还会进下游 prompt）。现加 `stripImageMarks()`，
+//      off 时洗净 ⇒ 真正回到只解析文本的形态。**行为变更**：`node-matrix` 21g5 断言随之翻转。
+//   ④ **纯图 PDF 落盘失败不再算成功（中）**：那条通路的全部价值就是"图片地址清单"，落盘全失败 ⇒ `IMAGE_SAVE_FAILED`。
+//   ⑤ **PDF 复合 filter 的 DCTDecode（中低）**：`[/ASCII85Decode /DCTDecode]` 这类**未解码**字节会被当 JPEG 原样
+//      写出（坏图）⇒ 现在 `/Filter` 是数组即跳过，另用 SOI(FF D8) 校验字节，宁缺勿坏。
+//   ⑥ **Form XObject 误报（低）**：页资源里的 `/Subtype /Form`（表单/透明组/水印）不是图片，原来一律计入
+//      `skipped` ⇒ meta 谎报"跳过了 N 张图"。现不再计数。
+//   ⑦ **ai.ts schema 说明的路径基准写错（低，但它会被喂给"AI 生成工作流"）** ⇒ 改为统一图片目录。
+//   · 另修 client 侧独立审查报的 3 条：参数值类型自动推断**只作用于本次真正编辑过的行**（改一行不再把别行的
+//     `"0012"` 静默变成 12、文本 `null` 被删键；JSON 视图写引号现在**真的**能存成字符串）；撤销/重做入口先
+//     `flushPending()` 补落栈（修"刚编辑完立刻 Ctrl+Z 没反应 / 多撤一步"）；回放静默期 **1200ms** 兜底
+//     且静默期内**只吸收不含位移的差异**（撤销后立刻拖动＝真实编辑，照常记条）。
+//   · 断言：新增 `test/image-paths.test.mjs`（13 条，锁 `imagePathCandidates` 与 `stripImageMarks`）；
+//     `node-matrix` 21g5 翻转。
+//   标记 `v20261017-imgfix`（host + client 都有改动 ⇒ **重启 dsh web** + 硬刷新）。
+//
+// v20261017-undowire：**撤销接线抽成独立模块 + 清冗余诊断 API + 内联布局改 CSS 类**（2026-10-17 应"按开发规范
+//   全量扫描"要求自查出的三条不符合规范项，用户拍板"修 1/3/4"）。
+//   · ① 抽 `src/client/undo-wiring.ts`（导出 `useUndoWiring(def, setDef, setDirty)`）：FlowPanel.tsx 里那约 90 行
+//     接线（observe 记录 / 回放 applier / 挂载基线 / Ctrl+Z 快捷键 / 诊断钩子）整体搬出 —— 该文件当时已
+//     **1587 行**、越过项目 500 行软上限，而本项目对这类"面板里的独立职责"一贯抽独立模块（panel-utils /
+//     inspector-fields / dialogs/* / canvas-chrome / node-shell 都是这么来的）。**行为零变化**（同一批 effect、
+//     同一顺序、同一常量）。
+//   · ② 删掉 `undoKeys()` 与诊断钩子 `__df_undoKeys`：**无任何消费者**（CDP 早已改用 `undoDump`）。
+//   · ③ `NodeInspector.tsx` 变量入口那行的内联 `style:{display:'flex',alignItems:'center',gap:6}` 改为 CSS 类
+//     `.dsh-wf-hint-row`（与对话框里的 `.dsh-wf-varpick-hint` 同口径：客户端布局走 CSS 类才适配双主题）。
+//   · 未修（用户选择留待以后）：`params-editor.tsx` 536 行超软上限。
+//   标记 `v20261017-undowire`（纯客户端 ⇒ **硬刷新**即可）。
+//
 // v20261017-undokeep：**重命名工作流不再清空撤销历史**（2026-10-17 自查发现：上一版 `v20261016-undo` 用
 //   `def.name` 变化当"换工作流"的判据，而 `handleRename` **每键都写 `def.name`** ⇒ **改个工作流名就把撤销
 //   历史清了** —— 判据选错，重命名与换工作流不是一回事）。
@@ -577,7 +669,7 @@
 // v20261003-switch-chips：switch 分支键改「横排 chips」（用户 2026-10-03 反馈：截图里 quick/full/video/image/
 //   其他 五个键在卡内**逐行竖着堆**，「很别扭，也会遮挡」→ 原型三选一后拍板 A）。三档策略（端口位置与连线
 //   行为一律不变，全部出自同一个 `switchLayout()`）：
-//     ≤3 个 case：`labels` 逐行标签（保持原行为，行数少不别扭）
+//     ≤3 个 case：`labels` 逐行标签（保持既有行为，行数少不别扭）
 //     4~6 个    ：`chips` 端口行只留极淡序号 ①②③…（右侧与端口同高），分支键**横排成一行 chips** 贴在
 //                卡片底部做图例（`1·quick` `2·full` … `★其他`），悬停 chip → 对应行序号高亮放大，拖线不认错；
 //                 行距 30→16px、端口起点仍是 22px，5 个 case 卡高 166→**136px**

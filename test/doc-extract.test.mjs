@@ -209,6 +209,19 @@ function pdfWithJpeg() {
     [7, pdfStreamObj('/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode', FAKE_JPEG)],
   ]);
 }
+/** 1 页 + 1 张 DCTDecode 图，但 `/Filter` 写成**数组**（2026-10-17 收窄判据的夹具）：
+ *  `inner` 传 `/DCTDecode`＝合法单元素数组（应抽出）；传 `/ASCII85Decode /DCTDecode`＝复合 filter（应跳过）。 */
+function pdfWithBracketFilter(inner) {
+  const content = 'BT /F1 12 Tf 72 720 Td (Bracket) Tj ET q /ImB Do Q';
+  return makePdf([
+    [1, '<< /Type /Catalog /Pages 2 0 R >>'],
+    [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> /XObject << /ImB 7 0 R >> >> /Contents 5 0 R >>'],
+    LATIN_FONT,
+    [5, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`],
+    [7, pdfStreamObj(`/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter [${inner}]`, FAKE_JPEG)],
+  ]);
+}
 /** 1 页 FlateDecode 灰度图（带 /Predictor 12 ⟺ PNG Up） */
 function pdfWithFlateGray() {
   const px = Buffer.from([0, 85, 170, 255]);              // 2×2 灰度
@@ -526,6 +539,15 @@ console.log('== 5b. PDF 内嵌图片 ==');
   t('pdf 抽图：meta.images 记数', r.meta.images === 1, JSON.stringify(r.meta));
   t('pdf 抽图：本用例无跳过', r.meta.skippedImages === undefined, JSON.stringify(r.meta));
 
+  // ①b ★ 2026-10-17 收窄（用户拍板）：`/Filter [/DCTDecode]` 是**合法单元素数组**、字节就是真 JPEG
+  //   ⇒ 必须照抽（原来"是数组就跳过"会白丢一张图）；安全性由下面的 SOI(FF D8) 闸兜底。
+  const single = extractDocument(pdfWithBracketFilter('/DCTDecode'), 'bracket-single.pdf');
+  t('★ pdf 抽图：/Filter [/DCTDecode] 单元素数组仍抽出（不再白丢）', single.images.length === 1 && single.images[0]?.bytes.equals(FAKE_JPEG) === true, JSON.stringify(single.meta));
+  t('pdf 抽图：单元素数组不计入 skipped', single.meta.skippedImages === undefined, JSON.stringify(single.meta));
+  // ①c 复合 filter（外面还裹着别的编码）⇒ 仍然跳过（宁缺勿坏：原样写出就是打不开的坏图）
+  const compound = extractDocument(pdfWithBracketFilter('/ASCII85Decode /DCTDecode'), 'bracket-compound.pdf');
+  t('★ pdf 抽图：/Filter [/ASCII85Decode /DCTDecode] 仍跳过（未解码，不产出坏图）', compound.images.length === 0 && !!compound.meta.skippedImages, JSON.stringify(compound.meta));
+
   // ② FlateDecode 原始像素 ⇒ 现场编码 PNG；带 /Predictor 12（PNG Up）需反预测
   const g = extractDocument(pdfWithFlateGray(), '灰度图.pdf');
   const png = pngDecode(g.images[0]?.bytes);
@@ -576,11 +598,11 @@ console.log('== 5b. PDF 内嵌图片 ==');
 
   // ⑥ 无图片的 PDF：输出与改动前逐字一致（红线：不能影响现有功能）
   const plain = extractDocument(pdfLatin(), 'latin2.pdf');
-  t('★ 无图 PDF：text 与旧行为逐字相同', plain.text === 'Hello PDF\nsecond line', JSON.stringify(plain.text));
+  t('★ 无图 PDF：text 与纯文本解析逐字相同', plain.text === 'Hello PDF\nsecond line', JSON.stringify(plain.text));
   t('无图 PDF：images 为空数组、不写 skippedImages', plain.images.length === 0 && plain.meta.skippedImages === undefined, JSON.stringify(plain.meta));
   t('无图 PDF：不带 skippedImageReasons 字段（输出与改动前一致）', plain.skippedImageReasons === undefined);
   const cjk = extractDocument(pdfCjk(true), '公文2.pdf');
-  t('★ 无图 PDF（中文）：text 与旧行为逐字相同', cjk.text === '你好', JSON.stringify(cjk.text));
+  t('★ 无图 PDF（中文）：text 与纯文本解析逐字相同', cjk.text === '你好', JSON.stringify(cjk.text));
 }
 
 // ==================== 6. 错误路径 ====================

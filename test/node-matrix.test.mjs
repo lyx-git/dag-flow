@@ -323,7 +323,9 @@ const target = (r) => r.body?.summary?.results?.target;
   t('21g4. out.images 结构（name/mediaType/bytes/source）', oImg?.images?.[0]?.name === 'matrix-with-image-1.png' && oImg?.images?.[0]?.mediaType === 'image/png' && oImg?.images?.[0]?.source === 'word/media/pic.png' && Number(oImg?.images?.[0]?.bytes) === 11, JSON.stringify(oImg?.images)?.slice(0, 200));
   const rOff = await runNode('doc_parse', { path: docxPath, extractImages: 'off' });
   const oOff = target(rOff)?.out;
-  t('21g5. extractImages:off → 只解析文本（保留 [图片 #1] 占位、不落盘）', target(rOff)?.status === 'success' && String(oOff?.text).includes('[图片 #1]') && Array.isArray(oOff?.images) && oOff.images.length === 0, JSON.stringify(oOff?.text)?.slice(0, 160));
+  // ★ 2026-10-17 行为变更（独立审查报的高危项）：off 时**洗净** `[图片 #N]` 占位 —— 占位由 extractDocument
+  //   按"有没有抽到图"无条件插入，而 off 会把 images 清空 ⇒ 留着就是"指向不存在文件的假地址"（还会进下游 prompt）
+  t('21g5. extractImages:off → 只解析文本（★洗净 [图片 #1] 占位、不落盘）', target(rOff)?.status === 'success' && !String(oOff?.text).includes('[图片 #') && Array.isArray(oOff?.images) && oOff.images.length === 0, JSON.stringify(oOff?.text)?.slice(0, 160));
   const rAgain = await runNode('doc_parse', { path: docxPath });
   t('21g6. 重复解析幂等（同名同内容不重写，reused=true）', target(rAgain)?.status === 'success' && target(rAgain)?.out?.images?.[0]?.reused === true, JSON.stringify(target(rAgain)?.out?.images)?.slice(0, 160));
 

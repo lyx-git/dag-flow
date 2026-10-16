@@ -30,7 +30,7 @@ export async function dagFlowDir(): Promise<string> {
 }
 
 /** ★ 2026-10-11 新增：把「相对 .dag-flow 的子目录」解析成绝对路径（供「数据存于 … → 打开文件夹」用）。
- *  规则：空/未给 = .dag-flow 根本身（与旧行为一致）；禁止绝对路径与任何 `../` 穿越
+ *  规则：空/未给 = .dag-flow 根本身（与既有行为一致）；禁止绝对路径与任何 `../` 穿越
  *  （解析后必须仍在 .dag-flow 内，Windows 下大小写不敏感比较）→ 越界一律返回 null（调用方 400）。 */
 export function resolveDagFlowSub(dir: string, sub?: string | null): string | null {
   const base = path.resolve(dir);

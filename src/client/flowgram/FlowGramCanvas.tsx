@@ -176,7 +176,7 @@ function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
             ?? all.find((n: any) => String(n?.id ?? '').startsWith('start'));
           const raw = rawFitZoom(ctx);
           const zoom = pickInitialZoom(raw);
-          // 居中目标 = 整图内容（与「适应画布」同源，取景与原行为一致）；取不到内容才退回起始节点
+          // 居中目标 = 整图内容（与「适应画布」同源，取景与既有行为一致）；取不到内容才退回起始节点
           const box = worldBounds(ctx) ?? nodeBounds(start);
           const applied = centerOn(cfg, box, zoom);
           // ★ 取景 C（2026-10-04 用户拍板）：整图居中之后，若**入口节点**不在真正可见的区域内，

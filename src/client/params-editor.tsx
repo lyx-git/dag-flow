@@ -28,12 +28,12 @@ import type { TestResult } from './test-result';
 // ★ 2026-10-16 用户拍板「方案 A」：图片类参数支持从**统一图片目录**勾选多张（替代一个个复制文件名）。
 import { ImagePickerDialog } from './dialogs/image-picker';
 import { InfoTip } from './info-tip';
-
-// ★ 2026-10-16（用户拍板方案 A：去掉「T/{}」类型按钮）——Row 不再记录"按字符串还是按 JSON 存"，
-//   落盘类型由**值文本自动推断**（见 valueOfText）；形态 multi 仍保留（含换行/长文本自动为多行）。
-type Row = { k: string; text: string; multi: boolean; auto?: boolean; placeholder?: string };
-
-const MULTI_THRESHOLD = 60;
+// ★ 2026-10-17：行 ↔ params 值的**纯函数层**抽到独立模块（本文件已越过 500 行软上限；抽出的部分可离线单测
+//   —— 含"删一行不再污染别行"的高危回归锁，见 test/params-value.test.mjs）。
+import {
+  rowsFromParams, singleLinePlaceholder, looksJsonLike, toText, paramsFromRows, diffPatch,
+} from './params-value';
+import type { Row } from './params-value';
 
 // ★ 2026-10-11 图标换成**内联 SVG**（用户反馈「单行输入和多行编辑框的 icon 有点丑」）：
 //   原来是字体符号 ▭（U+25AD 空心方块）与 ⤢（冷僻箭头区字符）——不属于常用字形，
@@ -78,103 +78,8 @@ function IconMultiLine(): ReactElement {
 // ★ 2026-10-11 用户要求「富文本框的放大按钮在里面的右上角，斜双箭头，放大和缩小」——
 //   这个把手已由 code-text.tsx 的 `expand` prop 渲染（编辑区内部右上角），这里不再需要额外的行内图标。
 
-/** 非字符串值 → 可编辑文本（对象/数组缩进展示） */
-function toText(v: unknown): string {
-  if (typeof v === 'string') return v;
-  if (v === null || v === undefined) return '';
-  if (typeof v === 'object') { try { return JSON.stringify(v, null, 2); } catch { return String(v); } }
-  return String(v);
-}
-
-function rowsFromParams(params: Record<string, unknown>, codeLang?: CodeLang, fieldHints?: Record<string, string>, fieldPlaceholders?: Record<string, string>): Row[] {
-  const rows: Row[] = Object.entries(params ?? {}).map(([k, v]) => {
-    const text = toText(v);
-    // ★ 2026-10-11：代码行默认就用富文本框（脚本天生多行）；其余行按内容长度自动判断——
-    //   但**控件与按钮完全一致**（其它行也能点「单行/富文本」切过来）。
-    // ★★ 2026-10-16（用户「已经重启了，示例占位还是没改好」的**真因**）：示例原来只在下面的**自动补行**
-    //   分支写进行对象 ⇒ 只要 def 里已经有这个键（用户填过值、清空过、或早期 bug 留下的 `"images": ""`），
-    //   该行就走这条 params 分支、**示例永久丢失**（看到的只是通用文案）。⇒ 按字段名**无条件**附上示例；
-    //   并且**登记了示例的字段默认就是富文本框**——否则键存在且值为空时这一行会退化成单行，
-    //   连示例占位和「🖼 选图」工具栏一起消失。
-    const ph = fieldPlaceholders?.[k];
-    const multi = (k === 'code' && !!codeLang) || !!ph || text.includes('\n') || text.length > MULTI_THRESHOLD;
-    return { k, text, multi, ...(ph ? { placeholder: ph } : {}) };
-  });
-  // ★ 2026-10-11 方案 A：python/bash 的 `codePath` 是"二选一"的另一个入口——节点默认参数里没有这个键，
-  //   但用户要能填。原面板是"永远显示输入框"，所以这里**自动补一行**（auto=true：留空时不写进 def，
-  //   保持"清空 = 删键"的既有语义，也不会凭空多出 "codePath": "" 脏值）。
-  if (codeLang && !rows.some((r) => r.k === 'codePath')) {
-    rows.push({ k: 'codePath', text: '', multi: false, auto: true });
-  }
-  // ★ 2026-10-16 P1：凡是 `fieldHints` 里登记了专用说明、而 params 里还没有的键（如 subagent 的 `images`）
-  //   ⇒ 自动补一行，沿用上面的 `auto` 语义：**留空不写进 def**（默认零行为变更，也不会凭空多出空键）。
-  //   ★ 同日用户问「多张图片、多个路径或 URL 要怎么区分」⇒ 登记了示例的字段（fieldPlaceholders）把示例
-  //     写进**占位提示**（只影响 placeholder，不进值），用户一眼看出"一行一个"。
-  for (const k of Object.keys(fieldHints ?? {})) {
-    if (!rows.some((r) => r.k === k)) {
-      const ph = fieldPlaceholders?.[k];
-      rows.push({ k, text: '', multi: true, auto: true, ...(ph ? { placeholder: ph } : {}) });
-    }
-  }
-  return rows;
-}
-
-/** 单行输入框的占位文案（★ 2026-10-16 用户报「切换后框内示例占位没有了」⇒ 单行形态也要带示例：
- *  input 的 placeholder 不认换行，把多行示例折成一行「a / b / c」展示；没登记示例时回退通用文案） */
-function singleLinePlaceholder(r: Row): string {
-  if (r.placeholder) return r.placeholder.replace(/\n+/, ' ').replace(/\n+/g, ' / ');
-  return '值';
-}
-
-/** 文本看起来像 JSON 对象/数组吗（只用于**语法高亮**；落盘类型判定见 valueOfText） */
-function looksJsonLike(text: string): boolean {
-  const s = text.trim();
-  if (!/^[[{]/.test(s)) return false;
-  try { const v = JSON.parse(s); return v !== null && typeof v === 'object'; } catch { return false; }
-}
-
-/**
- * 值文本 → 落盘值（★ 2026-10-16 用户拍板方案 A：**去掉「T/{}」类型按钮，改为自动推断**）。
- * 判据：纯数字样 → 数字；true/false → 布尔；`{…}`/`[…]` 且能解析 → 对象/数组；其余一律**按原文字符串**存。
- * 真机实测（5 份工作流 118 个参数）：62 个字符串里**没有一个**"看起来像数字/布尔/JSON" ⇒ 自动推断零误判。
- * ⚠ 已知代价（方案 A 时已向用户说明）：`"0012"`、`"1.0"` 这类"看起来像数字的字符串"会被存成数字——
- *   真需要字符串时切 JSON 视图手写引号即可。
- */
-function valueOfText(text: string): unknown {
-  const s = text.trim();
-  if (s === '') return '';
-  if (s !== text) return text;                                    // 有首尾空白 ⇒ 不猜，按原文存
-  if (/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(s)) return Number(s);
-  if (s === 'true') return true;
-  if (s === 'false') return false;
-  if (s === 'null') return null;                                  // null 在 def 里＝"没有这个键"（既有语义）
-  if (/^[[{]/.test(s)) {
-    try { const v = JSON.parse(s); if (v !== null && typeof v === 'object') return v; } catch { /* 不合法就按字符串 */ }
-  }
-  return text;
-}
-
-/** 行 → params 对象（空名字的行忽略；auto 行留空则忽略；值类型由 valueOfText 自动推断） */
-function paramsFromRows(rows: Row[]): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const r of rows) {
-    const k = r.k.trim();
-    if (!k) continue;
-    // ★ auto 行的"留空＝没有这个参数"必须先判断（否则会往 def 里写 `"images": ""` 脏值）
-    if (r.auto && r.text.trim() === '') continue;
-    const v = valueOfText(r.text);
-    if (v !== null) out[k] = v;                                   // null = 删键语义，不写入
-  }
-  return out;
-}
-
-/** 差异补丁：新对象里有就写值，旧对象里有而新对象没有就传 null（= 删键） */
-function diffPatch(oldP: Record<string, unknown>, newP: Record<string, unknown>): Record<string, unknown> {
-  const patch: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(newP)) patch[k] = v;
-  for (const k of Object.keys(oldP ?? {})) if (!(k in newP)) patch[k] = null;
-  return patch;
-}
+// ★ 2026-10-17：`toText` / `rowsFromParams` / `singleLinePlaceholder` / `looksJsonLike` / `valueOfText` /
+//   `paramsFromRows` / `diffPatch` 与 `Row` 类型已抽到 ./params-value（纯函数层，可离线单测）。
 
 export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHint, inputDefaults = {}, canTest = true, testRunning = false, testResult = null, codeLang, fieldHints, fieldPlaceholders, imagePickKeys, onRunTest, onParamsChange, onClose }: {
   nodeId: string;
@@ -304,7 +209,12 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
     });
   };
 
-  /** 行变化 → 立即写回（差异补丁） */
+  /** 行变化 → 立即写回（差异补丁）。
+   *  ★ 2026-10-17 二次修（独立审查报的高危项，已实测复现）：原先在**这一处按行下标**比对，把"文本或键名变了的
+   *  行"标成粘性 `edited`。但**删除一行**会让 `next` 整体前移 ⇒ 用下标对齐时，被删行**之后的所有行**都被误标成
+   *  "用户改过" ⇒ 它们重新过 `valueOfText`：`"0012"`→12、`"true"`→布尔、`"null"`→**该参数键被整条删掉**。
+   *  现在**不再做粘性标记**，改由 `paramsFromRows` 直接与 `orig`（从 def 读出的原值）比对文本
+   *  —— 判据只看"这一行的文本是否还等于它当初的原值"，删行/换行位置都不会污染别的行。 */
   const pushRows = (next: Row[]): void => {
     setRows(next);
     onParamsChange(diffPatch(params, paramsFromRows(next)));

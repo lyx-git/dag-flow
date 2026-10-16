@@ -2,7 +2,11 @@
 // DSH 客户端入口：暴露 apply(ctx)（bundle 协议在 scripts/build-client.mjs；客户端防腐点在 src/client/dsh-gate.ts）。
 // 装配：主题初始化 + 侧栏入口 + 主区域停靠面板（DockedMainPanel）+ 停靠切面板接线 + bundle 版本标记。
 // ★ 各版本的变更原因与用户原话已归档：docs/CLIENT-VERSION-NOTES.md（本文件不再追加历史）。
-// 当前版本标记：v20261017-undokeep（必须与 apply() 里的 console.log 一致；改客户端必升位）
+// 当前版本标记：见下方 `CLIENT_VERSION` 常量（**唯一出处** —— 2026-10-17 起头注释不再写死版本串：
+// 原先"头注释 + apply() 的 console.log"两处手写，升位时容易漏改一处；改客户端必升位）。
+
+/** ★ 客户端版本标记的唯一出处（升位只改这一行）。产物级闸门＝tmp-test/verify-build-markers.mjs。 */
+export const CLIENT_VERSION = 'v20261017-refine';
 
 import { applyTheme, getThemeMode } from './theme';
 import { mountSidebarEntry } from './sidebar';
@@ -50,7 +54,7 @@ export function apply(ctx: any): void {
     wireDockOpenRequest();
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
-    console.log('[dag-flow] client v20261017-undokeep · apply OK');
+    console.log(`[dag-flow] client ${CLIENT_VERSION} · apply OK`);
   } catch (e) {
     console.error('[dag-flow] client apply failed:', e);
   }

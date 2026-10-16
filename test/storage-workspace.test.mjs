@@ -143,7 +143,7 @@ const withHome = (home) => {
     const info = await api.resolveStorageRoot();
     t('③ 旧工作区 workflow/ 的缺失文件被补齐', existsSync(join(newWf, 'ws-other.json')), info.dir);
     t('③ 旧工作区 runs/ 被复制进新根', existsSync(join(home, '.dag-flow', 'runs', 'run-001.json')));
-    // 定时配置：按 id 合并（旧行为"目标存在就整体跳过"会静默丢掉用户真实的定时任务）
+    // 定时配置：按 id 合并（早先实现"目标存在就整体跳过"会静默丢掉用户真实的定时任务）
     let sch = null;
     try { sch = JSON.parse(readFileSync(join(home, '.dag-flow', 'schedules.json'), 'utf8')); } catch { /* 见下断言 */ }
     const schItems = Array.isArray(sch?.items) ? sch.items : [];

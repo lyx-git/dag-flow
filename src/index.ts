@@ -117,7 +117,7 @@ export function apply(ctx: any, config?: any): void {
     const status = (r: AttachResult) => (r.registered ? 'registered' : `skipped${r.reason ? ` (${r.reason})` : ''}`);
     try {
       logger.info(
-        `[dag-flow] loaded (host v20261017-undokeep), ${WorkflowNodeRegistry.list().length} nodes, dagflow tool ${status(toolResult)}, api ${status(apiResult)}, scheduler ${status(schedResult)}, ${driftMsg}`
+        `[dag-flow] loaded (host v20261017-refine), ${WorkflowNodeRegistry.list().length} nodes, dagflow tool ${status(toolResult)}, api ${status(apiResult)}, scheduler ${status(schedResult)}, ${driftMsg}`
       );
       // ★ 2026-10-15 多模态 Step 0：**只读诊断**宿主附件服务是否可用 + 图片限制。
       //   打得出 `attachments ok (...)` ⇒ 多模态传图的宿主通路（saveImage → ImageReference →

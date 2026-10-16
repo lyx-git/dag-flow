@@ -70,7 +70,10 @@ t('client 无 reactflow 残留', !/reactflow\/dist|from\s*['"]reactflow['"]/.tes
   t(`dist/index.js 含该标记 ${hostMarker ?? ''}（防改了 src 没重建）`, !!hostMarker && h.includes(hostMarker), String(hostMarker));
 
   const srcClient = readFileSync(join(ROOT, 'src/client/index.tsx'), 'utf8');
-  const clientMarker = /client (v[\w.-]+) · apply OK/.exec(srcClient)?.[1];
+  // ★ 2026-10-17：客户端标记改成**单一出处常量** `CLIENT_VERSION`（头注释不再写死版本串，避免两处手写漏改），
+  //   这里两种形态都认：常量定义优先，旧形态（apply() 里 console.log 的字面量）作兜底。
+  const clientMarker = /CLIENT_VERSION\s*=\s*'(v[\w.-]+)'/.exec(srcClient)?.[1]
+    ?? /client (v[\w.-]+) · apply OK/.exec(srcClient)?.[1];
   t('src/client/index.tsx 能取到客户端版本标记', !!clientMarker, String(clientMarker));
   t(`dist/client.js 含该标记 ${clientMarker ?? ''}（防改了 src 没重建）`, !!clientMarker && c.includes(clientMarker), String(clientMarker));
 }

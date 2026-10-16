@@ -103,10 +103,21 @@ export function ImagePickerDialog({ current, onClose, onConfirm }: {
       ),
       createElement('div', { className: 'dag-flow-picker-body dsh-wf-imgpick-body' },
         createElement('div', { className: 'dsh-wf-imgpick-bar' },
-          createElement('input', {
-            className: 'dsh-wf-input dsh-wf-imgpick-search', value: query, placeholder: '按文件名搜索…',
-            onChange: (e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value),
-          }),
+          // ★ 2026-10-17 用户要求：「重新读取是不是放到输入框里面，点击重新加载一下就行」
+          //   ⇒ 刷新做成**搜索框内右侧的图标按钮**（与参数行框内把手 .dsh-wf-params-grow 同规格 22×22），
+          //     不再占工具条里的一颗文字按钮；工具条只留同规格的文字按钮，大小自然一致。
+          createElement('div', { className: 'dsh-wf-imgpick-searchwrap' },
+            createElement('input', {
+              className: 'dsh-wf-input dsh-wf-imgpick-search', value: query, placeholder: '按文件名搜索…',
+              onChange: (e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value),
+            }),
+            createElement('button', {
+              className: 'dsh-wf-imgpick-reload', title: '重新读取图片目录（刚往目录里放图时用）', onClick: () => void load(),
+            }, '↻'),
+          ),
+          createElement('button', {
+            className: 'dsh-wf-btn dsh-wf-imgpick-openfolder', title: '用系统文件管理器打开统一图片目录', onClick: openFolder,
+          }, '📁 打开图片目录'),
           createElement('button', {
             className: 'dsh-wf-btn', title: '把当前列表里的图片全部勾上',
             onClick: () => setPicked(new Set(visible.map((i) => i.name))),
@@ -123,15 +134,8 @@ export function ImagePickerDialog({ current, onClose, onConfirm }: {
             onClick: () => onConfirm(images.filter((i) => picked.has(i.name)).map((i) => i.name), replace),
           }, `✓ 写入已选（${picked.size}）`),
         ),
-        createElement('div', { className: 'dsh-wf-panel-hint dsh-wf-imgpick-hint' },
-          hint,
-          createElement('button', {
-            className: 'dsh-wf-btn dsh-wf-imgpick-reload', title: '重新读取图片目录（刚往目录里放图时用）', onClick: () => void load(),
-          }, '↻ 重新读取'),
-          createElement('button', {
-            className: 'dsh-wf-btn dsh-wf-imgpick-openfolder', title: '用系统文件管理器打开统一图片目录', onClick: openFolder,
-          }, '📁 打开图片目录'),
-        ),
+        // 说明区只放文字（其淡化只作用于文字，不再波及按钮）
+        createElement('div', { className: 'dsh-wf-panel-hint dsh-wf-imgpick-hint' }, hint),
         visible.length === 0
           ? null
           : createElement('div', { className: 'dsh-wf-imgpick-list' },

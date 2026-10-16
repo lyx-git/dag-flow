@@ -19,6 +19,7 @@ const U = await import(pathToFileURL(OUT).href);
 const {
   observeDef, resetUndo, undo, redo, undoCan, redoCan, undoStats,
   setUndoApplier, diffKeyOf, MAX_STEPS, COALESCE_MS, APPLY_QUIET_MS, resetUndoPending,
+  markPending, flushPending,
 } = U;
 
 // def 夹具：两个节点 + layout（位置是 def.layout[nodeId]，见 util/flowDef.ts 的布局持久化）
@@ -172,6 +173,43 @@ console.log('== F. resetUndoPending：导入/换工作流清栈，下一条 def 
   observeDef({ nodes: [], edges: [], layout: {}, name: 'another-workflow' });
   eq(undoStats().size, 1, 'F4. ★下一条观察到的 def 成为新基线');
   eq(undoCan(), false, 'F5. 新基线本身不可撤销（不会撤到上一个工作流上）');
+}
+
+console.log('== G. 静默期内：涟漪被吸收、真实位移照常记条（2026-10-17 独立审查补测）==');
+{
+  setUndoApplier(() => {});
+  resetUndo(mkDef());
+  observeDef(moved('a', 10, 10));
+  observeDef({ ...mkDef(), edges: [] });
+  undo();                                   // 进入静默期，此时 redo 分支存在
+  eq(redoCan(), true, 'G1. 撤销后可重做');
+  // ① 静默期内的**结构性**差异（回放涟漪：归一化）⇒ 吸收，不切 redo
+  const ripple = mkDef();
+  ripple.nodes[0] = { ...ripple.nodes[0], note: 'normalized' };
+  observeDef(ripple);
+  eq(redoCan(), true, `G2. ★静默期（${APPLY_QUIET_MS}ms）内的非位移涟漪被吸收 ⇒ redo 分支仍在`);
+  // ② 静默期内的**真实位移** ⇒ 照常记一条并切掉 redo（撤销后立刻拖动＝真实编辑，不能被吞）
+  observeDef(withPos(ripple, 'b', 500, 500));
+  eq(redoCan(), false, 'G3. ★静默期内的真实位移照常记条 ⇒ redo 分支被丢弃（有意语义：拖动就是新编辑）');
+}
+
+console.log('== H. markPending / flushPending：刚编辑完立刻撤销（2026-10-17 新增 API）==');
+{
+  let applied = null;
+  setUndoApplier((d) => { applied = d; });
+  resetUndo(mkDef());
+  const edited = moved('a', 33, 44);
+  markPending(edited);                       // 观察者 def 一变就先登记（220ms 去抖还没到点）
+  eq(undoStats().size, 1, 'H1. markPending 只是登记，尚未入栈');
+  eq(undo(), true, 'H2. ★立刻 undo() 会先 flushPending，把这次编辑补成一条');
+  eq(applied?.layout?.a?.x, 0, 'H3. ★撤销回到基线位置（不是"没反应"，也不是多撤一步）');
+  eq(redoCan(), true, 'H4. 这次编辑确实进了栈 ⇒ 可以重做');
+  eq(redo(), true, 'H5. redo() 返回 true');
+  eq(applied?.layout?.a?.x, 33, 'H6. ★重做回到刚编辑的位置');
+  flushPending();
+  const sizeAfter = undoStats().size;
+  flushPending();
+  eq(undoStats().size, sizeAfter, 'H7. flushPending 幂等（同一份 def 不重复入栈）');
 }
 
 console.log(`\n结果：${pass} passed, ${fail} failed`);

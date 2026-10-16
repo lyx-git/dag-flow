@@ -691,6 +691,14 @@
   line-height: 1.5;
 }
 
+/* 提示行里带小问号时的排版（2026-10-17 规范整改：变量入口那行原是内联 flex，收进 CSS 类才适配双主题；
+   与对话框里的 .dsh-wf-varpick-hint 同口径） */
+.dsh-wf-hint-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 
 /* 运行状态徽标（现仅用于头部「⏸ 等待人工确认」） */
 .dsh-wf-run-result {

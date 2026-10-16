@@ -52,24 +52,45 @@ export interface DocImageRef {
   source: string;
   /** 原始字节（保持原格式，不做转换） */
   bytes: Buffer;
-  /** 由扩展名推出的 MIME（白名单内：png/jpeg/gif/webp/bmp） */
+  /** 由扩展名推出的 MIME（白名单内：png/jpeg/gif/webp） */
   mediaType: string;
 }
 
-/** 会抽出并落盘的图片扩展名 → MIME（emf/wmf/tiff/svg 等一律跳过并计数，避免目录里堆打不开的文件） */
+/** 会抽出并落盘的图片扩展名 → MIME（emf/wmf/tiff/svg 等一律跳过并计数，避免目录里堆打不开的文件）。
+ *  ★2026-10-17 修：**bmp 移出白名单** —— 宿主附件服务与「🖼 选图」都只认 png/jpeg/webp/gif
+ *  （见 adapter/image-inputs.ts 的 MEDIA_TYPES）⇒ 抽出来的 .bmp 会被文本公布成地址、却自家读不了
+ *  （填进 images 直接 IMAGE_UNSUPPORTED_TYPE，选图弹窗也列不出）。移出后由收集处的 `!mediaType`
+ *  分支自动计入 skipped（三个收集器都是这么写的），不会静默丢图。 */
 const IMAGE_MEDIA_TYPES: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
   gif: 'image/gif',
   webp: 'image/webp',
-  bmp: 'image/bmp',
 };
 
 /** 取扩展名对应的图片 MIME；不是白名单里的图片格式返回 null */
 function imageMediaType(target: string): string | null {
   const ext = (/(\.[A-Za-z0-9]+)$/.exec(target)?.[1] ?? '').toLowerCase().replace(/^\./, '');
   return IMAGE_MEDIA_TYPES[ext] ?? null;
+}
+
+/** 洗掉文本里的 `[图片 #N]` 占位（**extractImages: off 时用**，2026-10-17 修）：占位是 extractDocument
+ *  按"有没有抽到图"无条件插入的，而节点选「关」时只清空 images ⇒ 文本会留下指向不存在文件的假地址
+ *  （还会进下游 AI prompt）。用它把文本还原成"加抽图功能之前"的样子。 */
+export function stripImageMarks(text: string): string {
+  // ★ 2026-10-17 修（独立审查报的 D1）：**没有占位就原样返回**。下面的空白规整（删行尾空格、压连续空行、
+  //   trim）是**全文生效**的；若无条件跑，解析一份普通 .md/.txt 也会被改掉 Markdown 硬换行、空行与首尾缩进
+  //   —— 那是超出"洗掉假地址"目标的行为变更。
+  if (!/\[图片 #\d+\]/.test(text)) return text;
+  return text
+    // ① 占位**独占一行**时：连行尾换行一起吃（否则会留下空行）
+    .replace(/^[ \t]*\[图片 #\d+\][ \t]*\r?\n/gm, '')
+    // ② 行内/行尾剩下的占位（连同前导空格）
+    .replace(/[ \t]*\[图片 #\d+\]/g, '')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /** 相对路径归一化：`baseDir` + Target ⇒ 容器内的真实路径。

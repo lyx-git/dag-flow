@@ -28,7 +28,7 @@ export const subagentDef: NodeDefinition<SubagentParams> = {
       //   留空 = 纯文本调用（与加这个参数之前的行为完全一致）。真正发出图片需要走宿主模型路由。
       images: {
         type: 'string',
-        description: '图片输入：每行一个本地路径或 http(s) URL（png/jpeg/webp/gif，最多 20 张、单张不超 20MB）。相对路径以 <DSH_HOME>/.dag-flow/ 为基准；留空则按纯文本调用',
+        description: '图片输入：每行一个本地路径或 http(s) URL（png/jpeg/webp/gif，最多 20 张、单张不超 20MB）。相对路径以统一图片目录 <DSH_HOME>/.dag-flow/images/ 为基准（写文件名即可），也兼容 .dag-flow/images/x.png 这类相对 <DSH_HOME> 的写法（上游 image_generate 的 out.images[].path 就是这个形态）；留空则按纯文本调用',
       },
     },
   },

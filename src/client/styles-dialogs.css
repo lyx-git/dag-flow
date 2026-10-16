@@ -606,10 +606,28 @@
 .dag-flow-picker.dsh-wf-imgpick { width: 760px; }
 .dsh-wf-imgpick-body { display: flex; flex-direction: column; gap: 8px; }
 .dsh-wf-imgpick-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.dsh-wf-imgpick-search { flex: 1 1 160px; min-width: 120px; }
+/* ★ 2026-10-17 用户报「重新读取/打开图片目录等其他按钮大小不一致」＋要求「重新读取放到输入框里面，
+   点击重新加载一下」：
+   ① 刷新做成**搜索框内右侧的图标按钮**（规格抄参数行的框内把手 .dsh-wf-params-grow：22×22、圆角 6、
+      透明底、hover 才出色）⇒ 不与工具条的文字按钮混排，"大小不一致"从结构上消失；
+   ② 工具条里的按钮钉住自身宽度且**不换行**（`.dsh-wf-btn` 默认 `white-space:normal`，在窄行里会被
+      长说明挤得折成两行 ⇒ 高度与别处不一致，这正是本次报的"大小不一致"）；
+   ③ 说明行只淡化文字本身（不再把按钮一起压暗）。 */
 .dsh-wf-imgpick-replace { display: flex; align-items: center; gap: 4px; font-size: 11px; opacity: .85; user-select: none; cursor: pointer; white-space: nowrap; }
-.dsh-wf-imgpick-hint { display: flex; align-items: center; gap: 8px; font-size: 11px; opacity: .75; }
-.dsh-wf-imgpick-hint .dsh-wf-imgpick-reload { margin-left: auto; }
+.dsh-wf-imgpick-searchwrap { position: relative; display: flex; flex: 1 1 200px; min-width: 140px; }
+.dsh-wf-imgpick-searchwrap > .dsh-wf-input { width: 100%; padding-right: 30px; }
+.dsh-wf-imgpick-reload {
+  position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+  width: 22px; height: 22px; padding: 0; border-radius: 6px; font-size: 13px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; background: transparent;
+  color: var(--wf-muted2, #647895); cursor: pointer; font-family: inherit;
+}
+.dsh-wf-imgpick-reload:hover {
+  color: var(--wf-text, #dce7f8); border-color: var(--wf-border2, #29405f); background: var(--wf-panel3, #172640);
+}
+.dsh-wf-imgpick-bar .dsh-wf-btn { flex: 0 0 auto; white-space: nowrap; }
+.dsh-wf-imgpick-hint { opacity: .75; }
 .dsh-wf-imgpick-list { max-height: 46vh; overflow: auto; border: 1px solid var(--wf-line, rgba(139, 155, 179, .45)); border-radius: 6px; }
 .dsh-wf-imgpick-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; cursor: pointer; font-size: 12px; }
 .dsh-wf-imgpick-row:hover { background: rgba(139, 155, 179, .14); }

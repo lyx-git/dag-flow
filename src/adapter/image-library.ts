@@ -14,13 +14,13 @@ import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { dagFlowImagesDir } from '../dsh-gate/paths.js';
 
-/** mediaType → 扩展名（与 image-inputs 的白名单一致：png/jpeg/webp/gif；bmp 只用于落盘展示） */
+/** mediaType → 扩展名（与 image-inputs / doc-extract 的白名单一致：png/jpeg/webp/gif）。
+ *  ★ 2026-10-17：bmp 已从抽图白名单移除（宿主附件服务与「🖼 选图」都不认它）⇒ 该分支不再可达，删除。 */
 const EXT_OF_MEDIA: Record<string, string> = {
   'image/png': '.png',
   'image/jpeg': '.jpg',
   'image/webp': '.webp',
   'image/gif': '.gif',
-  'image/bmp': '.bmp',
 };
 
 /** Windows/Linux 文件名都要安全：只取文件名、去掉非法字符、限长（留出 `-<index>.<ext>` 的余量）。

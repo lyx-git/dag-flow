@@ -9,6 +9,10 @@
 // ★ 相对路径基准＝**统一图片目录** `<DSH_HOME>/.dag-flow/images/`（2026-10-16 用户拍板：
 //   「读取图片的位置，放在统一的位置，方便后续文档解析节点解析出来的图片，也放到同一个位置使用」）
 //   —— 因此写裸文件名即可（`chart.png`）；绝对路径原样使用；目录唯一出处＝`dsh-gate/paths.ts`。
+//   ★2026-10-17 修：**还兼容相对 `<DSH_HOME>` 的 `.dag-flow/images/x.png`** —— 上游节点产物（如
+//   `image_generate` 的 `path`/`relativePath`）就是这个形态（adapter/assets.ts 用 `path.relative(DSH_HOME, file)`），
+//   若只按统一图片目录拼会变成 `.dag-flow/images/.dag-flow/images/x.png` ⇒ 官方推荐的
+//   `{{img.out.images}}` 传图必失败（IMAGE_NOT_FOUND）。现按候选顺序探测，见 imagePathCandidates()。
 //   文档解析节点（doc_parse）将来从 PDF/Office 里抽出的图片也落同一目录，两边天然对齐。
 // 上限＝2026-10-16 真机启动诊断实测：`attachments ok (… maxImagesPerMessage=20, maxImageBytes=20971520 …)`。
 // ★ 非法项**明确报错**，绝不静默丢图——用户会以为图已经发出去了。
@@ -16,7 +20,7 @@
 // 依赖：只用 node 内置（插件 R3 零依赖约定）；路径走防腐层 `dsh-gate/paths.ts`。
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { dagFlowImagesDir } from '../dsh-gate/paths.js';
+import { dagFlowImagesDir, dshHome } from '../dsh-gate/paths.js';
 
 /** 宿主附件服务的真机限制（2026-10-16 启动日志实测 maxImagesPerMessage / maxImageBytes） */
 export const IMAGE_MAX_COUNT = 20;
@@ -96,6 +100,13 @@ export function resolveImagePath(p: string): string {
   return path.isAbsolute(p) ? p : path.resolve(imageDir(), p);
 }
 
+/** ★ 相对路径的**候选探测顺序**（2026-10-17 修）：① 绝对路径 = 唯一候选；② 统一图片目录（官方基准，写裸名）；
+ *  ③ `<DSH_HOME>` 基准（兼容 `.dag-flow/images/x.png` 这类**上游产物**写法）。去重后按序探测。 */
+export function imagePathCandidates(p: string): string[] {
+  if (path.isAbsolute(p)) return [p];
+  return [...new Set([path.resolve(imageDir(), p), path.resolve(dshHome(), p)])];
+}
+
 /** 展示名（basename；URL 取 pathname 且去掉 query/hash） */
 function displayName(spec: ImageSpec): string {
   const clean = spec.value.split(/[?#]/)[0] ?? spec.value;
@@ -109,10 +120,15 @@ export async function loadImageInput(spec: ImageSpec): Promise<{ data: Uint8Arra
   const name = displayName(spec);
 
   if (spec.kind === 'path') {
-    const abs = resolveImagePath(spec.value);
-    let stat;
-    try { stat = await fs.stat(abs); } catch {
-      throw new ImageInputError('IMAGE_NOT_FOUND', `图片文件不存在或不可读：${abs}（相对路径以统一图片目录 <DSH_HOME>/.dag-flow/images/ 为基准，放进去写文件名即可）`);
+    // ★ 多候选探测（2026-10-17）：裸文件名按统一图片目录找；带 `.dag-flow/` 前缀的按 <DSH_HOME> 相对路径找
+    const cands = imagePathCandidates(spec.value);
+    let abs = cands[0]!;
+    let stat: { isFile(): boolean; size: number } | null = null;
+    for (const c of cands) {
+      try { stat = await fs.stat(c); abs = c; break; } catch { /* 试下一个候选 */ }
+    }
+    if (!stat) {
+      throw new ImageInputError('IMAGE_NOT_FOUND', `图片文件不存在或不可读，已尝试：${cands.join(' 与 ')}（相对路径以统一图片目录 <DSH_HOME>/.dag-flow/images/ 为基准、写文件名即可；也兼容 .dag-flow/images/x.png 这类相对 <DSH_HOME> 的写法）`);
     }
     if (!stat.isFile()) throw new ImageInputError('IMAGE_NOT_FOUND', `不是文件：${abs}`);
     if (stat.size > IMAGE_MAX_BYTES) {

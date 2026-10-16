@@ -421,7 +421,7 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
   type VarItem = { path: string; desc: string; key: string; isOut?: boolean };
   /** 全局变量条目（vars + inputs + loop 专用），「上游」「本节点输出」「全局变量」三处共用。
    *  ★ isOut 形参放宽为可选（strict 下暴露：原文件就有 `globalItems()` 与 `globalItems(false)` 两种调用并存，
-   *    运行时 isOut=undefined 只影响 React key 前缀，不改文案——保持原行为，不"顺手修"）。 */
+   *    运行时 isOut=undefined 只影响 React key 前缀，不改文案——保持既有行为，不"顺手修"）。 */
   const globalItems = (isOut?: boolean): VarItem[] => [
     ...globalVars.map((k) => ({ path: `{{vars.${k}}}`, desc: `「${k}」——由设置变量节点 ${varOwner[k]} 写入，流程内随处可见`, key: `${isOut ? 'self' : 'up'}-v-${k}`, isOut })),
     ...inputKeys.map((k) => ({ path: `{{inputs.${k}}}`, desc: `工作流参数「${k}」——运行本工作流时由外部/参数面板填入`, key: `${isOut ? 'self' : 'up'}-i-${k}`, isOut })),
@@ -554,7 +554,7 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
         onClick: () => setVarDlgOpen(true),
       }, '🔗 打开变量弹窗'),
       // 变量入口的静态说明收进问号；计数属于"当前值回显"⇒ 仍平铺（同一行放问号）
-      createElement('div', { className: 'dsh-wf-panel-hint', style: { display: 'flex', alignItems: 'center', gap: 6 } },
+      createElement('div', { className: 'dsh-wf-panel-hint dsh-wf-hint-row' },
         `上游 ${upstream.length} · 输出 ${selfFields.list.length} · 全局 ${globalVars.length + inputKeys.length}`,
         createElement(InfoTip, { text: '变量都在弹窗里，可按「政策 / 日期 / rq / tzjy」口语化搜索（支持拼音首字母），点 chip 复制 {{}} 引用。' })),
     ),
@@ -805,7 +805,7 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
           `✓ 所选模型支持图片输入（能力: ${caps}）${n ? `；当前已配 ${n} 张图，运行时会把它们一起发给模型` : ''}`);
       }
       return createElement('div', { className: 'dsh-wf-panel-hint' },
-        `⚠️ 所选模型不支持图片输入（能力: ${caps}，仅文本）——${n ? `你已配 ${n} 张图：` : ''}prompt 中引用图片/视频/文件、或 images 里配了图时，运行会在发调用前直接失败（MODEL_MODALITY_MISMATCH，**不会静默丢图**）。需要处理图片请换带 📷 的模型，或在 dsh 配置（profile 的 cordis.patch.yml，旧版 settings.yaml）里为该模型标注 input: [text, image] 后刷新。`);
+        `⚠️ 所选模型不支持图片输入（能力: ${caps}，仅文本）——${n ? `你已配 ${n} 张图：` : ''}prompt 中引用图片/视频/文件、或 images 里配了图时，运行会在发调用前直接失败（MODEL_MODALITY_MISMATCH，不会静默丢图）。需要处理图片请换带 📷 的模型，或在 dsh 配置（profile 的 cordis.patch.yml，旧版 settings.yaml）里为该模型标注 input: [text, image] 后刷新。`);
     })(),
     node.type === 'session_input' && createElement(SessionInputFields, { node, onParamsChange }),
     (node.type === 'image_generate' || node.type === 'video_generate' || node.type === 'file_save')

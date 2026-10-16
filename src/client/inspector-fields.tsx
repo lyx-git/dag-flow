@@ -263,8 +263,8 @@ export function WebFields({ node, onParamsChange }: {
         onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onParamsChange({ extractImages: e.target.value }),
       },
         createElement('option', { value: 'auto' }, '自动（默认）—— 抽到就存进统一图片目录，并在文本相应位置标注文件名'),
-        createElement('option', { value: 'off' }, '关 —— 只解析文本（老行为）'),
-      ), '抽出的图片存到 <DSH_HOME>/.dag-flow/images/（与 AI 节点 images 参数**同一个目录**，可直接被 AI 节点引用）；文档文本里会在图片原来的位置插入「[图片：文件名]」。Word / PPT 能定位到段落、页；Excel 的浮动图统一标在文末。反复解析同一份文档不会堆副本（同名同内容不重写）。'),
+        createElement('option', { value: 'off' }, '关 —— 只解析文本，不抽取图片'),
+      ), '抽出的图片存到 <DSH_HOME>/.dag-flow/images/（与 AI 节点 images 参数同一个目录，可直接被 AI 节点引用）；文档文本里会在图片原来的位置插入「[图片：文件名]」。Word / PPT 能定位到段落、页；Excel 的浮动图统一标在文末。反复解析同一份文档不会堆副本（同名同内容不重写）。'),
     );
   }
   // web_fetch
