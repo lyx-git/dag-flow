@@ -9,10 +9,10 @@
 //   完整链路能被真走一遍，而且**不联网、不动真机**（DSH_HOME 已被 _isolate-home 隔离）。
 //   真网络下载另用真机彩排验证（tmp-test/rehearse-runtime-download.mjs）。
 // 跑法：node test/runtime-ensure.test.mjs
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';   // ★ 必须最先：隔离 DSH_HOME（绝不碰真机数据/运行区）
 import { ISOLATED_HOME } from './_isolate-home.mjs';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
@@ -25,7 +25,7 @@ function t(name, cond, detail = '') {
 }
 
 const PLUGIN_ROOT = fileURLToPath(new URL('..', import.meta.url));      // 测试文件在 <plugin>/test/ 下
-const work = mkdtempSync(join(tmpdir(), 'dag-runtime-'));
+const work = tmpRoot('dag-runtime-');
 const emptyBundled = join(work, 'no-bundled');                          // 假装"插件里没带运行时"
 mkdirSync(emptyBundled, { recursive: true });
 process.env.DAGFLOW_RUNTIME_BUNDLED_DIR = emptyBundled;

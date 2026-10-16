@@ -3,6 +3,8 @@
 
 import Ajv, { type ValidateFunction } from 'ajv';
 import { WORKFLOW_SCHEMA, type WorkflowDef, type Node } from '../types.js';
+// ★ ajv 中文映射的唯一源（host 与 client 共用；2026-10-16 规范整改前是两份人工同步的副本）
+import { zhAjvMessage } from '../ajv-zh.js';
 
 const ajv = new Ajv({ allErrors: true, strict: false, unicodeRegExp: true });
 const validateSchema: ValidateFunction = ajv.compile(WORKFLOW_SCHEMA);
@@ -12,30 +14,6 @@ export class WorkflowParseError extends Error {
     super(msg);
     this.name = 'WorkflowParseError';
   }
-}
-
-/** ajv 英文错误消息 → 中文（常见模式映射，未命中保留原文） */
-const AJV_ZH: [RegExp, string][] = [
-  [/must have required property '([^']+)'/, '缺少必填字段 "$1"'],
-  [/must NOT have additional properties/, '存在不允许的多余字段'],
-  [/must be (string|object|array|number|integer|boolean|null)/, '类型必须是 $1'],
-  [/must match pattern '([^']+)'/, '必须匹配格式 $1'],
-  [/must be equal to constant/, '值不匹配要求'],
-  [/must NOT be shorter than (\d+)/, '长度不能少于 $1'],
-  [/must NOT be longer than (\d+)/, '长度不能超过 $1'],
-  [/must be >= (-?\d+)/, '不能小于 $1'],
-  [/must be <= (-?\d+)/, '不能大于 $1'],
-  [/must NOT have fewer than (\d+) items/, '数组至少需要 $1 项'],
-  [/must NOT have more than (\d+) items/, '数组不能超过 $1 项'],
-  [/must have unique item/, '数组元素必须唯一'],
-  [/must NOT be valid/, '格式不合法'],
-];
-function zhAjvMessage(m: string): string {
-  for (const [re, tpl] of AJV_ZH) {
-    const mm = m.match(re);
-    if (mm) return tpl.replace(/\$(\d)/g, (_, i) => mm[Number(i)] ?? `$${i}`);
-  }
-  return m;
 }
 
 /** 节点「显示名_id」标签（2026-10-02 用户要求：报错必须能一眼看出是哪个节点）。

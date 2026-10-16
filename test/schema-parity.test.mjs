@@ -8,8 +8,7 @@
 //   手段：esbuild 打包 src/types.ts + src/client/JsonView.tsx → 临时 mjs → 深比较（键序无关）
 //   跑法：node test/schema-parity.test.mjs
 import { build } from 'esbuild';
-import { mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -19,9 +18,12 @@ function assert(cond, msg) {
   else { fail++; console.error(`  ✗ ${msg}`); }
 }
 
-const dir = mkdtempSync(join(tmpdir(), 'df-schema-parity-'));
-const OUT = join(dir, 'schemas.mjs');
+// ★ 2026-10-16 规范整改：esbuild 产物落**项目内** `tmp-test/build/`（系统 TEMP 里解析不到
+//   node_modules 里的 external 依赖，且会留 `df-*` 残留）。隔离数据根仍用 mkdtemp(tmpdir())，见其它测试。
 const ROOT = join(import.meta.dirname, '..');
+const dir = join(ROOT, 'tmp-test', 'build', 'schema-parity');
+mkdirSync(dir, { recursive: true });
+const OUT = join(dir, 'schemas.mjs');
 const abs = (p) => join(ROOT, p).replace(/\\/g, '/');
 
 // 只取两份 schema：JsonView 里被 `await import()` 的运行时依赖标成 external（本测试不会执行到）

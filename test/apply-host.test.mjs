@@ -1,3 +1,4 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import { useHomeAs } from './_isolate-home.mjs';   // ★ 2026-10-11：存储根 = <DSH_HOME>/.dag-flow
 // test/apply-host.test.mjs — 宿主接入层测试（dsh 0.2.0 语义 / 404 回归防线）
 //
@@ -22,8 +23,7 @@ import { useHomeAs } from './_isolate-home.mjs';   // ★ 2026-10-11：存储根
 //      用真实 fetch 复现 UI 的建工作流请求
 // 跑法：node test/apply-host.test.mjs
 import * as http from 'node:http';
-import { mkdtempSync, existsSync, readFileSync, readdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 let pass = 0, fail = 0;
@@ -36,7 +36,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ===== 伪造宿主 =====
 
-const WS = mkdtempSync(join(tmpdir(), 'dag-flow-apply-'));
+const WS = tmpRoot('dag-flow-apply-');
 // ★ 2026-10-11：存储根固定 <DSH_HOME>/.dag-flow（与工作区无关）→ 把 DSH_HOME 指到本测试的临时工作区，
 //   于是 <DSH_HOME>/.dag-flow 正好等于 <WS>/.dag-flow，下面的路径断言语义不变。
 useHomeAs(WS);

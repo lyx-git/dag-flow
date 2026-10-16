@@ -1,14 +1,12 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/params-check.test.mjs — 节点 params 必填项集中预检（NODE_PARAMS_INVALID）
 // 覆盖：10 类静默/含糊缺失的拦截（串行 + DAG 双模式）、多问题聚合、{{}} 引用不误伤、
 //      已有专属错误码的节点语义不被预检抢占（subagent/web_search/web_fetch）。
 // 跑法：node test/params-check.test.mjs
 import * as http from 'node:http';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
-process.chdir(mkdtempSync(join(tmpdir(), 'dag-params-')));
+process.chdir(tmpRoot('dag-params-'));
 const routes = [];
 const stubCtx = { logger: { info() {}, warn() {}, error() {} }, webServer: { register(r) { routes.push(r); return () => {}; } } };
 const mod = await import('file:///D:/workspace/pluginspace/dag-flow/dist/index.js');

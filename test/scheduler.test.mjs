@@ -1,15 +1,14 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/scheduler.test.mjs — 定时调度器（scheduler.ts）：到点触发 / 不补跑 / skip 并发 / tick 永不崩
 // 手法：esbuild stdin 入口把 scheduler + cron + running 打进同一 bundle；
 //   全部外部依赖**注入**（假时钟 now()、内存 store、假执行器 run），所以不碰真实文件、不依赖真实时间。
 import { build } from 'esbuild';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
-const WS = mkdtempSync(join(tmpdir(), 'df-sched-run-'));
+const WS = tmpRoot('df-sched-run-');
 process.chdir(WS);
 
 const OUT = join(WS, 'scheduler.bundle.mjs');

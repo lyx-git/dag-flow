@@ -1,3 +1,4 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/sessions.test.mjs — 会话读取层回归（2026-09-27 sessions.v3 布局漂移修复 + 命名解耦；2026-10-01 v4 + 多帧 zstd；
 // 2026-10-02 会话标题提取：listSessions 返回首条 user 消息摘要 + mtime + 按最后活动倒序）
@@ -6,14 +7,13 @@ import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 
 // ⑤多帧追加式 zstd 逐帧解压；⑥标题=首条 user 消息（≤40 字截断）；⑦mtime 字段；⑧按最后活动倒序。
 // 手段：esbuild 即时打包 src/adapter/sessions.ts → 临时 mjs → fixture 目录断言。
 import { build } from 'esbuild';
-import { mkdtempSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { zstdCompressSync } from 'node:zlib';
 
 const ROOT = process.cwd();
-const fixture = mkdtempSync(join(tmpdir(), 'dag-flow-sessions-'));
+const fixture = tmpRoot('dag-flow-sessions-');
 const dshRoot = join(fixture, '.dsh');
 const sessionsRoot = join(dshRoot, 'sessions');
 

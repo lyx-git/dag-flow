@@ -6,14 +6,14 @@
 //   A. schema 接受 { 分支键: 目标 } 对象（并与 if 的 {true,false} 共存——oneOf 必须恰好命中一个分支）
 //   B. 校验报错折叠成一条人话：不再「一个根因喷 9 条」，且位置带「显示名_id(类型)」
 // 手段：esbuild 即时打包 src/executor/parse.ts → 临时 mjs → 直接调 parseAndValidate
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { existsSync, readFileSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
-const tmp = mkdtempSync(join(tmpdir(), 'dag-flow-schema-next-'));
+const tmp = tmpRoot('dag-flow-schema-next-');
 const OUT = join(tmp, 'parse.bundle.mjs');
 await build({
   entryPoints: [join(ROOT, 'src/executor/parse.ts')],

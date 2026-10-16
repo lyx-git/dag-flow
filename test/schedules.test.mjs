@@ -1,15 +1,15 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import { useHomeAs } from './_isolate-home.mjs';   // ★ 2026-10-11：存储根 = <DSH_HOME>/.dag-flow
 // test/schedules.test.mjs — 定时任务配置存储（schedules.ts）+ 共享运行登记（running.ts）
 // 手法：esbuild 用 stdin 入口把 schedules/running/cron 打进**同一个** bundle（共享模块实例，
 //   这样 markRunning 的效果能被 listSchedules 看到），跑在临时工作区里（chdir 后 storage 解析到它）。
 import { build } from 'esbuild';
-import { mkdtempSync, existsSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
-const WS = mkdtempSync(join(tmpdir(), 'df-sched-'));
+const WS = tmpRoot('df-sched-');
 process.chdir(WS);
 useHomeAs(WS);   // ★ 2026-10-11：存储根 = <DSH_HOME>/.dag-flow，指到本测试临时工作区
 

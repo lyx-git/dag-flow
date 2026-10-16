@@ -1,15 +1,15 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/storage-json.test.mjs — 存储层端到端验证：工作区 JSON 文件（无 SQLite）
 // 用 esbuild 即时打包 src/adapter/storage.ts → 临时 mjs → 跑断言
 import { build } from 'esbuild';
-import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 // 让 storage 的 process.cwd() 解析链落到临时目录（模拟"从工作区启动"）
 const ROOT = process.cwd(); // 插件根目录（chdir 前先记下，入口路径要用）
-const fakeWorkspace = mkdtempSync(join(tmpdir(), 'dsh-wf-test-'));
+const fakeWorkspace = tmpRoot('dsh-wf-test-');
 process.chdir(fakeWorkspace);
 
 const OUT = join(fakeWorkspace, 'storage.test.bundle.mjs');

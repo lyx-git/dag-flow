@@ -1,3 +1,4 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/manual-await.test.mjs — 人工确认节点（manual）真暂停 + 恢复
 //
@@ -10,11 +11,8 @@ import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 
 //   ④ 非交互路径（run-node 单节点试跑 / subflow 子工作流内部）→ 自动通过 out.autoPassed=true，不挂起
 // 另锁定：取消（DELETE /run?name=）能让挂起的运行收敛为失败；未知 runId → 404（dsh 重启的中断态）
 import * as http from 'node:http';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
-process.chdir(mkdtempSync(join(tmpdir(), 'dag-manual-')));
+process.chdir(tmpRoot('dag-manual-'));
 const routes = [];
 const logs = [];
 const stubCtx = {

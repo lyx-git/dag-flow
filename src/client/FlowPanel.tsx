@@ -21,7 +21,7 @@ import type { VarPickGroup } from './var-picker';
 import type { TestResult } from './test-result';
 // ★ 运行进度 → 节点状态（2026-10-03 用户需求：待运行/运行中/完成/失败，按运行路径依次显示）
 import { progressToStatusMap } from './runProgress';
-import { toRF, fromRF, canonicalizeDef, type RFNode, type RFEdge } from './util/flowDef';
+import { toRF, fromRF, canonicalizeDef, newNodeId, type RFNode, type RFEdge } from './util/flowDef';
 import { buildGraphSvg, svgToPngBlob, type GraphImageNode, type GraphImageEdge } from './util/graphImage';
 import { varMatch } from './util/varSearch';
 import { applyAutoLayout } from './util/layout';
@@ -179,7 +179,9 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
   // 节点添加（从 palette 拖入：Canvas 自行处理；这里也供 AiGen 等使用）
   const handleAddNode = useCallback(
     (type: string) => {
-      const id = `node_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      // ★ 2026-10-16 规范整改：新节点 id 只由 newNodeId() 一处产出（此前这里内联拼了一遍，与
+      //   FlowGram 建节点路径各写一份 —— 「id 生成无单一入口」正是 2026-10-15 事故的结构性根因）
+      const id = newNodeId();
       const meta = findMeta(type);
       const newNode = {
         id,
@@ -531,7 +533,7 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
         if (selectedNodeId) {
           const n = def.nodes.find((x) => x.id === selectedNodeId);
           if (n) {
-            const newId = `node_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+            const newId = newNodeId(); // ★ 唯一生成器（2026-10-16 收口）
             // 复制节点（n8n 语义）：原边全部保留，额外克隆 newId 的入边+出边
             const extra = [];
             for (const ed of def.edges ?? []) {

@@ -6,9 +6,8 @@
 //   本文件把「对象→数组→对象→列表」的每种组合都钉死，避免同族 bug 第四次出现。
 //   手段：esbuild 即时打包 src/adapter/yaml-lite.ts → 临时 mjs → 断言（与 test/topo.test.mjs 同款写法）
 //   跑法：node test/yaml-lite.test.mjs
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -19,7 +18,7 @@ function assert(cond, msg) {
 }
 const J = (v) => JSON.stringify(v);
 
-const dir = mkdtempSync(join(tmpdir(), 'df-yaml-lite-'));
+const dir = tmpRoot('df-yaml-lite-');
 const OUT = join(dir, 'yaml-lite.mjs');
 await build({ entryPoints: ['src/adapter/yaml-lite.ts'], bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent' });
 const { parse } = await import(pathToFileURL(OUT).href);

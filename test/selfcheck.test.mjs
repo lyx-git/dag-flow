@@ -3,9 +3,8 @@
 // 契约（本文件钉死）：①ok 只由 error 决定（warn 不拦）②每条都必须带 fix（解决办法不能空）
 //   ③错误码稳定（code 不随文案变）④自检自身异常绝不抛（降级成 warn）⑤纯函数：不读 fs、不碰网络
 // 手段：esbuild 即时打包 src/executor/selfcheck.ts → 断言
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -13,7 +12,7 @@ let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log('  ✓ ' + msg); } else { fail++; console.error('  ✗ ' + msg); } };
 const eq = (a, b, msg) => ok(JSON.stringify(a) === JSON.stringify(b), `${msg}（actual=${JSON.stringify(a)} expected=${JSON.stringify(b)}）`);
 
-const dir = mkdtempSync(join(tmpdir(), 'df-selfcheck-'));
+const dir = tmpRoot('df-selfcheck-');
 const OUT = join(dir, 'selfcheck.mjs');
 await build({ entryPoints: ['src/executor/selfcheck.ts'], bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent' });
 const { selfcheck } = await import(pathToFileURL(OUT).href);

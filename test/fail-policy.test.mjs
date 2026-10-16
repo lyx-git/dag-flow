@@ -1,3 +1,4 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/fail-policy.test.mjs — DAG 失败策略专项（2026-10-04 轮 2，用户拍板「合并执行模型」第二棒）
 //
@@ -16,9 +17,6 @@ import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 
 // 手段同 tolerate.test.mjs：伪造 cordis ctx → apply(dist/index.js) → 本地服务 → POST /run 读 summary。
 // 跑法：node test/fail-policy.test.mjs
 import * as http from 'node:http';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 let pass = 0, fail = 0;
 function t(name, cond, detail = '') {
@@ -26,7 +24,7 @@ function t(name, cond, detail = '') {
   else { fail++; console.log(`  ✗ ${name}${detail ? ' — ' + detail : ''}`); }
 }
 
-const fakeWorkspace = mkdtempSync(join(tmpdir(), 'dag-flow-failpol-'));
+const fakeWorkspace = tmpRoot('dag-flow-failpol-');
 process.chdir(fakeWorkspace);
 const API_BASE = '/api/dag-flow';
 

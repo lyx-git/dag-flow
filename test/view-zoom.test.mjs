@@ -5,9 +5,8 @@
 //     → 进画布与「适应画布」统一成同一套夹取 [50%,100%]（固定 75% 的 READABLE_MIN_ZOOM 已删除）。
 // 覆盖：进画布默认缩放 = 整图适配夹取 [50%,100%] / 适应画布同策略 / 一键放大缩小的档位跳变与端点。
 // 手段：esbuild 即时打包 src/client/viewZoom.ts → 临时 mjs → 断言（纯函数，无 React/无 IO/无 CDP）
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -15,7 +14,7 @@ let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log('  ✓ ' + msg); } else { fail++; console.error('  ✗ ' + msg); } };
 const eq = (a, b, msg) => ok(a === b, `${msg}（actual=${JSON.stringify(a)} expected=${JSON.stringify(b)}）`);
 
-const dir = mkdtempSync(join(tmpdir(), 'df-view-zoom-'));
+const dir = tmpRoot('df-view-zoom-');
 const OUT = join(dir, 'viewZoom.mjs');
 await build({ entryPoints: ['src/client/viewZoom.ts'], bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent' });
 const { pickInitialZoom, fitZoomClamped, nextZoomStep, zoomStepLabel, ensureVisibleShift, FIT_MIN_ZOOM, ZOOM_STEPS } = await import(pathToFileURL(OUT).href);

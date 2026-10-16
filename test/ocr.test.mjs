@@ -4,10 +4,10 @@
 //   这些都能用一个按契约说话的假脚本钉死（确定性、毫秒级）；真实引擎的效果另外用真机实测（轮 2）。
 // 假引擎用 **node 自己** 当解释器（DAGFLOW_OCR_PYTHON=process.execPath），所以不依赖本机 Python。
 // 跑法：node test/ocr.test.mjs
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';   // ★ 必须最先：隔离 DSH_HOME（绝不碰真机数据/运行区）
 import { ISOLATED_HOME } from './_isolate-home.mjs';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
@@ -20,7 +20,7 @@ function t(name, cond, detail = '') {
 }
 
 // ---------- 环境准备 ----------
-const work = mkdtempSync(join(tmpdir(), 'dag-ocr-'));
+const work = tmpRoot('dag-ocr-');
 const engineDir = join(work, 'engine');
 mkdirSync(join(engineDir, 'rapidocr_onnxruntime'), { recursive: true });
 writeFileSync(join(engineDir, 'rapidocr_onnxruntime', '__init__.py'), '# fake engine\n', 'utf8');

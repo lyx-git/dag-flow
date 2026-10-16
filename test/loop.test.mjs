@@ -1,3 +1,4 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/loop.test.mjs — loop 节点语义专项验证
 //
@@ -9,8 +10,7 @@ import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 
 //       → fetch 真实 POST /api/dag-flow/run，读 summary.results 断言。
 // 跑法：node test/loop.test.mjs
 import * as http from 'node:http';
-import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 let pass = 0, fail = 0;
@@ -22,7 +22,7 @@ function t(name, cond, detail = '') {
 function info(msg) { console.log(`  ℹ ${msg}`); }
 
 // 1) 临时工作区（storage 的 cwd 解析链会落到这里，不污染真实工作区）
-const fakeWorkspace = mkdtempSync(join(tmpdir(), 'dag-flow-loop-'));
+const fakeWorkspace = tmpRoot('dag-flow-loop-');
 process.chdir(fakeWorkspace);
 const API_BASE = '/api/dag-flow';
 

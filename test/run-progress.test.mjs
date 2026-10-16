@@ -1,9 +1,8 @@
 // test/run-progress.test.mjs — 「运行进度 → 节点状态」映射单测（2026-10-03 用户需求：
 //   画布每个节点都要有 待运行/运行中/完成/失败，按运行路径依次显示，不要最后一次性显示）
 // 手段：esbuild 即时打包 src/client/runProgress.ts → 临时 mjs → 断言（纯函数，无 React/无 IO/无 CDP）
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -11,7 +10,7 @@ let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log('  ✓ ' + msg); } else { fail++; console.error('  ✗ ' + msg); } };
 const eq = (a, b, msg) => ok(JSON.stringify(a) === JSON.stringify(b), `${msg}（actual=${JSON.stringify(a)} expected=${JSON.stringify(b)}）`);
 
-const dir = mkdtempSync(join(tmpdir(), 'df-run-progress-'));
+const dir = tmpRoot('df-run-progress-');
 const OUT = join(dir, 'runProgress.mjs');
 await build({
   entryPoints: ['src/client/runProgress.ts'],

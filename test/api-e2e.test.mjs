@@ -1,3 +1,4 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import { useHomeAs } from './_isolate-home.mjs';   // ★ 2026-10-11：存储根 = <DSH_HOME>/.dag-flow
 // test/api-e2e.test.mjs — HTTP API 端到端测试（不安装到 DSH）
 // 手段：伪造 cordis ctx（webServer.register 捕获路由）→ 调 dist/index.js 的 apply(ctx)
@@ -5,8 +6,7 @@ import { useHomeAs } from './_isolate-home.mjs';   // ★ 2026-10-11：存储根
 // 覆盖：节点列表 / 保存 / 列表 / 读取 / 404 / ai-models CRUD / sessions / run 真实执行。
 // 跑法：node test/api-e2e.test.mjs
 import * as http from 'node:http';
-import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -18,7 +18,7 @@ function t(name, cond, detail = '') {
 }
 
 // 1) 临时工作区 + 把它设为 DSH_HOME（2026-10-11 起存储根 = <DSH_HOME>/.dag-flow，与工作区无关）
-const fakeWorkspace = mkdtempSync(join(tmpdir(), 'dag-flow-e2e-'));
+const fakeWorkspace = tmpRoot('dag-flow-e2e-');
 process.chdir(fakeWorkspace);
 useHomeAs(fakeWorkspace);
 const API_BASE = '/api/dag-flow';

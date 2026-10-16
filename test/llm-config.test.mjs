@@ -1,16 +1,15 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/llm-config.test.mjs — dsh settings.yaml schema 解析锁定（2026-09-27 降耦审计意见 5）
 // 目标：把 dag-flow 依赖的 dsh 配置结构（llm-pi-ai.providers / llm-deepseek / refs）
 // 用多代 fixture 形态锁住——dsh 改 schema 时这里是第一道报警。
 // 手段：esbuild 即时打包 src/adapter/subagent.ts + src/adapter/dsh-home.ts → 临时 mjs → 断言
 import { build } from 'esbuild';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
-const tmp = mkdtempSync(join(tmpdir(), 'dag-flow-llm-test-'));
+const tmp = tmpRoot('dag-flow-llm-test-');
 
 // ★ H 组（0.2.0 profile patch 源）要走文件系统链：DSH_HOME 必须在 import bundle 前指向 fixture
 // （subagent.ts 的 SETTINGS_PATH 是模块顶层固化，import 后再改 env 无效）

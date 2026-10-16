@@ -1,3 +1,4 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/host-llm.test.mjs — 宿主 LLM 流契约（2026-10-03 修「AI 节点成功但输出为空」）
 //
@@ -9,8 +10,7 @@ import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 
 // 本文件用 stub ctx.llm 直接驱动 callViaHostLlm，把三种 finish 形态与空流守卫钉死。
 // 跑法：node test/host-llm.test.mjs
 import * as http from 'node:http';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 let pass = 0, fail = 0;
@@ -20,12 +20,12 @@ function t(name, cond, detail = '') {
   else { fail++; failures.push(name); console.log(`  ✗ ${name}${detail ? ' — ' + detail : ''}`); }
 }
 
-process.chdir(mkdtempSync(join(tmpdir(), 'dag-hostllm-')));
+process.chdir(tmpRoot('dag-hostllm-'));
 
 // ★ 去重夹具（2026-10-03 用户拍板「要去重」）：DSH_HOME 指向临时目录 + 写一份 settings.yaml，
 //   声明**与宿主发现同 provider:model**（probe-provider / probe-model）→ /models 里该模型只应出现一次
 //   （保留 host 发现那条）。必须在 import dist 之前设好：SETTINGS_PATH 是模块顶层固化的。
-const fakeHome = mkdtempSync(join(tmpdir(), 'dag-hostllm-home-'));
+const fakeHome = tmpRoot('dag-hostllm-home-');
 mkdirSync(fakeHome, { recursive: true });
 writeFileSync(join(fakeHome, 'settings.yaml'), [
   'llm-pi-ai:', '  providers:', '    probe-provider:',

@@ -14,9 +14,9 @@
 // 手段：esbuild 即时打包 storage.ts+safety.ts（保证共享同一份模块态）→ 每次打包都是**全新模块
 //   实例** = 等价于"宿主再启动一次"，这正是能测迁移一次性行为的关键。
 //   ★ DSH_HOME 必须在 import bundle **之前**设好：storage.ts 模块级就读 dshHome()（USER_DIR）。
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { mkdtempSync, existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -28,15 +28,23 @@ function t(name, cond, detail = '') {
 }
 
 const ROOT = process.cwd();
-const ENTRY = join(mkdtempSync(join(tmpdir(), 'dsh-ws-entry-')), 'entry.ts');
+const ENTRY = join(tmpRoot('dsh-ws-entry-'), 'entry.ts');
 writeFileSync(ENTRY, [
   `export { createStorage, resolveStorageRoot } from ${JSON.stringify(join(ROOT, 'src/adapter/storage.ts').replace(/\\/g, '/'))};`,
   `export { initSafety } from ${JSON.stringify(join(ROOT, 'src/adapter/safety.ts').replace(/\\/g, '/'))};`,
   '',
 ].join('\n'));
 
+// ★ 2026-10-16 规范整改：bundle 产物落**项目内** `tmp-test/build/storage-ws/`（原落系统 TEMP，
+//   每次往 TEMP 丢 dsh-ws-bundle-*）。每次用**新子目录**：ESM 按路径缓存模块，复用同一路径会让
+//   第二次 initSafety 拿到旧实例。运行开始先整目录清空 ⇒ 不跨次累积。
+const BUNDLE_ROOT = join(ROOT, 'tmp-test', 'build', 'storage-ws');
+rmSync(BUNDLE_ROOT, { recursive: true, force: true });
+
+let bundleSeq = 0;
 async function bundleWith(injectHost) {
-  const outDir = mkdtempSync(join(tmpdir(), 'dsh-ws-bundle-'));
+  const outDir = join(BUNDLE_ROOT, String(++bundleSeq));
+  mkdirSync(outDir, { recursive: true });
   await build({
     entryPoints: [ENTRY],
     bundle: true,
@@ -62,8 +70,8 @@ const withHome = (home) => {
 
 // —— 场景 ①：根固定 <DSH_HOME>/.dag-flow，**与工作区无关**（核心契约）——
 {
-  const home = mkdtempSync(join(tmpdir(), 'dsh-home-a-'));
-  const wsA = mkdtempSync(join(tmpdir(), 'dsh-ws-a-'));
+  const home = tmpRoot('dsh-home-a-');
+  const wsA = tmpRoot('dsh-ws-a-');
   const restore = withHome(home);
   try {
     const registry = { list: async () => [{ id: 'w1', path: wsA, title: 'A', updatedAt: '2026-10-01T00:00:00Z' }] };
@@ -82,8 +90,8 @@ const withHome = (home) => {
 
 // —— 场景 ②：没有 workspaceRegistry、cwd 也不是工作区 → 不再回退 cwd（老解析链不回归）——
 {
-  const home = mkdtempSync(join(tmpdir(), 'dsh-home-b-'));
-  const cwdDir = mkdtempSync(join(tmpdir(), 'dsh-cwd-b-'));
+  const home = tmpRoot('dsh-home-b-');
+  const cwdDir = tmpRoot('dsh-cwd-b-');
   const oldCwd = process.cwd();
   const restore = withHome(home);
   process.chdir(cwdDir);
@@ -97,8 +105,8 @@ const withHome = (home) => {
 
 // —— 场景 ③④：工作区时代目录 → 一次性**补缺复制**（不移动、不覆盖、不复活）——
 {
-  const home = mkdtempSync(join(tmpdir(), 'dsh-home-c-'));
-  const wsA = mkdtempSync(join(tmpdir(), 'dsh-ws-c-'));
+  const home = tmpRoot('dsh-home-c-');
+  const wsA = tmpRoot('dsh-ws-c-');
   const oldHome = join(wsA, '.dag-flow');
   const oldWf = join(oldHome, 'workflow');
   const oldRuns = join(oldHome, 'runs');
@@ -170,7 +178,7 @@ const withHome = (home) => {
 //   背景：旧实现只判"目标文件不存在就复制"，而源目录 ~/.dsh/workflows 永久保留原文件、迁移又每次
 //   宿主启动都跑 ⇒ 用户删掉的工作流会在下次启动被原样复制回来（实测：test.json/测试.json）。
 {
-  const home = mkdtempSync(join(tmpdir(), 'dsh-home-d-'));
+  const home = tmpRoot('dsh-home-d-');
   const legacy = join(home, 'workflows');
   writeJson(join(legacy, 'legacy-a.json'), { name: 'legacy-a', version: 1, nodes: [] });
   writeJson(join(legacy, 'legacy-b.json'), { name: 'legacy-b', version: 1, nodes: [] });

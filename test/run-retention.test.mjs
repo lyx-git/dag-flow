@@ -3,10 +3,10 @@
 //   不动 *.json.tmp、不动其它文件、更不动 workflow/ 与版本快照。
 //   ★ 第一行必须 import './_isolate-home.mjs'：storage 模块级会读 dshHome()，否则会写进真机数据根。
 //   跑法：node test/run-retention.test.mjs
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';
 import { build } from 'esbuild';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -14,7 +14,7 @@ let pass = 0, fail = 0;
 const assert = (cond, msg) => { if (cond) { pass++; console.log(`  ✓ ${msg}`); } else { fail++; console.error(`  ✗ ${msg}`); } };
 
 const ROOT = resolve(import.meta.dirname, '..');
-const tmp = mkdtempSync(join(tmpdir(), 'df-retention-'));
+const tmp = tmpRoot('df-retention-');
 const OUT = join(tmp, 'storage.mjs');
 await build({ entryPoints: [join(ROOT, 'src/adapter/storage.ts')], bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent' });
 const { createStorage, RUN_KEEP_MAX_PER_WORKFLOW, RUN_KEEP_MAX_AGE_DAYS } = await import(pathToFileURL(OUT).href);

@@ -1,3 +1,4 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/run-log.test.mjs — 「运行日志」专项验证（2026-10-03 用户需求）
 //
@@ -16,8 +17,6 @@ import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 
 // 手段：伪造 cordis ctx → apply(dist/index.js) → 本地服务 → POST /run 后读 GET /run/log。
 // 跑法：node test/run-log.test.mjs
 import * as http from 'node:http';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 let pass = 0, fail = 0;
@@ -26,7 +25,7 @@ function t(name, cond, detail = '') {
   else { fail++; console.log(`  ✗ ${name}${detail ? ' — ' + detail : ''}`); }
 }
 
-const fakeWorkspace = mkdtempSync(join(tmpdir(), 'dag-flow-log-'));
+const fakeWorkspace = tmpRoot('dag-flow-log-');
 process.chdir(fakeWorkspace);
 // ★ 2026-10-04：隔离宿主目录（dsh-home 会解析 DSH_HOME），别让测试碰真实 ~/.dsh
 process.env.DSH_HOME = join(fakeWorkspace, '.dsh-home');

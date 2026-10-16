@@ -1,7 +1,9 @@
-// src/client/styles-dialogs.css — 插件样式第二段（2026-10-14 阶段四自 styles.css 按段拆出，级联顺序 = 拆分前段落顺序）
-// 内容：#11 变量 chips / #14 版本列表 / #1 试跑结果、⏰ 定时弹窗、停靠模式、参数弹窗、代码编辑三层、
-//   参数编辑器弹窗、变量抽屉、全局悬浮提示卡、试跑条、人工确认、🧾 运行日志、AI 调试信息。
-// ★ 由 index.tsx 在 styles.css 之后紧邻 import（dsh-css-inject 每个文件各转一个运行时 <style>，@import 不被处理）。
+/* src/client/styles-dialogs.css — 插件样式第二段（2026-10-14 阶段四自 styles.css 按段拆出，级联顺序 = 拆分前段落顺序）
+   内容：#11 变量 chips / #14 版本列表 / #1 试跑结果、⏰ 定时弹窗、停靠模式、参数弹窗、代码编辑三层、
+     参数编辑器弹窗、变量抽屉、全局悬浮提示卡、试跑条、人工确认、🧾 运行日志、AI 调试信息。
+   ★ 由 index.tsx 在 styles.css 之后紧邻 import（dsh-css-inject 每个文件各转一个运行时 <style>，@import 不被处理）。
+   ★ 2026-10-16 规范整改：上面这 4 行原来是双斜杠注释——CSS 里不合法，esbuild 每次构建都报
+     `js-comment-in-css` 警告（那 4 行实际被当成无效 token）。CSS 注释一律用本段这种块注释。 */
 /* ===== #11 变量 chips / #14 版本列表 / #1 试跑结果 ===== */
 .dsh-wf-var-list { display: flex; flex-wrap: wrap; gap: 4px; }
 .dsh-wf-var-chip {

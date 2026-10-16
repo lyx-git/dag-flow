@@ -581,6 +581,14 @@
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
 }
+/* Monaco 不可用时的回退提示（编辑器右上角小字；走主题变量 ⇒ 双主题都跟随，2026-10-16 由内联样式改来） */
+.dsh-wf-json-fallback {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 10px;
+  color: var(--dsh-wf-muted);
+}
 
 
 /* ========== 状态栏（Canvas 底部） ========== */

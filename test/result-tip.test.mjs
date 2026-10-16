@@ -2,9 +2,8 @@
 // 需求原话：「每个节点执行完最好有个最终执行结果可以在节点上看，无论失败还是成功，方便定位，
 //   可以是悬浮查看」。
 // 手段：esbuild 即时打包 src/client/resultTip.ts → 临时 mjs → 断言（纯函数，无 React/无 IO/无 CDP）。
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -12,7 +11,7 @@ let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log('  ✓ ' + msg); } else { fail++; console.error('  ✗ ' + msg); } };
 const eq = (a, b, msg) => ok(JSON.stringify(a) === JSON.stringify(b), `${msg}（actual=${JSON.stringify(a)} expected=${JSON.stringify(b)}）`);
 
-const dir = mkdtempSync(join(tmpdir(), 'df-result-tip-'));
+const dir = tmpRoot('df-result-tip-');
 const OUT = join(dir, 'resultTip.mjs');
 await build({
   entryPoints: ['src/client/resultTip.ts'],

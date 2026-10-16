@@ -4,9 +4,8 @@
 //   2026-10-04 轮 5 修掉的真 bug：旧 fromRF 用**字段白名单**重建节点，于是 `tolerate`
 //   （面板上的「忽略失败」）在一次画布编辑后就被静默抹掉。本文件把"往返不丢字段"钉死。
 // 手段：esbuild 即时打包 src/client/util/flowDef.ts（纯模块，无 React/DOM）→ 断言
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -14,10 +13,10 @@ let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log('  ✓ ' + msg); } else { fail++; console.error('  ✗ ' + msg); } };
 const eq = (a, b, msg) => ok(JSON.stringify(a) === JSON.stringify(b), `${msg}（actual=${JSON.stringify(a)} expected=${JSON.stringify(b)}）`);
 
-const dir = mkdtempSync(join(tmpdir(), 'df-flowdef-'));
+const dir = tmpRoot('df-flowdef-');
 const OUT = join(dir, 'flowDef.mjs');
 await build({ entryPoints: ['src/client/util/flowDef.ts'], bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent' });
-const { toRF, fromRF, canonicalizeDef } = await import(pathToFileURL(OUT).href);
+const { toRF, fromRF, canonicalizeDef, newNodeId, flowgramNodeIdentity } = await import(pathToFileURL(OUT).href);
 
 console.log('== A. def → 画布 → def：字段不丢 ==');
 {
@@ -164,6 +163,29 @@ console.log('== E. 显示名（label）与 `_label` 幽灵键（2026-10-15 修 b
   eq(a.label, '日志A', 'E2. label 往返后仍落在**顶层字段**（不是 params）');
   eq('_label' in (a.params || {}), false, 'E3. ★params 里的历史幽灵键 `_label` 被剔除（不再落盘）');
   eq(a.params, { message: 'x' }, 'E4. 剔除幽灵键不影响其它参数');
+}
+
+console.log('== F. ★新节点身份生成器（2026-10-16 收口：唯一入口 + 合法性自带）==');
+{
+  // 背景：FlowGram 的 `createWorkflowNodeByType` 在 `json.id === undefined` 时兜底 `` `1${nanoid()}` ``
+  //   （**必然数字开头**）⇒ 撞 WORKFLOW_SCHEMA 的 `^[a-zA-Z]…` ⇒ 引擎解析拦下、运行/定时全失败。
+  //   两条建节点路径（面板拖拽 / 拖线快选）曾**各自拼 id**，其中一条漏给 ⇒ 事故。
+  //   本段钉死「生成器一定产出合法 id」（纯函数层）；"两条路径真的把它传给了 FlowGram" 由
+  //   CDP `test-palette-drag.mjs` / `test-line-drop-panel.mjs` 的 id 合法性断言覆盖。
+  const ID_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
+  const ids = [];
+  for (let i = 0; i < 200; i++) ids.push(newNodeId());
+  ok(ids.every((x) => ID_RE.test(x)), `F1. newNodeId() 产出合法 id（200 次全过；样例 ${ids[0]}）`);
+  ok(ids.every((x) => /^[a-z0-9]{4}$/.test(x.slice(x.lastIndexOf('_') + 1))), 'F2. 后缀恒为 4 位 [a-z0-9]（字符集天然落在合法集内）');
+
+  const a = flowgramNodeIdentity('python', 'Python');
+  ok(ID_RE.test(a.id), `F3. flowgramNodeIdentity 的 id 合法（${a.id}）`);
+  ok(a.id.startsWith('python_'), 'F4. 以节点类型为前缀（便于人读）');
+  ok(a.label === `Python_${a.id.slice('python_'.length)}`, 'F5. ★label 与 id 共用同一后缀（报错里的「显示名_id」能对上）');
+
+  // 阳性对照：即便调用方传了非法前缀，生成器也必须兜住（否则红线又交回给调用方）
+  const bad = flowgramNodeIdentity('9bad type', 'X');
+  ok(ID_RE.test(bad.id) && bad.id.startsWith('node_'), `F6. ★非法前缀被归一化为 node_（阳性对照：${bad.id}）`);
 }
 
 console.log(`\n=== flowDef 往返契约：${pass} passed, ${fail} failed ===`);

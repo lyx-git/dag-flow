@@ -5,9 +5,8 @@
 //       from 落在触发点时取下一个，以及 describeCron 的各种形态。
 // 手段：照 test/view-zoom.test.mjs —— esbuild build() 即时打包 src/adapter/cron.ts → 临时 mjs → 断言。
 // ★ 与真实时钟无关：nextRunAt 一律传显式 from，断言只看**本机时区**的年月日时分（不用 ISO/UTC）。
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -15,7 +14,7 @@ let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log('  ✓ ' + msg); } else { fail++; console.error('  ✗ ' + msg); } };
 const eq = (a, b, msg) => ok(a === b, `${msg}（actual=${JSON.stringify(a)} expected=${JSON.stringify(b)}）`);
 
-const dir = mkdtempSync(join(tmpdir(), 'df-cron-'));
+const dir = tmpRoot('df-cron-');
 const OUT = join(dir, 'cron.mjs');
 await build({ entryPoints: ['src/adapter/cron.ts'], bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent' });
 const { parseCron, isValidCron, cronError, nextRunAt, describeCron } = await import(pathToFileURL(OUT).href);

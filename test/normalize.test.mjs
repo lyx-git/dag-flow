@@ -4,9 +4,8 @@
 // 覆盖：next 四种形态的映射 / switch 非对象 next 的恒激活 shim / 空目标 / normalizeDef 契约
 //      （已有 edges 绝不动、不修改入参、幂等、无 next 不补边）。
 // 手段：esbuild 即时打包 src/executor/normalize.ts → 临时 mjs → 断言（纯函数，无 IO）
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -14,7 +13,7 @@ let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log('  ✓ ' + msg); } else { fail++; console.error('  ✗ ' + msg); } };
 const eq = (a, b, msg) => ok(JSON.stringify(a) === JSON.stringify(b), `${msg}（actual=${JSON.stringify(a)} expected=${JSON.stringify(b)}）`);
 
-const dir = mkdtempSync(join(tmpdir(), 'df-normalize-'));
+const dir = tmpRoot('df-normalize-');
 const OUT = join(dir, 'normalize.mjs');
 await build({ entryPoints: ['src/executor/normalize.ts'], bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent' });
 const { nextToEdges, normalizeDef } = await import(pathToFileURL(OUT).href);

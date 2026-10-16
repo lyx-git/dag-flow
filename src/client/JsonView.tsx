@@ -9,6 +9,8 @@ import { getThemeMode } from './theme';
 //   这里此前把 pattern 抄了一份硬编码副本——两处当前恰好相同，改规则时必漂移（症状会是
 //   「保存得了、JSON 页报错」这类反向不一致）。改为一律引唯一源。
 import { WORKFLOW_NAME_PATTERN } from '../name-rule';
+// ★ ajv 中文映射的唯一源（与 host `executor/parse.ts` 共用同一模块；2026-10-16 规范整改前是两份副本）
+import { zhAjvMessage } from '../ajv-zh';
 
 interface JsonViewProps {
   def: WorkflowDef;
@@ -17,6 +19,32 @@ interface JsonViewProps {
    *  隐藏时**跳过全部同步**（不 stringify、不校验）⇒ 画布上的 def 变化在 JSON 隐藏期间零开销；
    *  切到可见的那一刻才与 def 对齐。缺省视为可见（兼容旧用法）。 */
   visible?: boolean;
+}
+
+/** monaco 内核的 vs 基址。★2026-10-16：`@monaco-editor/loader` 的默认值是
+ *  `https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs`，而**本机实测 jsdelivr 不可达**
+ *  （unpkg / npmmirror 均 200）⇒ 显式换到 unpkg。版本与 loader 默认一致（0.55.1），
+ *  不用 `latest`，避免新内核与 `@monaco-editor/react@4.7.0` 不兼容。 */
+const MONACO_VS_BASE = 'https://unpkg.com/monaco-editor@0.55.1/min/vs';
+/** 首次加载 monaco 内核的等待上限（正常 1–5s）：超过就按「Monaco 不可用」处理、回退 textarea——
+ *  宁可用大字板，也不要把用户永远挂在「编辑器加载中…」（2026-10-16 修的正是这个）。 */
+const MONACO_LOAD_TIMEOUT_MS = 8000;
+/** Monaco 编辑器选项（★ 模块常量：写在 render 里等于每次渲染都新建对象、Monaco 每次都收到新
+ *  options 引用而重跑 options 更新——规范"render 里不建大常量/新对象引用"）。 */
+const MONACO_OPTIONS: Record<string, unknown> = { minimap: { enabled: false }, fontSize: 12, wordWrap: 'on' };
+
+/** 超时竞速（★ 必须在 finally 清掉定时器）：内核通常 1s 就绪，裸 setTimeout 会让这个 8s 的 timer
+ *  一直挂到卸载之后（虽无 setState 副作用，但属定时器泄漏；规范"超时/竞速类必须统一清理"）。 */
+async function withTimeout<T>(p: Promise<T>, ms: number, onTimeout: () => T): Promise<T> {
+  let timer = 0;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<T>((resolve) => { timer = window.setTimeout(() => resolve(onTimeout()), ms); }),
+    ]);
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 // ★ 2026-10-11：改为 export —— 仅供一致性探针（tmp-test/verify-schema-parity.mjs）与将来的一致性
@@ -160,28 +188,9 @@ export function JsonView({ def, onChange, visible = true }: JsonViewProps) {
             setErrors([]);
           } else {
             setValid(false);
-            // ajv 英文消息 → 中文映射（与 server 端 parse.ts 同一套规则）
-            const ZH: [RegExp, string][] = [
-              [/must have required property '([^']+)'/, '缺少必填字段 "$1"'],
-              [/must NOT have additional properties/, '存在不允许的多余字段'],
-              [/must be (string|object|array|number|integer|boolean|null)/, '类型必须是 $1'],
-              [/must match pattern '([^']+)'/, '必须匹配格式 $1'],
-              [/must be equal to constant/, '值不匹配要求'],
-              [/must NOT be shorter than (\d+)/, '长度不能少于 $1'],
-              [/must NOT be longer than (\d+)/, '长度不能超过 $1'],
-              [/must be >= (-?\d+)/, '不能小于 $1'],
-              [/must be <= (-?\d+)/, '不能大于 $1'],
-              [/must NOT have fewer than (\d+) items/, '数组至少需要 $1 项'],
-              [/must NOT have more than (\d+) items/, '数组不能超过 $1 项'],
-            ];
-            const zh = (m: string): string => {
-              for (const [re, tpl] of ZH) {
-                const mm = m.match(re);
-                if (mm) return tpl.replace(/\$(\d)/g, (_, i) => mm[Number(i)] ?? `$${i}`);
-              }
-              return m;
-            };
-            setErrors((validate.errors ?? []).map((e) => `${e.instancePath || '(根)'} ${zh(e.message ?? '')}`));
+            // 中文映射与 host `executor/parse.ts` **共用同一模块** src/ajv-zh.ts（2026-10-16 规范整改：
+            //   原先两份各抄一遍、靠人工同步，本轮就漂移过 ⇒ 现在只有唯一源，改一处两边同时生效）。
+            setErrors((validate.errors ?? []).map((e) => `${e.instancePath || '(根)'} ${zhAjvMessage(e.message ?? '')}`));
           }
         } catch {
           // ajv 不可用：只校验 JSON.parse
@@ -219,7 +228,23 @@ export function JsonView({ def, onChange, visible = true }: JsonViewProps) {
     (async () => {
       try {
         const mod = await import('@monaco-editor/react');
-        if (!cancelled) setMonacoEditor(() => mod.default);
+        // ★ 2026-10-16 修：**`import('@monaco-editor/react')` 成功 ≠ monaco 内核就绪**。
+        //   内核由 loader 另外从 CDN 拉（默认写死 jsdelivr，本机实测不可达）⇒ 旧实现照样渲染
+        //   组件，却永远停在 `loading` 占位，且 `monacoError` 永不置位 ⇒ 回退 textarea 那一路
+        //   根本走不到（真机症状＝JSON 视图一直显示「编辑器加载中…」；CDP 用例 json-view 卡死）。
+        //   两处修：① vs 基址换成实测可达的 unpkg；② **显式等 loader.init() 就绪**（带超时），
+        //   失败或超时一律按「Monaco 不可用」处理 ⇒ 回退纯 textarea。
+        mod.loader.config({ paths: { vs: MONACO_VS_BASE } });
+        const state = await withTimeout(
+          mod.loader.init()
+            .then(() => 'ok' as const)
+            .catch((e: unknown) => String((e as Error)?.message ?? e ?? 'init-failed')),
+          MONACO_LOAD_TIMEOUT_MS,
+          () => '加载超时',
+        );
+        if (cancelled) return;
+        if (state !== 'ok') { setMonacoError(state); return; }
+        setMonacoEditor(() => mod.default);
       } catch (e) {
         if (!cancelled) setMonacoError((e as Error).message);
       }
@@ -240,7 +265,7 @@ export function JsonView({ def, onChange, visible = true }: JsonViewProps) {
             language: 'json',
             height: '100%',
             theme: getThemeMode() === 'nodeflow-light' || getThemeMode() === 'dsh' ? 'vs' : 'vs-dark',
-            options: { minimap: { enabled: false }, fontSize: 12, wordWrap: 'on' },
+            options: MONACO_OPTIONS, // 模块常量，见文件头常量区
             onChange: (v) => setText(v ?? ''),
             loading: createElement('div', { className: 'dsh-wf-text-muted', style: { padding: 12, fontSize: 11 } }, '编辑器加载中…'),
           })
@@ -253,7 +278,7 @@ export function JsonView({ def, onChange, visible = true }: JsonViewProps) {
           }),
       monacoError && createElement(
         'div',
-        { style: { position: 'absolute', top: 8, right: 8, fontSize: 10, color: 'var(--dsh-wf-muted)' } },
+        { className: 'dsh-wf-json-fallback' },
         `Monaco 不可用 (${monacoError})，回退 textarea`,
       ),
     ),

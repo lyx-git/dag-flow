@@ -1,10 +1,10 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/modality.test.mjs — 模型多模态能力校验（/models 透传 + 运行前模态拦截 + 图片 API 测试路由）
 // 数据源：dsh settings.yaml models[].input（标注 input: [text, image] 才支持图片，未标注视为仅文本）。
 // 跑法：node test/modality.test.mjs
 import * as http from 'node:http';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 // ★ 先起 mock LLM 服务器拿到端口，再写 settings.yaml（fixture 的 baseURL 引用真实端口），最后 import dist
@@ -20,7 +20,7 @@ const mockSrv = http.createServer((req, res) => {
 await new Promise((ok) => mockSrv.listen(0, '127.0.0.1', ok));
 const mockPort = mockSrv.address().port;
 
-const fakeHome = mkdtempSync(join(tmpdir(), 'dag-modality-home-'));
+const fakeHome = tmpRoot('dag-modality-home-');
 mkdirSync(join(fakeHome, '.dsh'), { recursive: true });
 writeFileSync(join(fakeHome, '.dsh', 'settings.yaml'), `llm-pi-ai:
   providers:
@@ -50,7 +50,7 @@ process.env.HOME = fakeHome;
 // fixture 注入必须走同一通道，否则在本机（DSH_HOME 已设）会读到真机配置——
 // 不仅是断言失败，B5 场景还会拿着真机密钥真实调用 LLM。
 process.env.DSH_HOME = join(fakeHome, '.dsh');
-process.chdir(mkdtempSync(join(tmpdir(), 'dag-modality-')));
+process.chdir(tmpRoot('dag-modality-'));
 
 const routes = [];
 const stubCtx = { logger: { info() {}, warn() {}, error() {} }, webServer: { register(r) { routes.push(r); return () => {}; } } };

@@ -12,6 +12,8 @@ import {
 } from '@flowgram.ai/free-layout-editor';
 import { NODE_PALETTE } from '../types';
 import { startResize8, readStoredJSON, saveJSON, clampNum, type PaletteGeom } from '../util/edge-drag';
+// ★ 新建节点身份（id + label）的唯一生成器：合法 id 由它保证，调用方不要再自己拼字符串
+import { flowgramNodeIdentity } from '../util/flowDef';
 
 const CATEGORY_ORDER = ['control', 'script', 'io', 'ai', 'media', 'data', 'misc'];
 const CATEGORY_LABELS: Record<string, string> = {
@@ -73,7 +75,6 @@ export function NodePalette() {
     const downX: number = e.clientX;
     const downY: number = e.clientY;
     let started = false;
-    const idSuffix = () => Math.random().toString(36).slice(2, 6);
     const startCard = () => {
       const shim = new MouseEvent('mousedown', {
         clientX: downX, clientY: downY, bubbles: false, cancelable: true, view: window,
@@ -85,15 +86,16 @@ export function NodePalette() {
       //   撞 WORKFLOW_SCHEMA 的 `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$`（types.ts + client JsonView 两份）
       //   ⇒ 存盘后引擎解析（executor/parse.ts）直接拦下：**点运行与定时执行全部失败**。
       //   真机实证：用户日报 06:00 定时因新建节点 id `153823` 报「工作流结构校验未通过」。
-      //   这里显式给 `${type}_${后缀}`——type 一律小写字母开头，必然合法；后缀与 label 一致便于对照。
-      const suffix = idSuffix();
+      //   ★ 2026-10-16 规范整改：id/label 只由 flowgramNodeIdentity 一处产出（两条建节点路径
+      //   曾各拼一份，其中一条漏给 id = 本轮事故的结构性根因），合法性由生成器内部保证。
+      const identity = flowgramNodeIdentity(type, meta.label);
       try {
         // ★ shim 是**原生** MouseEvent（React 类型声明要合成事件——nocheck 时代掩盖）；
         //   startDragCard 内部只读 clientX/Y + currentTarget（拖影克隆/定位），行为一直如此
         void dragService.startDragCard(type, shim as any, {
-          id: `${type}_${suffix}`,
+          id: identity.id,
           data: {
-            label: `${meta.label}_${suffix}`,
+            label: identity.label,
             ...(meta.defaultParams ?? {}),
           },
         });

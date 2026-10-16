@@ -1,3 +1,4 @@
+import { tmpRoot } from './_tmp-root.mjs';
 import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 = <DSH_HOME>/.dag-flow）
 // test/status-midrun.test.mjs — 「运行中的逐节点结果」契约（2026-10-03 用户反馈）
 //
@@ -13,9 +14,6 @@ import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 
 // 手段同 tolerate.test.mjs：伪造 cordis ctx → apply(dist/index.js) → 本地服务 → 不 await 地 POST /run，
 // 同时轮询 /run/status 抓"运行中"窗口。跑法：node test/status-midrun.test.mjs
 import * as http from 'node:http';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 let pass = 0, fail = 0;
 function t(name, cond, detail = '') {
@@ -24,7 +22,7 @@ function t(name, cond, detail = '') {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const fakeWorkspace = mkdtempSync(join(tmpdir(), 'dag-flow-midrun-'));
+const fakeWorkspace = tmpRoot('dag-flow-midrun-');
 process.chdir(fakeWorkspace);
 const API_BASE = '/api/dag-flow';
 

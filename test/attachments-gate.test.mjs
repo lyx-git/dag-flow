@@ -5,9 +5,9 @@
 //   ctx 抛错 五条分支的文案与容错——重启后的日志行才有可解读的语义。
 //   手段：esbuild 即时打包（经临时 wrapper 把 host.setHost 与 attachments 门面打进**同一个模块实例**），
 //   再用伪造的 0.2.0 ctx 驱动。纯模块、无 React/DOM/网络。
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -15,7 +15,7 @@ let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log('  ✓ ' + msg); } else { fail++; console.error('  ✗ ' + msg); } };
 
 const ROOT = process.cwd();
-const dir = mkdtempSync(join(tmpdir(), 'df-attgate-'));
+const dir = tmpRoot('df-attgate-');
 const wrapper = join(dir, 'entry.mjs');
 writeFileSync(wrapper, [
   `export { setHost, HOST_INJECT } from ${JSON.stringify(join(ROOT, 'src/dsh-gate/host.ts'))};`,

@@ -3,10 +3,9 @@
 //   fixture 全部**内存生成**：zip 用自己写的 store/deflate 打包器，PDF 手工拼最小对象表
 //   （含 ToUnicode CMap 的中文用例、Flate 压缩流、无文本层用例）。
 //   跑法：node test/doc-extract.test.mjs
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
 import { deflateRawSync } from 'node:zlib';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -18,7 +17,7 @@ const t = (name, cond, detail = '') => {
 
 // ---------- 载入内核（esbuild 即时打包，与 yaml-lite 测试同款） ----------
 const ROOT = resolve(import.meta.dirname, '..');
-const dirTmp = mkdtempSync(join(tmpdir(), 'df-doc-extract-'));
+const dirTmp = tmpRoot('df-doc-extract-');
 const OUT = join(dirTmp, 'doc-extract.mjs');
 await build({ entryPoints: [join(ROOT, 'src/registry/doc-extract.ts')], bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent' });
 const { extractDocument, htmlToText, readZip, DocError, DOC_MAX_BYTES } = await import(pathToFileURL(OUT).href);

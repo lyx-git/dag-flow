@@ -1,8 +1,7 @@
 // test/out-fields.test.mjs — 变量面板「按真实运行输出反推字段」的抽取逻辑单测（2026-10-03）
 // 手段：esbuild 即时打包 src/client/outFields.ts → 临时 mjs → 断言（纯函数，无 React/无 IO）
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -10,7 +9,7 @@ let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log('  ✓ ' + msg); } else { fail++; console.error('  ✗ ' + msg); } };
 const eq = (a, b, msg) => ok(JSON.stringify(a) === JSON.stringify(b), `${msg}（actual=${JSON.stringify(a)} expected=${JSON.stringify(b)}）`);
 
-const dir = mkdtempSync(join(tmpdir(), 'df-out-fields-'));
+const dir = tmpRoot('df-out-fields-');
 const OUT = join(dir, 'outFields.mjs');
 await build({
   entryPoints: ['src/client/outFields.ts'],

@@ -20,12 +20,10 @@
 //      dir 传该测试自己的临时工作区 → 沿用既有断言语义（数据仍落在 <ws>/.dag-flow）。
 //
 // 注意：本模块必须**先于**被测 bundle 被 import（storage.ts 模块级会读 dshHome()）。
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { tmpRoot } from './_tmp-root.mjs';
 
 /** 本次测试专属的隔离 home（无条件新建；只有显式 DAG_FLOW_TEST_HOME 才复用，便于排查） */
-export const ISOLATED_HOME = process.env.DAG_FLOW_TEST_HOME || mkdtempSync(join(tmpdir(), 'dsh-home-test-'));
+export const ISOLATED_HOME = process.env.DAG_FLOW_TEST_HOME || tmpRoot('dsh-home-test-');
 
 process.env.DSH_HOME = ISOLATED_HOME;
 

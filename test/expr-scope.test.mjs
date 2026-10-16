@@ -2,14 +2,13 @@
 // 锁四件事：①节点输出按 id 拍平（既有）；②results.<id> 命名空间与拍平式同义（新）；
 // ③两种写法的 if 条件都能求值；④旧式 .out 写法 NaN → false + console.warn 提示。
 // 手段：esbuild 即时打包 src/registry/external.ts + expr.ts → 临时 mjs → 断言。
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
-const tmp = mkdtempSync(join(tmpdir(), 'dag-flow-expr-test-'));
+const tmp = tmpRoot('dag-flow-expr-test-');
 
 const OUT = join(tmp, 'external.bundle.mjs');
 await build({

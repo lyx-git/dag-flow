@@ -7,8 +7,7 @@ import './_isolate-home.mjs';   // 保险起见与全仓一致（本文件只测
 //   绝不允许 `../` 穿越或绝对路径（那等于给了一个"打开任意系统目录"的口子）。
 // 手段：esbuild 即时打包 src/adapter/workspace.ts → 断言纯函数 resolveDagFlowSub 的边界。
 import { build } from 'esbuild';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync } from 'node:fs';
 import { join, sep, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -20,7 +19,10 @@ function t(name, cond, detail = '') {
 }
 
 const ROOT = process.cwd();
-const outDir = mkdtempSync(join(tmpdir(), 'df-opensub-'));
+// ★ 2026-10-16 规范整改：bundle 产物落**项目内** `tmp-test/build/`（TEMP 会留 df-* 残留；产物一旦
+//   带 external 依赖，从 TEMP 也解析不到 node_modules）。隔离数据根仍用 mkdtemp(tmpdir())。
+const outDir = join(ROOT, 'tmp-test', 'build', 'open-folder-sub');
+mkdirSync(outDir, { recursive: true });
 const OUT = join(outDir, 'ws.mjs');
 await build({
   entryPoints: [join(ROOT, 'src/adapter/workspace.ts')],

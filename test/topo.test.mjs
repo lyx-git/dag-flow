@@ -6,9 +6,8 @@
 //     --experimental-strip-types 才认 .ts），换机器/换 Node 版本会让整条 suite 变红。
 //   断言 1:1 保留（12 条），只换加载方式；并纳入 npm run test:offline。
 // 跑法：node test/topo.test.mjs
+import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -18,7 +17,7 @@ function assert(cond, msg) {
   else { fail++; console.error(`  ✗ ${msg}`); }
 }
 
-const dir = mkdtempSync(join(tmpdir(), 'df-topo-'));
+const dir = tmpRoot('df-topo-');
 const OUT = join(dir, 'topo.mjs');
 await build({ entryPoints: ['src/executor/topo.ts'], bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent' });
 const { topoSort } = await import(pathToFileURL(OUT).href);

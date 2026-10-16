@@ -155,9 +155,31 @@ export function fromRF(def: WorkflowDef, rfNodes: RFNode[], rfEdges: RFEdge[]): 
   };
 }
 
-/** 生成新节点 id（node_<timestamp>_<rand>，保证唯一） */
+/** 新节点 id 后缀：4 位 base36（小写字母 + 数字）——字符集天然落在 `^[a-zA-Z0-9_-]` 内 */
+export function nodeIdSuffix(): string {
+  return Math.random().toString(36).slice(2, 6);
+}
+
+/** 生成新节点 id（node_<timestamp>_<rand>，保证唯一）。
+ *  ★ 2026-10-16 规范整改：本函数是**画布外**新建节点（FlowPanel.handleAddNode / Ctrl+D 复制）
+ *    的唯一 id 来源——此前 FlowPanel 两处各自内联同一表达式、本函数零调用点。 */
 export function newNodeId(): string {
-  return `node_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+  return `node_${Date.now().toString(36)}_${nodeIdSuffix()}`;
+}
+
+/** ★ 新节点身份的**唯一生成器**（2026-10-16 规范整改）：FlowGram 建节点路径要的 `{id, label}`。
+ *
+ *  为什么必须只有这一处：FlowGram 的 `createWorkflowNodeByType` 在 `json.id === undefined` 时
+ *  兜底 `` `1${nanoid()}` ``（**必然数字开头**）⇒ 撞 WORKFLOW_SCHEMA 的
+ *  `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$` ⇒ 存盘后 `executor/parse.ts` 直接拦下，
+ *  点运行 / 定时 / 子工作流调用全失败（2026-10-15 真机事故）。
+ *  两条建节点路径（面板拖拽 node-palette、拖线快选 node-shell）曾各自拼 id，其中一条就漏给了
+ *  ⇒ 合法性必须由生成器内部保证，调用方没有机会写错。
+ *  `type` 理论上一律小写字母开头（21 种内置类型的约定）；仍显式归一化，非法前缀退化成 `node_`。 */
+export function flowgramNodeIdentity(type: string, label: string): { id: string; label: string } {
+  const prefix = /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(type) ? type : 'node';
+  const suffix = nodeIdSuffix();
+  return { id: `${prefix}_${suffix}`, label: `${label}_${suffix}` };
 }
 
 /**
