@@ -7,6 +7,27 @@
 
 ---
 
+// v20261016-undo：**撤销/重做按钮真正可用**（2026-10-16 用户报「画布上的撤销和重做按钮好像被改坏了，
+//   移动画布撤销和重做按钮没反应了」；给 A/B 两方案后用户拍板 **B「自建撤销栈」**）。
+//   · 定性（只读排查）：**不是本轮 UI 改动造成的** —— 这两个按钮从 FlowGram 迁移起就没接线、恒为灰。
+//     真因两条：①位移走 2026-10-01 自建的原生事件拖拽引擎（直接改 transform），绕过
+//     `operationService.onNodePostionUpdate`（free-history-plugin 只在那里记 `dragNodes`，
+//     dist/esm/index.js:665-679）；②每次 def→fromJSON 都触发 `document.onReload → historyService.clear()`
+//     （同文件 632-634）。⇒ `canUndo()` 恒 false。夹具实测（探针 `tmp-test/cdp/probe-undo-redo.mjs`）：
+//     初始 / 拖动节点后 / 移动画布后，撤销+重做 disabled **全为 true**。
+//   · 修法（B）：新增 `src/client/undo-stack.ts` —— 在 def（**唯一事实来源**）层记快照栈（上限 60 步；
+//     同一连续编辑动作 700ms 内合并成一条，避免"打字每键一条 / 拖动补写多条"）。`FlowPanel` **用一个
+//     effect 观察 def** 记录快照（因此 9 处 `setDef` 一处都不用改；快照相同 = 回放 ⇒ 直接忽略，
+//     撤销本身不会变成新历史）；撤销/重做 = 回退 def + 把**位移直接改画布实体**
+//     （`applyNodePositionsRef`：`structSigOf` 刻意不含 position，只回退位置时 DefSync 会判定"结构没变"
+//     而跳过 fromJSON ⇒ 位置必须走这条专线）。切工作流（def.name 变化）自动清栈。
+//   · 覆盖范围：位移 / 参数 / 增删节点与连线 / 装饰；`🛟 失败策略` 这类非位移编辑同样可撤销。
+//   · 快捷键：接管 Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y（**编辑框聚焦时放行原生撤销** —— 参数弹窗输入框、
+//     Monaco/CodeMirror 各有自己的栈）；FlowGram 内置那套以 `history.disableShortcuts: true` 让位。
+//   · 断言：单测 `test/undo-stack.test.mjs`（23 条，含"回放不入栈 / redo 分支丢弃 / 上限 / 合并"）；
+//     CDP `undo-redo`（拖动后可撤销 → 退回去 → 重做 → 参数编辑也能撤销 → Ctrl+Z 生效）。
+//   标记 `v20261016-undo`（纯客户端 ⇒ **硬刷新**即可）。
+//
 // v20261016-tiptitle：**参数弹窗的说明问号从「最右边线边上」挪到标题旁**（2026-10-16 用户原话：「这段话的小
 //   问号在最右边线边上，调整下位置」，指的就是这个弹窗级问号；他贴出来的"这段话"＝ PARAMS_TIPS 那四行）。
 //   · 真因：它原先挂在页签行（`.dsh-wf-params-tabs`）**末尾**，而同一行的 `.dsh-wf-params-meta` 带

@@ -26,7 +26,11 @@ import { buildGraphSvg, svgToPngBlob, type GraphImageNode, type GraphImageEdge }
 import { varMatch } from './util/varSearch';
 import { applyAutoLayout } from './util/layout';
 import { Canvas } from './flowgram/FlowGramCanvas';
-import { disposeCanvasNode } from './flowgram/FlowGramCanvas';
+import { disposeCanvasNode, hasPendingPosFlush } from './flowgram/FlowGramCanvas';
+// ★ 2026-10-16 用户拍板方案 B：撤销/重做走**自建快照栈**（FlowGram 自带 history 在本项目恒为空 ——
+//   位移走自建拖拽引擎绕过 operationService，且每次 def→fromJSON 都触发 onReload→clear，详见该文件头注释）
+import { observeDef, resetUndo, setUndoApplier, undo, redo, undoStats, undoKeys, undoDump } from './undo-stack';
+import { applyNodePositionsRef } from './flowgram/canvas-utils';
 // ★ 2026-10-14 重构轮 6：模块级工具与检查器字段表单拆至 panel-utils.ts / inspector-fields.tsx（纯搬运）
 //   ★ 2026-10-14 弹窗专项收尾：轮 6 搬走的工具在主文件的引用随弹窗拆分全部迁入 dialogs/*
 //   ★ 2026-10-15 画布/JSON 拆独立按钮后 TABS 不再被引用（panel-utils 里的 TABS 定义同步删除）
@@ -133,6 +137,82 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
     ro.observe(el);
     apply();
     return () => ro.disconnect();
+  }, []);
+
+  // ================= 撤销/重做（自建快照栈，2026-10-16 用户拍板方案 B）=================
+  // 为什么在这里：def 是**唯一事实来源**，而更新 def 的地方有 9 处 setDef（画布上抛 / 参数 / 增删节点 /
+  //   装饰 / JSON 视图…）—— 与其逐处插桩（易漏），不如在 def 变化处统一 observe：快照相同即回放，直接忽略。
+  // 覆盖范围：位移 / 参数 / 增删节点与连线 / 装饰…（不受 FlowGram `historyService.clear()` 影响）
+  const defRef = useRef(def);
+  defRef.current = def;
+  const wfNameRef = useRef<string>(((def as { name?: string }).name ?? ''));
+  useEffect(() => {
+    const nm = (def as { name?: string }).name ?? '';
+    if (nm !== wfNameRef.current) {
+      // 换工作流 ⇒ 历史清零（否则可能"撤销"到另一个工作流的状态上）
+      wfNameRef.current = nm;
+      resetUndo(def);
+      return;
+    }
+    // ★ 记录时机（2026-10-16 CDP 实测教训）：拖动会多次上抛（中途静止补写 + 松手落定），而**首次拖动
+    //   的那次上抛还顺带把 def 的 edges/nodes 归一化**（key 变成 struct:…）⇒ 逐次记录会把一次拖动拆成
+    //   "归一化一步 + 位移一步"，第一下撤销只退回拖动中途（用户看到的就是"没退回原位"）。
+    //   两步收敛：①先等 220ms 静止；②若画布还有"位置待补写"（拖动中/刚松手）就继续等
+    //   ⇒ 一次拖动只在**拖完之后**记一条。
+    let t = 0;
+    const tryRecord = (): void => {
+      if (hasPendingPosFlush()) { t = window.setTimeout(tryRecord, 200); return; }
+      observeDef(def);
+    };
+    t = window.setTimeout(tryRecord, 220);
+    return () => window.clearTimeout(t);
+  }, [def]);
+  useEffect(() => {
+    setUndoApplier((target) => {
+      const cur = defRef.current;
+      const tgt = target as WorkflowDef;
+      // ★ 位移必须**直接改画布实体**：`structSigOf` 刻意不含 position，只回退位置时 DefSync 会判定
+      //   "结构没变"而跳过 fromJSON（那画布上就不会动）⇒ 位置回退走 applyNodePositionsRef 这条专线。
+      const curL = (cur.layout ?? {}) as Record<string, { x: number; y: number }>;
+      const tgtL = (tgt.layout ?? {}) as Record<string, { x: number; y: number }>;
+      const moved: Record<string, { x: number; y: number }> = {};
+      for (const id of new Set([...Object.keys(curL), ...Object.keys(tgtL)])) {
+        const b = tgtL[id];
+        if (!b) continue;
+        const a = curL[id];
+        if (!a || a.x !== b.x || a.y !== b.y) moved[id] = { x: b.x, y: b.y };
+      }
+      if (Object.keys(moved).length) applyNodePositionsRef.current?.(moved);
+      setDef(tgt);
+      setDirty(true);
+    });
+    return () => setUndoApplier(null);
+  }, []);
+  // 基线：挂载即把当前 def 记为第 0 步（之后每次编辑由上面的 observe 追加）
+  useEffect(() => { resetUndo(defRef.current); }, []);
+  // 诊断钩子（CDP 断言栈深/位置用；keys 用于排查"一次拖动为什么记成好几条"）
+  useEffect(() => {
+    (window as any).__df_undoStats = undoStats;
+    (window as any).__df_undoKeys = undoKeys;
+    (window as any).__df_undoDump = undoDump;
+    return () => { (window as any).__df_undoStats = null; (window as any).__df_undoKeys = null; (window as any).__df_undoDump = null; };
+  }, []);
+  // 快捷键接管（Ctrl/Cmd+Z 撤销、Ctrl+Shift+Z 或 Ctrl+Y 重做）：FlowGram 内置那套已关（见 editorProps
+  //   的 history.disableShortcuts）——★ 编辑框聚焦时必须**放行原生撤销**（参数弹窗输入框 / 代码编辑框
+  //   Monaco·CodeMirror 各有自己的撤销栈，抢过来会把它们的编辑历史弄丢）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const k = e.key.toLowerCase();
+      if (k !== 'z' && k !== 'y') return;
+      const t = e.target as HTMLElement | null;
+      if (t && typeof t.closest === 'function'
+        && t.closest('input,textarea,select,[contenteditable="true"],.monaco-editor,.cm-editor,.dsh-wf-code-ta')) return;
+      e.preventDefault();
+      if (k === 'y' || e.shiftKey) redo(); else undo();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, []);
 
   // 自动缓存：def 变化即通过 onCache 上报（供关闭后重开恢复）

@@ -21,6 +21,7 @@ import type { RFNode, RFEdge } from '../util/flowDef';
 // ★ 新建节点身份（id + label）的唯一生成器：合法 id 由它保证，调用方不要再自己拼字符串
 import { flowgramNodeIdentity } from '../util/flowDef';
 import {
+  applyNodePositionsRef,
   editEdgeKeyRef,
   lastEmittedSig,
   onChangeRef,
@@ -172,6 +173,22 @@ export function CanvasInteractions(props: { nodes: RFNode[]; edges: RFEdge[]; on
     let cfg: any = null;
     try { cfg = ctx.get(PlaygroundConfigEntity); } catch { /* 忽略 */ }
     worldCtxRef.current = () => cfg;
+    // ★ 撤销/重做「位移」通道（2026-10-16 自建撤销栈）：直接改实体 transform，**不重建整文档**
+    //   —— structSigOf 刻意不含 position，位移回退时 DefSync 会判定"结构没变"而跳过 fromJSON，
+    //   所以位置必须从这里回退（顺带也避免重建打断正在进行的拖拽）。
+    //   两根轴都试：本项目实体是双层 `node.transform.transform`（内层才是 TransformData），
+    //   旧路径才是一层 —— 与 `__df_node_pos` 的读法保持同源。
+    applyNodePositionsRef.current = (map) => {
+      try {
+        const doc = ctx.get(WorkflowDocument);
+        for (const [id, p] of Object.entries(map)) {
+          const node: any = doc?.getNode?.(id);
+          const inner = node?.transform?.transform;
+          if (inner?.update) inner.update({ position: { x: p.x, y: p.y } });
+          else if (node?.transform?.update) node.transform.update({ position: { x: p.x, y: p.y } });
+        }
+      } catch { /* 位置回退失败不影响其它同步 */ }
+    };
     (window as any).__df_node_pos = (id: string): { x: number; y: number } | null => {
       try {
         const doc = ctx.get(WorkflowDocument);
@@ -190,6 +207,7 @@ export function CanvasInteractions(props: { nodes: RFNode[]; edges: RFEdge[]; on
     };
     return () => {
       worldCtxRef.current = null;
+      applyNodePositionsRef.current = null;
       (window as any).__df_node_pos = null;
       disposeNodeRef.current = null;
     };

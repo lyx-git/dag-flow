@@ -108,6 +108,12 @@ function schedulePositionFlush(ctx: { document: PosDoc }): void {
   posFlushTimer = window.setTimeout(flushPosition, 180);
 }
 
+/** 画布是否还有"位置待补写"（拖动中 / 刚松手尚未落定）——
+ *  撤销栈用它把**一次拖动只记一条历史**（否则中途的多次落定会各占一步，第一下撤销只退回拖动中途） */
+export function hasPendingPosFlush(): boolean {
+  return pendingPosCtx != null || posFlushTimer != null;
+}
+
 // ================= 编辑器 props =================
 
 function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
@@ -121,7 +127,11 @@ function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
     fromNodeJSON: (node: any, json: any) => json,
     toNodeJSON: (node: any, json: any) => json,
     nodeEngine: { enable: true },
-    history: { enable: true, enableChangeNode: true },
+    // ★ 2026-10-16：FlowGram 自带的 history 在本项目用不上（位移走自建拖拽引擎绕过
+    //   operationService.onNodePostionUpdate；且每次 def→fromJSON 都触发 onReload→clear ⇒ 栈恒空）。
+    //   撤销/重做已改走自建快照栈（src/client/undo-stack.ts）⇒ 这里**关掉它注册的 Ctrl+Z / Ctrl+Shift+Z
+    //   快捷键**（否则与自建栈抢键），插件本身保留（`ctx.history` 仍可安全取用）。
+    history: { enable: true, enableChangeNode: true, disableShortcuts: true },
     // 连线配色（深空蓝主题；flowing = 运行中流动动画色）
     lineColor: {
       hidden: 'transparent',

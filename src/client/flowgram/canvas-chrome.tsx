@@ -12,21 +12,27 @@ import { MinimapRender } from '@flowgram.ai/minimap-plugin';
 import { FIT_MIN_ZOOM, nextZoomStep, fitZoomClamped } from '../viewZoom';
 import { readStoredWidth } from '../util/edge-drag';
 import { centerOn, rawFitZoom, readCfg, worldBounds } from './canvas-utils';
+// ★ 2026-10-16 用户拍板方案 B：撤销/重做改走**自建快照栈**（FlowGram 自带 history 在本项目永远是空的，
+//   原因见 src/client/undo-stack.ts 头注释：位移走自建拖拽引擎绕过 operationService，且每次
+//   def→fromJSON 都触发 onReload→historyService.clear()）
+import { undo, redo, undoCan, redoCan, subscribeUndo } from '../undo-stack';
 
 // ================= 工具条（撤销/重做/整理/适应/缩放） =================
 
 export function Toolbar(props: { problemCount?: number; showProblems?: boolean; onToggleProblems?: () => void }) {
   const ctx = useClientContext();
   const tools = usePlaygroundTools();
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
-  useEffect(() => {
-    const disposable = ctx.history.undoRedoService.onChange(() => {
-      setCanUndo(ctx.history.canUndo());
-      setCanRedo(ctx.history.canRedo());
-    });
-    return () => disposable.dispose();
-  }, [ctx]);
+  // ★ 2026-10-16 用户报「画布上的撤销和重做按钮好像被改坏了…没反应了」⇒ 排查定性：**不是本轮改动**
+  //   造成的，而是这两个按钮从 FlowGram 迁移起就没接线 —— 原先读 `ctx.history.canUndo()`，但那个栈
+  //   永远为空：①节点位移走自建拖拽引擎（直接改 transform），绕过 `operationService.onNodePostionUpdate`
+  //   （free-history-plugin 只在那里记 `dragNodes`）；②每次 def→fromJSON 都触发 `onReload→historyService.clear()`。
+  //   ⇒ 按钮恒为灰。现改读**自建快照栈**（方案 B，用户拍板），覆盖位移/参数/增删节点连线。
+  const [canUndo, setCanUndo] = useState(() => undoCan());
+  const [canRedo, setCanRedo] = useState(() => redoCan());
+  useEffect(() => subscribeUndo(() => {
+    setCanUndo(undoCan());
+    setCanRedo(redoCan());
+  }), []);
   const btn = (label: string, title: string, onClick: () => void, disabled?: boolean, primary?: boolean) =>
     createElement('button', { key: label + title, className: `dsh-wf-fg-tb${primary ? ' primary' : ''}`, title, onClick, disabled }, label);
   const problemCount = props.problemCount ?? 0;
@@ -67,8 +73,8 @@ export function Toolbar(props: { problemCount?: number; showProblems?: boolean; 
   return createElement(
     'div',
     { className: 'dsh-wf-fg-toolbar' },
-    btn('↶', '撤销', () => ctx.history.undo(), !canUndo),
-    btn('↷', '重做', () => ctx.history.redo(), !canRedo),
+    btn('↶', '撤销（Ctrl+Z）', () => { undo(); }, !canUndo),
+    btn('↷', '重做（Ctrl+Shift+Z）', () => { redo(); }, !canRedo),
     createElement('span', { key: 's1', className: 'dsh-wf-fg-tb-sep' }),
     btn('✨ 整理', '自动布局（Dagre 分层）', () => tools.autoLayout()),
     btn('⤢', `适应画布（全图可见，缩放下限 ${Math.round(FIT_MIN_ZOOM * 100)}%）`, fitCanvas),

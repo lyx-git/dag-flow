@@ -73,6 +73,12 @@ export let graphRef: { current: { nodes: RFNode[]; edges: RFEdge[] } } = { curre
 export interface EdgeKeyEditPayload { source: string; target: string; key: string; addCase?: boolean }
 export let editEdgeKeyRef: { current: ((p: EdgeKeyEditPayload) => void) | null } = { current: null };
 
+/** ★ 撤销/重做「位移」专用通道（2026-10-16 自建撤销栈）：把节点实体的 transform 直接改到位。
+ *  为什么不走 def→fromJSON 重建：①`structSigOf` **刻意不含 position**，只回退位置时 DefSync 会判定
+ *  "结构没变"而跳过重建（位置就不会回退）；②重建会打断正在进行的拖拽。
+ *  由 `node-shell.tsx` 在拿到 ctx 后注册实现（与 `__df_node_pos` 同一处），卸载时置空。 */
+export let applyNodePositionsRef: { current: ((map: Record<string, { x: number; y: number }>) => void) | null } = { current: null };
+
 // ================= 节点拖拽的世界坐标换算 =================
 
 // —— 节点拖拽/拿起引擎（模块级共享：屏幕坐标 → 画布世界坐标换算 + transform 更新）——
