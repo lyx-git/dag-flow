@@ -10,7 +10,7 @@ import { humanizeFetchError } from '../../adapter/fetch-errors.js';
 import { startedEnded, finish } from './shared.js';
 
 // ---------- subagent ----------
-interface SubagentParams { prompt: string; model?: string; isolated?: boolean; agentPreset?: string; timeoutMs?: number; system?: string }
+interface SubagentParams { prompt: string; model?: string; isolated?: boolean; agentPreset?: string; timeoutMs?: number; system?: string; images?: string }
 export const subagentDef: NodeDefinition<SubagentParams> = {
   type: 'subagent',
   schema: {
@@ -24,6 +24,12 @@ export const subagentDef: NodeDefinition<SubagentParams> = {
       agentPreset: { type: 'string' },
       system: { type: 'string' },
       timeoutMs: { type: 'integer', minimum: 1, maximum: 600_000 },
+      // ★ 2026-10-16 P1（多模态传图）：每行一个本地路径或 URL；只支持 png/jpeg/webp/gif、≤20 张、单张 ≤20MB。
+      //   留空 = 纯文本调用（与加这个参数之前的行为完全一致）。真正发出图片需要走宿主模型路由。
+      images: {
+        type: 'string',
+        description: '图片输入：每行一个本地路径或 http(s) URL（png/jpeg/webp/gif，最多 20 张、单张不超 20MB）。相对路径以 <DSH_HOME>/.dag-flow/ 为基准；留空则按纯文本调用',
+      },
     },
   },
   run: async (_ctx, p) => safeNodeRun(async () => {

@@ -18,7 +18,7 @@
 
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { dagFlowHome } from '../dsh-gate/paths.js';
+import { dagFlowHome, dagFlowImagesDir } from '../dsh-gate/paths.js';
 import { migrateFromLegacyRoots, migrateFallbackWorkflows, migrateLegacyDirs, migrateLegacySqlite } from './storage-migrate.js';
 import { isValidWorkflowName } from '../name-rule.js';
 import type { WorkflowDef } from '../types.js';
@@ -70,6 +70,9 @@ async function resolveRoot(): Promise<StorageInfo> {
   // ★ 2026-10-11：**不再依赖工作区/cwd** —— 根固定在 <DSH_HOME>/.dag-flow/（用户拍板，原话见文件头）。
   _info = { dir: path.join(dagFlowHome(), 'workflow'), source: 'dsh-home' };
   await fs.mkdir(_info.dir, { recursive: true });
+  // ★ 2026-10-16（用户拍板）：统一图片目录启动即建好——AI 节点 `images` 写文件名就能读，
+  //   文档解析节点将来抽出的图片也落这里。fail-soft：建不出来不影响其它功能（读取侧会给出确切路径）。
+  try { await fs.mkdir(dagFlowImagesDir(), { recursive: true }); } catch { /* fail-soft */ }
   if (!_migrated) {
     _migrated = true;
     await migrateFromLegacyRoots(_info);   // ① 工作区时代的 <旧工作区>/.dag-flow/ → 新根（补缺复制）

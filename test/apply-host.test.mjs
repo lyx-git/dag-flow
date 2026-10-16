@@ -173,6 +173,8 @@ const EXPECTED = [
   'exact /api/dag-flow/selfcheck',
   // ★ 2026-10-04 运行日志：+1 条（GET /run/log 按工作流名查在跑/最近一次完成的日志）
   'exact /api/dag-flow/run/log',
+  // ★ 2026-10-16 图片选择：+1 条（GET /images 列统一图片目录，「🖼 选图」弹窗的数据源，只读）
+  'exact /api/dag-flow/images',
 ];
 const routeKeys = () => state.routes.map((r) => `${r.kind} ${r.path}`).sort();
 
@@ -200,7 +202,7 @@ let s1 = null;   // 场景 2 要拿它的 effect disposer 模拟 fiber 卸载
   mod.apply(ctx);   // 真实 DSH loader 的调用点
   s1 = { ctx, effects, logs };
 
-  t('apply(ctx) 注册 21 条路由（15 条既有 + 4 条定时任务 + 1 条自检 + 1 条运行日志；无一条静默失败）', state.routes.length === 21, `routes=${state.routes.length} ${routeKeys().join(' | ')}`);
+  t('apply(ctx) 注册 22 条路由（15 条既有 + 4 条定时任务 + 1 条自检 + 1 条运行日志 + 1 条图片清单；无一条静默失败）', state.routes.length === 22, `routes=${state.routes.length} ${routeKeys().join(' | ')}`);
   t('路由清单与源码一致', JSON.stringify(routeKeys()) === JSON.stringify([...EXPECTED].sort()), routeKeys().join(' | '));
   t('dagflow 工具注册成功', state.tools.length === 1 && state.tools[0].name === 'dagflow', JSON.stringify(state.tools.map((x) => x.name)));
   // ★ 2026-10-11：工具名不能再叫 `workflow`——宿主自带 @deepseek-ai/dsh-tool-workflow 就叫这个
@@ -258,7 +260,7 @@ let s1 = null;   // 场景 2 要拿它的 effect disposer 模拟 fiber 卸载
   const logFiles = existsSync(logDir) ? readdirSync(logDir).filter((f) => f.endsWith('.log')) : [];
   t('dag-flow 自己的文件日志已落盘', logFiles.length === 1, logFiles.join(','));
   const logText = logFiles.length ? readFileSync(join(logDir, logFiles[0]), 'utf8') : '';
-  t('文件日志含路由注册条数与 loaded 行', /API routes registered: 21/.test(logText) && /\[dag-flow\] loaded/.test(logText), logText.slice(-300));
+  t('文件日志含路由注册条数与 loaded 行', /API routes registered: 22/.test(logText) && /\[dag-flow\] loaded/.test(logText), logText.slice(-300));
 
   // 存储根固定 <DSH_HOME>/.dag-flow（2026-10-11 起与工作区无关；本测试把 DSH_HOME 指向临时工作区）
   t('storage 根落在 <DSH_HOME>/.dag-flow', existsSync(join(WS, '.dag-flow', 'workflow')), join(WS, '.dag-flow'));
@@ -302,7 +304,7 @@ console.log('\n[2] 热重载（patchReload:"live"）：先注销再重载');
   });
   mod.apply(ctx2);
   const warnDup = logs.filter((l) => /duplicate|注册失败/.test(String(l.msg)));
-  t('重载后 21 条路由全部重新注册', state.routes.length === 21, `routes=${state.routes.length}`);
+  t('重载后 22 条路由全部重新注册', state.routes.length === 22, `routes=${state.routes.length}`);
   t('重载后无 duplicate / 注册失败告警', warnDup.length === 0, JSON.stringify(warnDup.map((l) => l.msg)));
   t('重载后 workflow 工具仍只有 1 个', state.tools.length === 1, `tools=${state.tools.length}`);
   t('重载后新 fiber 挂载 3 条 effect', effects2.length === 3, JSON.stringify(effects2.map((e) => e.label)));
@@ -344,7 +346,7 @@ console.log('\n[4] 旧宿主兼容：普通对象 ctx（无 get / effect）');
     workspace: { cwd: WS },
   };
   mod.apply(legacyCtx);
-  t('旧宿主仍注册 21 条路由（属性访问兜底）', state.routes.length === 21, `routes=${state.routes.length}`);
+  t('旧宿主仍注册 22 条路由（属性访问兜底）', state.routes.length === 22, `routes=${state.routes.length}`);
   t('旧宿主仍注册 workflow 工具', state.tools.length === 1, `tools=${state.tools.length}`);
   t('无 ctx.effect 时不抛错（disposer 无处挂，降级为不注销）', true);
   const infoLine = logs.map((l) => String(l.msg)).find((m) => m.includes('[dag-flow] loaded')) ?? '';

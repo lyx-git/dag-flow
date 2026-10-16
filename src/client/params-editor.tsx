@@ -25,8 +25,10 @@ import { TestResultView } from './test-result';
 // ★ 2026-10-15 用户拍板「复制反馈在按钮本身」：公共复制（Clipboard→execCommand 兜底）+ 按钮文字态 hook
 import { useCopyFlash } from './use-copy-flash';
 import type { TestResult } from './test-result';
+// ★ 2026-10-16 用户拍板「方案 A」：图片类参数支持从**统一图片目录**勾选多张（替代一个个复制文件名）。
+import { ImagePickerDialog } from './dialogs/image-picker';
 
-type Row = { k: string; text: string; kind: 'string' | 'other'; multi: boolean; auto?: boolean };
+type Row = { k: string; text: string; kind: 'string' | 'other'; multi: boolean; auto?: boolean; placeholder?: string };
 
 const MULTI_THRESHOLD = 60;
 
@@ -69,14 +71,20 @@ function toText(v: unknown): string {
   return String(v);
 }
 
-function rowsFromParams(params: Record<string, unknown>, codeLang?: CodeLang): Row[] {
+function rowsFromParams(params: Record<string, unknown>, codeLang?: CodeLang, fieldHints?: Record<string, string>, fieldPlaceholders?: Record<string, string>): Row[] {
   const rows: Row[] = Object.entries(params ?? {}).map(([k, v]) => {
     const kind: 'string' | 'other' = typeof v === 'string' ? 'string' : 'other';
     const text = toText(v);
     // ★ 2026-10-11：代码行默认就用富文本框（脚本天生多行）；其余行按内容长度自动判断——
     //   但**控件与按钮完全一致**（其它行也能点「单行/富文本」切过来）。
-    const multi = (k === 'code' && !!codeLang) || text.includes('\n') || text.length > MULTI_THRESHOLD;
-    return { k, text, kind, multi };
+    // ★★ 2026-10-16（用户「已经重启了，示例占位还是没改好」的**真因**）：示例原来只在下面的**自动补行**
+    //   分支写进行对象 ⇒ 只要 def 里已经有这个键（用户填过值、清空过、或早期 bug 留下的 `"images": ""`），
+    //   该行就走这条 params 分支、**示例永久丢失**（看到的只是通用文案）。⇒ 按字段名**无条件**附上示例；
+    //   并且**登记了示例的字段默认就是富文本框**——否则键存在且值为空时这一行会退化成单行，
+    //   连示例占位和「🖼 选图」工具栏一起消失。
+    const ph = fieldPlaceholders?.[k];
+    const multi = (k === 'code' && !!codeLang) || !!ph || text.includes('\n') || text.length > MULTI_THRESHOLD;
+    return { k, text, kind, multi, ...(ph ? { placeholder: ph } : {}) };
   });
   // ★ 2026-10-11 方案 A：python/bash 的 `codePath` 是"二选一"的另一个入口——节点默认参数里没有这个键，
   //   但用户要能填。原面板是"永远显示输入框"，所以这里**自动补一行**（auto=true：留空时不写进 def，
@@ -84,7 +92,24 @@ function rowsFromParams(params: Record<string, unknown>, codeLang?: CodeLang): R
   if (codeLang && !rows.some((r) => r.k === 'codePath')) {
     rows.push({ k: 'codePath', text: '', kind: 'string', multi: false, auto: true });
   }
+  // ★ 2026-10-16 P1：凡是 `fieldHints` 里登记了专用说明、而 params 里还没有的键（如 subagent 的 `images`）
+  //   ⇒ 自动补一行，沿用上面的 `auto` 语义：**留空不写进 def**（默认零行为变更，也不会凭空多出空键）。
+  //   ★ 同日用户问「多张图片、多个路径或 URL 要怎么区分」⇒ 登记了示例的字段（fieldPlaceholders）把示例
+  //     写进**占位提示**（只影响 placeholder，不进值），用户一眼看出"一行一个"。
+  for (const k of Object.keys(fieldHints ?? {})) {
+    if (!rows.some((r) => r.k === k)) {
+      const ph = fieldPlaceholders?.[k];
+      rows.push({ k, text: '', kind: 'string', multi: true, auto: true, ...(ph ? { placeholder: ph } : {}) });
+    }
+  }
   return rows;
+}
+
+/** 单行输入框的占位文案（★ 2026-10-16 用户报「切换后框内示例占位没有了」⇒ 单行形态也要带示例：
+ *  input 的 placeholder 不认换行，把多行示例折成一行「a / b / c」展示；没登记示例时回退通用文案） */
+function singleLinePlaceholder(r: Row): string {
+  if (r.placeholder) return r.placeholder.replace(/\n+/, ' ').replace(/\n+/g, ' / ');
+  return r.kind === 'string' ? '值（字符串）' : '值（JSON：数字 / true / false）';
 }
 
 /** 行 → params 对象（空名字的行忽略；auto 行留空则忽略；非字符串值按 JSON 解析，解析失败按字符串留原文） */
@@ -93,8 +118,11 @@ function paramsFromRows(rows: Row[]): Record<string, unknown> {
   for (const r of rows) {
     const k = r.k.trim();
     if (!k) continue;
+    // ★ 2026-10-16 修 bug：auto 行的"留空＝没有这个参数"必须**先于类型分支**判断——
+    //   原实现只在 `kind === 'string'` 分支里跳过，于是把类型切成 `{}`（other）后：
+    //   空文本走 JSON.parse 失败 → 落回字符串分支 → 往 def 里写了 `"images": ""` 脏值。
+    if (r.auto && r.text.trim() === '') continue;
     if (r.kind === 'string') {
-      if (r.auto && r.text.trim() === '') continue; // 自动补的行：留空 = 没有这个参数
       out[k] = r.text;
       continue;
     }
@@ -116,7 +144,7 @@ function diffPatch(oldP: Record<string, unknown>, newP: Record<string, unknown>)
   return patch;
 }
 
-export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHint, inputDefaults = {}, canTest = true, testRunning = false, testResult = null, codeLang, fieldHints, onRunTest, onParamsChange, onClose }: {
+export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHint, inputDefaults = {}, canTest = true, testRunning = false, testResult = null, codeLang, fieldHints, fieldPlaceholders, imagePickKeys, onRunTest, onParamsChange, onClose }: {
   nodeId: string;
   nodeLabel?: string;
   params: Record<string, unknown>;
@@ -135,13 +163,17 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
   codeLang?: CodeLang;
   /** 指定参数行的专用说明（如 codePath 的"约定路径 / 填了文件优先于内联代码"） */
   fieldHints?: Record<string, string>;
+  /** ★ 2026-10-16：自动补行的**示例占位文本**（如 images 的三行示例）——只进 placeholder，不进值 */
+  fieldPlaceholders?: Record<string, string>;
+  /** ★ 2026-10-16 方案 A：这些参数行提供「🖼 选图」（从统一图片目录勾选多张，逐行写入） */
+  imagePickKeys?: string[];
   /** 点「▶ 试跑本节点」时把解析好的 inputs 交给上层（参数数据取当前节点 params，由上层负责发请求） */
   onRunTest?: (inputs: Record<string, unknown>) => void;
   onParamsChange: (patch: Record<string, unknown>) => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<'fields' | 'json'>('fields');
-  const [rows, setRows] = useState<Row[]>(() => rowsFromParams(params, codeLang));
+  const [rows, setRows] = useState<Row[]>(() => rowsFromParams(params, codeLang, fieldHints, fieldPlaceholders));
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
   // ★ 试跑条（方案 A）：输入按工作流参数逐字段填（默认值预填），默认收起；结果就地展开
@@ -150,12 +182,21 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
   const [clearArmKey, setClearArmKey] = useState<string | null>(null);
   // ★ 2026-10-11 用户要求：放大按钮在**富文本框内部右下角**（斜双箭头），点了**放大到弹窗**、遮盖其他部分。
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  // ★ 2026-10-16 方案 A：「🖼 选图」弹窗属于哪一行（null = 没开）
+  const [pickKey, setPickKey] = useState<string | null>(null);
   // ★ 2026-10-15 用户拍板「复制反馈在按钮本身」：点复制 → 按钮文字变「✓ 已复制」/「✗ 失败」1.4s（每行独立 key）
   const { flash: copyFlash, copy } = useCopyFlash();
   /** 富文本框工具条（行内与放大弹窗共用）：复制 / 清空（两击确认）按钮 + Tab 提示。
    *  ★ 2026-10-15 二次拍板：全部统一成「📋 复制」「🧹 清空」格式（emoji+文字），大小对齐结果卡复制按钮，
    *  反馈在按钮本身（✓ 已复制 / ✗ 复制失败 1.4s），颜色状态与全部入口共用同一个 .dsh-wf-copy-btn */
   const codeToolbar = (r: Row): unknown[] => [
+    // ★ 2026-10-16（用户反馈「图片选择的弹窗按钮在提示语后面有点奇怪，最好放在富文本框里面」）：
+    //   「🖼 选图」挪进富文本框的工具栏（与复制/清空同一排），只在登记的图片类参数行出现。
+    ...(imagePickKeys?.includes(r.k) ? [createElement('button', {
+      className: 'dsh-wf-copy-btn dsh-wf-imgpick-pick',
+      title: '从统一图片目录里勾选多张（不用手抄文件名）',
+      onClick: () => setPickKey(r.k),
+    }, '🖼 选图')] : []),
     createElement('button', {
       className: `dsh-wf-copy-btn${copyFlash && copyFlash.key === r.k ? (copyFlash.kind === 'ok' ? ' is-done' : ' is-bad') : ''}`,
       title: '复制全部内容到剪贴板',
@@ -247,7 +288,7 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
         return;
       }
       setJsonError(null);
-      const next = rowsFromParams(parsed as Record<string, unknown>);
+      const next = rowsFromParams(parsed as Record<string, unknown>, codeLang, fieldHints, fieldPlaceholders);
       setRows(next);
       onParamsChange(diffPatch(params, paramsFromRows(next)));
     } catch (e) {
@@ -276,15 +317,15 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
               onChange: (v: string) => setRow({ text: v }),
               lang: langOf(r),
               height: 150,
-              placeholder: r.k === 'code' && codeLang
+              placeholder: r.placeholder ?? (r.k === 'code' && codeLang
                 ? (codeLang === 'bash' ? "echo 'hello'\ndate" : "import datetime\nprint('你好，当前时间：' + datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))")
-                : (r.kind === 'string' ? '值（字符串；提示词这类长文本直接写，不用转义）' : '值（JSON：数字 / true / false / 对象 / 数组）'),
+                : (r.kind === 'string' ? '值（字符串；提示词这类长文本直接写，不用转义）' : '值（JSON：数字 / true / false / 对象 / 数组）')),
               toolbar: codeToolbar(r),
               expand: { expanded: false, onToggle: () => setExpandedKey(r.k) },
             })
           : createElement('input', {
               className: 'dsh-wf-input',
-              placeholder: r.kind === 'string' ? '值（字符串）' : '值（JSON：数字 / true / false）',
+              placeholder: singleLinePlaceholder(r),
               value: r.text,
               onChange: (e: React.ChangeEvent<HTMLInputElement>) => setRow({ text: e.target.value }),
             }),
@@ -295,7 +336,11 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
         title: r.kind === 'string'
           ? 'T = 按字符串存（推荐）；点一下改成 JSON 值（数字 / true / false / 对象 / 数组）'
           : '{} = 按 JSON 解析；点一下改回字符串（T）',
-        onClick: () => setRow({ kind: r.kind === 'string' ? 'other' : 'string', multi: false }),
+        // ★ 2026-10-16 修 bug（用户报「参数里输入框和富文本框切换失效」的真因）：
+        //   原实现顺带写 `multi: false`——把类型切换和形态（单行/富文本）耦在一起，
+        //   于是**从富文本点一下类型开关就被压成单行、且再也回不去**（实测点回来仍是单行）。
+        //   类型与形态本是两个正交维度 ⇒ 这里只切类型，形态由右边的「单行/富文本」按钮单独控制。
+        onClick: () => setRow({ kind: r.kind === 'string' ? 'other' : 'string' }),
       }, r.kind === 'string' ? 'T' : '{}'),
       createElement('button', {
         className: 'dsh-wf-params-form',
@@ -443,12 +488,29 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
             onChange: (v: string) => writeRowText(expandedRow.k, v),
             lang: langOf(expandedRow),
             height: Math.max(320, Math.round((typeof window !== 'undefined' ? window.innerHeight : 900) * 0.62)),
-            placeholder: '…',
+            placeholder: expandedRow.placeholder ?? '…',
             toolbar: codeToolbar(expandedRow),
             expand: { expanded: true, onToggle: () => setExpandedKey(null) },
           }),
         ),
       ), document.body)
+    : null,
+  // ★ 2026-10-16 方案 A：「🖼 选图」弹窗（单独 Portal 到 body——与放大编辑弹窗同一理由：
+  //   参数弹窗遮罩的 backdrop-filter 会给 fixed 元素造包含块，嵌进去会被困住）。
+  pickKey
+    ? createPortal(createElement(ImagePickerDialog, {
+        // 预勾选：把该行里已经写着的文件名勾上（路径/URL 类条目匹配不上，自然不勾）
+        current: (rows.find((r) => r.k === pickKey)?.text ?? '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
+        onClose: () => setPickKey(null),
+        onConfirm: (names: string[], replace: boolean) => {
+          const key = pickKey;
+          const cur = rows.find((r) => r.k === key);
+          const kept = replace || !cur ? [] : cur.text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+          for (const n of names) if (!kept.includes(n)) kept.push(n);   // 追加并去重（顺序＝列表顺序）
+          writeRowText(key, kept.join('\n'));
+          setPickKey(null);
+        },
+      }), document.body)
     : null,
   );
 }

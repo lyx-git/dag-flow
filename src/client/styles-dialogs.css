@@ -587,6 +587,27 @@
   text-decoration: none;
 }
 
+/* ★ 2026-10-16 方案 A：「🖼 选择图片」弹窗（AI 节点 images 参数从统一图片目录勾选多张，
+   替代一个个复制文件名）。宽度必须写成两段选择器 .dag-flow-picker.<自己的类>——只写
+   .dsh-wf-imgpick 会与运行时注入的 .dag-flow-picker{width:680px} 同权重被压掉。 */
+.dag-flow-picker.dsh-wf-imgpick { width: 760px; }
+.dsh-wf-imgpick-body { display: flex; flex-direction: column; gap: 8px; }
+.dsh-wf-imgpick-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.dsh-wf-imgpick-search { flex: 1 1 160px; min-width: 120px; }
+.dsh-wf-imgpick-replace { display: flex; align-items: center; gap: 4px; font-size: 11px; opacity: .85; user-select: none; cursor: pointer; white-space: nowrap; }
+.dsh-wf-imgpick-hint { display: flex; align-items: center; gap: 8px; font-size: 11px; opacity: .75; }
+.dsh-wf-imgpick-hint .dsh-wf-imgpick-reload { margin-left: auto; }
+.dsh-wf-imgpick-list { max-height: 46vh; overflow: auto; border: 1px solid var(--wf-line, rgba(139, 155, 179, .45)); border-radius: 6px; }
+.dsh-wf-imgpick-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; cursor: pointer; font-size: 12px; }
+.dsh-wf-imgpick-row:hover { background: rgba(139, 155, 179, .14); }
+.dsh-wf-imgpick-row.is-on { background: rgba(80, 140, 255, .18); }
+.dsh-wf-imgpick-check { flex: 0 0 14px; width: 14px; text-align: center; color: #4a8cff; }
+.dsh-wf-imgpick-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-wf-imgpick-meta { flex: 0 0 auto; font-size: 11px; opacity: .6; white-space: nowrap; }
+.dsh-wf-imgpick-openfolder { flex: 0 0 auto; }
+/* 「🖼 选图」现在在富文本框的工具栏里（与复制/清空同一排），只借用 .dsh-wf-copy-btn 的既有外观 */
+.dsh-wf-imgpick-pick { flex: 0 0 auto; }
+
 /* 系统开了"减少动态效果"就全关（无障碍 ✓） */
 @media (prefers-reduced-motion: reduce) {
   .dag-flow-picker, .dag-flow-picker-overlay, .dsh-wf-export-menu, .dsh-wf-toast, .dsh-wf-right {

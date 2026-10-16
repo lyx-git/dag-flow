@@ -243,6 +243,63 @@ console.log('== 4. pptx ==');
   t('pptx：页分隔标题', /## 第 1 页/.test(r.text) && /## 第 2 页/.test(r.text), r.text.slice(0, 40));
 }
 
+// ==================== 4b. 内嵌图片抽取（2026-10-16 doc_parse 抽图落统一目录） ====================
+console.log('== 4b. 内嵌图片抽取 ==');
+{
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+  const EMF = Buffer.from([1, 0, 0, 0, 9, 9, 9]);
+  const docXml = '<w:document><w:body>'
+    + '<w:p><w:r><w:t>正文甲</w:t></w:r><w:r><w:drawing><a:blip r:embed="rId5"/></w:drawing></w:r></w:p>'
+    + '<w:p><w:r><w:t>正文乙</w:t></w:r><w:r><w:drawing><a:blip r:embed="rId7"/></w:drawing></w:r></w:p>'
+    + '<w:p><w:r><w:t>正文丙</w:t></w:r><w:r><w:drawing><a:blip r:embed="rId5"/></w:drawing></w:r></w:p>'
+    + '</w:body></w:document>';
+  const rels = '<Relationships>'
+    + '<Relationship Id="rId5" Type="image" Target="media/image1.png"/>'
+    + '<Relationship Id="rId7" Type="image" Target="media/logo.emf"/>'
+    + '</Relationships>';
+  const docx = makeZip([
+    ['word/document.xml', docXml],
+    ['word/_rels/document.xml.rels', rels],
+    ['word/media/image1.png', PNG],
+    ['word/media/logo.emf', EMF],
+  ]);
+  const r = extractDocument(docx, '带图报告.docx');
+  t('docx 抽图：png 被抽出 1 张', r.images.length === 1, JSON.stringify(r.images.map((i) => i.source)));
+  t('docx 抽图：字节原样（png 魔数在）', r.images[0]?.bytes.equals(PNG) === true);
+  t('docx 抽图：mediaType 由扩展名推出', r.images[0]?.mediaType === 'image/png', String(r.images[0]?.mediaType));
+  t('docx 抽图：source 记录容器内位置', r.images[0]?.source === 'word/media/image1.png', String(r.images[0]?.source));
+  t('★ docx 文本：图片位置就地标注 [图片 #1]', r.text.includes('正文甲 [图片 #1]'), JSON.stringify(r.text));
+  t('★ docx 文本：同一张图被引用两次只标一次', r.text.includes('正文丙 [图片 #1]'), JSON.stringify(r.text));
+  t('docx 抽图：非白名单格式（emf）跳过并计数', r.meta.skippedImages === 1, JSON.stringify(r.meta));
+  t('docx 抽图：meta.images 记数', r.meta.images === 1, JSON.stringify(r.meta));
+  const plain = extractDocument(makeZip([['word/document.xml', '<w:document><w:body><w:p><w:r><w:t>纯文字</w:t></w:r></w:p></w:body></w:document>']]), '纯文字.docx');
+  t('★ 无图文档：文本与改动前一致（不含 [图片）', plain.text.includes('纯文字') && !plain.text.includes('[图片'), JSON.stringify(plain.text));
+  t('无图文档：images 为空数组', Array.isArray(plain.images) && plain.images.length === 0);
+}
+{
+  const XPNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 5, 6]);
+  const xlsx = makeZip([
+    ['xl/worksheets/sheet1.xml', '<worksheet><sheetData><row r="1"><c r="A1"><v>7</v></c></row></sheetData></worksheet>'],
+    ['xl/media/image1.png', XPNG],
+  ]);
+  const r = extractDocument(xlsx, '带图表.xlsx');
+  t('xlsx 抽图：从 xl/media 收到 1 张', r.images.length === 1 && r.images[0]?.source === 'xl/media/image1.png', JSON.stringify(r.images.map((i) => i.source)));
+  t('★ xlsx 文本：图片标记附在文末', /\[图片 #1\]\s*$/.test(r.text.trim()), JSON.stringify(r.text));
+}
+{
+  const PPNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 9]);
+  const slide1 = '<p:sld><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>一页文字</a:t></a:r></a:p></p:txBody></p:sp>'
+    + '<p:pic><p:blipFill><a:blip r:embed="rId2"/></p:blipFill></p:pic></p:spTree></p:cSld></p:sld>';
+  const pptx = makeZip([
+    ['ppt/slides/slide1.xml', slide1],
+    ['ppt/slides/_rels/slide1.xml.rels', '<Relationships><Relationship Id="rId2" Type="image" Target="../media/image1.png"/></Relationships>'],
+    ['ppt/media/image1.png', PPNG],
+  ]);
+  const r = extractDocument(pptx, '带图讲稿.pptx');
+  t('pptx 抽图：`../media` 相对路径被归一化后取到 1 张', r.images.length === 1 && r.images[0]?.source === 'ppt/media/image1.png', JSON.stringify(r.images.map((i) => i.source)));
+  t('★ pptx 文本：图片标记在该页文本下方', /一页文字[\s\S]*\[图片 #1\]/.test(r.text), JSON.stringify(r.text));
+}
+
 // ==================== 5. pdf ====================
 console.log('== 5. pdf ==');
 {

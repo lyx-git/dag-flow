@@ -126,6 +126,32 @@ const runNode = async (nodeType, params = {}) => {
   t('B8c. 同一句话在短指令里仍按原口径拦截（避免把检查改废）', short?.status === 'failed' && short?.error?.code === 'MODEL_MODALITY_MISMATCH', JSON.stringify(short)?.slice(0, 200));
 }
 
+// ===== B9. ★ 2026-10-16 P2：按 images 的**真实条数**判模态（不静默降级） =====
+{
+  // 在隔离数据根的统一图片目录里放一张真图（其实不存在的图也够用——模态判定发生在读字节之前）
+  const imgDir = join(fakeHome, '.dsh', '.dag-flow', 'images');
+  mkdirSync(imgDir, { recursive: true });
+  writeFileSync(join(imgDir, 'p2.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+  const bad = await runNode('subagent', { prompt: '看看这两张图', model: 'dsh:custom-model:glm-text-only', images: 'p2.png\np2.png' });
+  t('B9a. 纯文本模型 + images 配了图 → **发调用前**拦截 MODEL_MODALITY_MISMATCH', bad?.status === 'failed' && bad?.error?.code === 'MODEL_MODALITY_MISMATCH', JSON.stringify(bad)?.slice(0, 200));
+  t('B9b. ★ 提示写明「你配了 2 张图片」（不静默丢图、也不只发文本）', /你配了 2 张图片/.test(bad?.error?.message ?? ''), JSON.stringify(bad?.error?.message)?.slice(0, 240));
+  t('B9c. 提示含模型名与修复指引（换带 📷 的模型 / 清空 images）', /glm-text-only/.test(bad?.error?.message ?? '') && /images/.test(bad?.error?.message ?? ''), JSON.stringify(bad?.error?.message)?.slice(0, 200));
+
+  const zero = await runNode('subagent', { prompt: '纯文本问题', model: 'dsh:custom-model:glm-text-only', images: '' });
+  t('B9d. images 为空 ⇒ 不干预，照常过模态校验并真实调用 LLM（零行为变更）', zero?.status === 'success' && zero?.out === 'llm-ok', JSON.stringify(zero)?.slice(0, 160));
+
+  const one = await runNode('subagent', { prompt: '纯文本问题', model: 'dsh:custom-model:glm-text-only', images: ['p2.png'] });
+  t('B9e. ★ 数组形态也算条数（上游 {{img.out.images}} 那种写法）', one?.status === 'failed' && /你配了 1 张图片/.test(one?.error?.message ?? ''), JSON.stringify(one?.error?.message)?.slice(0, 200));
+
+  const direct = await runNode('subagent', { prompt: '看这张图', model: 'dsh:custom-model:kimi-vision', images: 'p2.png' });
+  // 本测试的 stubCtx 没有宿主附件服务 ⇒ 先落 IMAGE_ATTACH_UNAVAILABLE；真机走宿主时有 attachments、于是
+  // 轮到直连保护报 IMAGE_DIRECT_UNSUPPORTED。两者都满足 P2 的口径：**绝不静默丢图**。
+  t('B9f. ★ 图片模型 + 配图：过了模态校验，随后在读图/直连环节明确报错（IMAGE_ATTACH_UNAVAILABLE / IMAGE_DIRECT_UNSUPPORTED）',
+    direct?.status === 'failed' && ['IMAGE_ATTACH_UNAVAILABLE', 'IMAGE_DIRECT_UNSUPPORTED'].includes(direct?.error?.code),
+    JSON.stringify(direct)?.slice(0, 220));
+}
+
 // ===== C. /test-image-api（image_generate 提前测试） =====
 const realFetch = globalThis.fetch;
 {

@@ -22,7 +22,10 @@ import {
 } from '../dsh-gate/llm-config.js';
 import type { JsonValue, NodeResult } from '../types.js';
 import { listAllEndpoints, resolveLlmEndpoint, SubagentUnavailableError } from './llm-endpoints.js';
-import { checkModelModality } from './llm-modality.js';
+import { checkModelModality, checkImageModality } from './llm-modality.js';
+// ★ 2026-10-16 P1 多模态传图：宿主附件服务门面 + images 参数的解析/载入（纯函数 + IO，零依赖）
+import { hostAttachments, type HostImageRef } from '../dsh-gate/attachments.js';
+import { ImageInputError, countImageEntries, loadImageInputs, parseImageList } from './image-inputs.js';
 
 // —— 防腐层转发导出（llm-config.test.mjs 从本模块断言这些符号；勿删） ——
 export { buildLlmCandidates, envFallbackEndpoint, SETTINGS_KEY_PI };
@@ -32,7 +35,7 @@ export type { LlmEndpoint };
 //  （SubagentUnavailableError 类定义随之移入 llm-endpoints.ts，依赖保持单向）——
 //  对外符号全部从本模块**原样再导出**，api.ts / 路由 / 测试的导入路径与符号不变。
 export { listAllEndpoints, resolveLlmEndpoint, SubagentUnavailableError };
-export { detectModalities, checkModelModality, MODALITY_SCAN_MAX_CHARS } from './llm-modality.js';
+export { detectModalities, checkModelModality, checkImageModality, MODALITY_SCAN_MAX_CHARS } from './llm-modality.js';
 
 interface SubagentOptions {
   prompt: string;
@@ -43,6 +46,12 @@ interface SubagentOptions {
   system?: string;
   temperature?: number;
   maxTokens?: number;
+  /** ★ 2026-10-16 P1：图片输入原始值（每行一个本地路径或 URL；容忍数组——上游 `{{img.out.images}}`） */
+  images?: unknown;
+  /** ★ 内部字段：已落盘到宿主附件服务的引用（由 runSubagentNode 备好，调用方不传） */
+  imageRefs?: HostImageRef[];
+  /** ★ 内部字段：与 imageRefs 对应的展示名（只用于 debug 面板） */
+  imageNames?: string[];
 }
 
 interface SubagentResult {
@@ -76,6 +85,8 @@ interface SubagentDebug {
   maxTokens?: number;
   /** 返回文本长度 */
   textChars?: number;
+  /** ★ 2026-10-16 P1：随本次调用一起发出去的图片（数量 + 文件名；空/缺省＝纯文本调用） */
+  images?: { count: number; names: string[] };
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -93,6 +104,7 @@ function baseDebug(
     ...(endpoint.providerName ? { provider: endpoint.providerName } : {}),
     ...(endpoint.modelLabel ? { modelLabel: endpoint.modelLabel } : {}),
     ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
+    ...(opts.imageRefs?.length ? { images: { count: opts.imageRefs.length, names: opts.imageNames ?? [] } } : {}),
     ...rest,
   };
 }
@@ -207,7 +219,16 @@ async function callViaHostLlm(endpoint: LlmEndpoint, opts: SubagentOptions, onDe
       // ★ content 必须是**内容块数组**（dsh-llm 的 RequestUserInput.content = readonly ContentBlock[]，
       //   TextBlock = {type:'text',text}）。2026-10-03 前这里传的是字符串 → 宿主适配器校验失败 →
       //   finish{kind:'error',failure} → 被旧代码当正常结束 → 空输出。这是「AI 节点成功但正文为空」的真根因。
-      messages: [{ role: 'user', content: [{ type: 'text', text: opts.prompt }] }],
+      // ★ 2026-10-16 P1（多模态传图）：图片以**内容块**形式与文本同处一条 user message
+      //   （`{type:'image', attachment: ImageAttachmentRef}`）；base64/上传全由宿主适配器负责。
+      //   没有 images 时数组就只有一个 text 块 ⇒ 纯文本路径的行为与改动前完全一致。
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: opts.prompt },
+          ...(opts.imageRefs ?? []).map((ref) => ({ type: 'image', attachment: ref })),
+        ],
+      }],
       ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
       ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
       signal: ac.signal,
@@ -303,6 +324,15 @@ export async function callSubagent(opts: SubagentOptions): Promise<SubagentResul
     const t0 = Date.now();
     const r = await callViaHostLlm(endpoint, opts);
     return { text: r.text, debug: baseDebug(endpoint, opts, { viaHost: true, durationMs: Date.now() - t0, finishReason: r.finishReason, usage: r.usage, textChars: r.text.length }) };
+  }
+
+  // ★ 2026-10-16 P1：图片只能经宿主附件服务 + 宿主适配器发出；直连（用户自定义 OpenAI 兼容模型）
+  //   拿不到 attachments 服务、也组不出 image 内容块 ⇒ **明确失败**，绝不静默把图丢掉。
+  if (opts.imageRefs?.length) {
+    throw new SubagentUnavailableError(
+      '当前模型走直连调用（非 dsh 宿主路由），不支持图片输入——请换一个 dsh 里的模型（下拉里带「· 📷 图片」的），或清空 images 参数',
+      'IMAGE_DIRECT_UNSUPPORTED',
+    );
   }
 
   // 路径 2（方案 B）：直连 DSH 已配 LLM / 用户自定义模型
@@ -416,9 +446,23 @@ export async function callSubagentStream(
   }
 }
 
+/** ★ 2026-10-16 P1（多模态传图）：images 参数 → 宿主附件服务里的图片引用。
+ *  空值 ⇒ 空数组（纯文本路径零变化）；非法项**抛 ImageInputError**（明确失败，不静默丢图）。 */
+async function prepareImageRefs(images: unknown): Promise<{ imageRefs: HostImageRef[]; imageNames: string[] }> {
+  const specs = parseImageList(images);          // 纯函数：格式/数量校验
+  if (specs.length === 0) return { imageRefs: [], imageNames: [] };
+  const svc = hostAttachments();
+  if (!svc || typeof svc.saveImages !== 'function') {
+    throw new ImageInputError('IMAGE_ATTACH_UNAVAILABLE', '宿主附件服务不可用，无法传图——请重启 dsh web（插件启动日志里应有「attachments ok」那一行），或清空 images 后重试');
+  }
+  const inputs = await loadImageInputs(specs);   // 本地读 / URL 下载 + 大小校验
+  const refs = await svc.saveImages(inputs);     // 宿主内容寻址入库（同图自动去重）
+  return { imageRefs: [...refs], imageNames: inputs.map((i) => i.name) };
+}
+
 /** 包装成 NodeResult（节点用）。 */
 export async function runSubagentNode(
-  params: { prompt: string; model?: string; isolated?: boolean; agentPreset?: string; timeoutMs?: number; system?: string },
+  params: { prompt: string; model?: string; isolated?: boolean; agentPreset?: string; timeoutMs?: number; system?: string; images?: unknown },
 ): Promise<NodeResult> {
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
@@ -435,7 +479,23 @@ export async function runSubagentNode(
         endedAt: new Date().toISOString(),
       };
     }
-    const r = await callSubagent(params);
+    // ★ 2026-10-16 P2（**不静默降级**）：再按 `images` 的**真实条数**判一次模态——
+    //   配了图而模型不支持图片输入时**直接失败**（既不发一次注定丢图的调用，也不静默只发文本）。
+    //   与上面那条 prompt 扫描互补：那条防"让模型读文件"白跑，这条防"图被静默丢掉"。
+    const imageCount = countImageEntries(params.images);
+    const imageHint = checkImageModality(endpoint, imageCount);
+    if (imageHint) {
+      return {
+        status: 'failed',
+        error: { code: 'MODEL_MODALITY_MISMATCH', message: imageHint },
+        durationMs: Date.now() - t0,
+        startedAt,
+        endedAt: new Date().toISOString(),
+      };
+    }
+    // ★ 2026-10-16 P1：真传图——images 解析 → 读字节/下载 → 落盘宿主附件服务 → 引用随本次调用发出
+    const { imageRefs, imageNames } = await prepareImageRefs(params.images);
+    const r = await callSubagent({ ...params, imageRefs, imageNames });
     // ★ 空输出兜底（2026-10-03）：任何调用路径拿到空文本都不许报成功——否则下游静默拿到空数据
     //   （演示工作流落盘简报的「AI 简报正文」段就是全空）。code=SUBAGENT_EMPTY_OUTPUT。
     if (!String(r.text ?? '').trim()) {

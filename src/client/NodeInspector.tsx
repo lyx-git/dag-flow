@@ -17,6 +17,24 @@ import { SessionInputFields, MediaFields, WebFields } from './inspector-fields';
 // ★ 2026-10-15 用户拍板「复制反馈在按钮本身」：变量 chips 的复制走公共 hook（无浮窗）
 import { useCopyFlash } from './use-copy-flash';
 
+// ★ 2026-10-16 P2（不静默降级）：面板要显示"当前配了几张图"——与 host 的 `countImageEntries` **同口径**
+//   （字符串按行切、数组递归、对象取 path→url→file）。客户端不能 import 宿主模块，故这里有一份对等实现；
+//   两份的契约由 `test/modality.test.mjs` 的 B9 段（host 侧）+ CDP 的 images 用例（client 侧）共同看住。
+function countImageRows(v: unknown): number {
+  if (v == null) return 0;
+  if (typeof v === 'string') return v.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).length;
+  if (Array.isArray(v)) return v.reduce((n: number, x) => n + countImageRows(x), 0);
+  if (typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    for (const k of ['path', 'url', 'file']) {
+      const val = o[k];
+      if (typeof val === 'string' && val.trim()) return 1;
+    }
+    return 0;
+  }
+  return 0;
+}
+
 export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, runOuts = {}, workflowName = '', onDelete, onParamsChange, onError = 'stop', onNodeError, tolerate = false, onFailPolicyChange }: {
   node: import('./types').ClientNode;
   defNodes?: import('./types').ClientNode[];
@@ -781,11 +799,15 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
       const m = models.find((x) => x.id === selectedModel);
       if (!m) return null;
       const caps = (m.input ?? ['text']).join(', ');
+      // ★ 2026-10-16 P2（不静默降级）：把"当前配了几张图"直接显示出来——不用等跑起来才知道会不会丢图。
+      //   与 host 的 `countImageEntries` 同口径（字符串按行 / 数组递归 / 对象取 path→url→file）。
+      const n = countImageRows(node.params?.images);
       if (m.hasImage) {
-        return createElement('div', { className: 'dsh-wf-panel-hint' }, `✓ 所选模型支持图片输入（能力: ${caps}）`);
+        return createElement('div', { className: 'dsh-wf-panel-hint' },
+          `✓ 所选模型支持图片输入（能力: ${caps}）${n ? `；当前已配 ${n} 张图，运行时会把它们一起发给模型` : ''}`);
       }
       return createElement('div', { className: 'dsh-wf-panel-hint' },
-        `⚠️ 所选模型不支持图片输入（能力: ${caps}，仅文本）——prompt 中引用图片/视频/文件时，运行会直接提示模型能力不足（MODEL_MODALITY_MISMATCH）。需要处理图片请换带 📷 的模型，或在 dsh 配置（profile 的 cordis.patch.yml，旧版 settings.yaml）里为该模型标注 input: [text, image] 后刷新。`);
+        `⚠️ 所选模型不支持图片输入（能力: ${caps}，仅文本）——${n ? `你已配 ${n} 张图：` : ''}prompt 中引用图片/视频/文件、或 images 里配了图时，运行会在发调用前直接失败（MODEL_MODALITY_MISMATCH，**不会静默丢图**）。需要处理图片请换带 📷 的模型，或在 dsh 配置（profile 的 cordis.patch.yml，旧版 settings.yaml）里为该模型标注 input: [text, image] 后刷新。`);
     })(),
     node.type === 'session_input' && createElement(SessionInputFields, { node, onParamsChange }),
     (node.type === 'image_generate' || node.type === 'video_generate' || node.type === 'file_save')
@@ -826,7 +848,23 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
         ? {
             codePath: `约定路径 scripts/${workflowName || '工作流名'}/xxx.py（📁 工作流文件夹按钮可达，按工作流分目录）；相对路径锚定 .dag-flow/，也支持绝对路径。★填了代码文件时优先于内联代码。`,
           }
+        // ★ 2026-10-16 P1（多模态传图）：`images` 是"节点默认参数里没有、但要能填"的可选参数 ——
+        //   在 fieldHints 里登记 ⇒ 参数弹窗会自动补出这一行（多行框），留空则不写进 def。
+        : node.type === 'subagent'
+          ? {
+              images: '图片输入：每行一个本地路径或 http(s) 图片 URL；只写文件名＝到统一图片目录 <DSH_HOME>/.dag-flow/images/ 里找（文档解析节点抽出的图片也放这里）。只支持 png / jpg / jpeg / webp / gif，最多 20 张、单张不超 20MB。★只有走 dsh 宿主模型（下拉里带「· 📷 图片」的）才会真把图片发给模型；留空＝纯文本调用。',
+            }
+          : undefined,
+      // ★ 2026-10-16（用户问「多张图片、多个路径或 URL 要怎么区分」）：images 行的**示例占位**——
+      //   直接把三类写法摆出来（统一目录里的文件名 / 绝对路径 / URL），一眼看出"一行一个"。
+      fieldPlaceholders: node.type === 'subagent'
+        // ★ 2026-10-16（用户「示例占位还是没改好」）：实测**单行形态会被裁**——原示例折成一行后
+        //   文字宽 443px > 输入框可用 438px；故收短成三类写法的短代表（详细规则在下方 hint 里）。
+        ? { images: '每行一个：\nchart.png\nC:\\图片\\a.jpg\nhttps://x.png' }
         : undefined,
+      // ★ 2026-10-16 方案 A（用户拍板）：images 行提供「🖼 选图」——从统一图片目录勾选多张，
+      //   不用再一个个复制文件名。
+      imagePickKeys: node.type === 'subagent' ? ['images'] : undefined,
       // ★ 方案 A：试跑条要用的东西——输入默认值取工作流参数（def.inputs），结果与运行态由面板持有
       inputDefaults: (inputs ?? {}) as Record<string, unknown>,
       canTest: node.type !== 'start' && node.type !== 'end',

@@ -6,6 +6,7 @@ import type { ApiRouteDeps } from './helpers.js';
 import { WorkflowNodeRegistry } from '../../registry/external.js';
 import { listAllEndpoints } from '../subagent.js';
 import { listSessions, readSessionContent } from '../sessions.js';
+import { imageDir, listImageFiles } from '../image-inputs.js';
 
 export function registerMetaRoutes({ route, sendJson, readJsonBody }: ApiRouteDeps): void {
   // 1. 节点列表
@@ -41,6 +42,21 @@ export function registerMetaRoutes({ route, sendJson, readJsonBody }: ApiRouteDe
           hasImage: (e.input ?? ['text']).includes('image'),
         }));
         sendJson(res, 200, { models });
+      } catch (e) {
+        sendJson(res, 500, { error: (e as Error).message });
+      }
+    },
+  });
+
+  // 6.4 统一图片目录清单（2026-10-16 用户需求「多张图片一个一个复制名称有点麻烦」→ 拍板方案 A）：
+  //     AI 节点 `images` 参数旁「🖼 选图」弹窗的数据源。**只读**、只列白名单扩展名、按修改时间倒序。
+  //     目录不存在 ⇒ 空清单（不是错误，前端显示空态 + 「打开图片目录」按钮）。
+  route({
+    kind: 'exact',
+    path: '/api/dag-flow/images',
+    handler: async (_req: any, res: any) => {
+      try {
+        sendJson(res, 200, { dir: imageDir(), images: await listImageFiles() });
       } catch (e) {
         sendJson(res, 500, { error: (e as Error).message });
       }

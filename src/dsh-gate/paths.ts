@@ -43,6 +43,14 @@ export function dagFlowHome(): string {
   return path.join(dshHome(), '.dag-flow');
 }
 
+/** ★ 统一图片目录 `<DSH_HOME>/.dag-flow/images/`（2026-10-16 用户拍板原话：「读取图片的位置，
+ *  放在统一的位置，方便后续文档解析节点解析出来的图片，也放到同一个位置使用」）。
+ *  ＝ AI 节点 `images` 参数里相对路径的唯一基准（写文件名即可），也是 doc_parse 将来抽图的落点。
+ *  别在别处再拼 'images'——要改布局只改本函数。 */
+export function dagFlowImagesDir(): string {
+  return path.join(dagFlowHome(), 'images');
+}
+
 /** profile 目录根（0.2.0 的配置持久层 profiles/<name>/cordis.patch.yml） */
 export function profilesDir(): string {
   return path.join(dshHome(), 'profiles');

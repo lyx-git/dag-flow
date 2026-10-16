@@ -225,7 +225,7 @@ dsh plugin --profile web add github:lyx-git/dag-flow#6bab0245a5ab5655cb5d2d63f55
 | `http` | HTTP | 发 HTTP 请求 | `method?`, `url`, `headers?`, `body?` |
 | `web_search` | 网页搜索 | 搜索（多个免 key 引擎） | `query`, `provider?`, `count?`, `timeRange?` |
 | `web_fetch` | 网页抓取 | 抓网页正文 / 解析 JSON | `url`, `maxChars?` |
-| `subagent` | AI 子代理 | 调 DSH 的模型 | `prompt`, **`model`（必填）** |
+| `subagent` | AI 子代理 | 调 DSH 的模型（可选传图） | `prompt`, **`model`（必填）**, `images`（可选：每行一个图片路径/URL；只写文件名＝到统一图片目录 `.dag-flow/images/` 里找，参数弹窗里可点「🖼 选图」多选） |
 | `session_input` | 会话输入 | 读某个会话的内容 | `sessionId`, `limit?` |
 | `image_generate` | 图片生成 | 文生图（OpenAI images 兼容） | `prompt`, `baseURL`, `apiKey`/`apiKeyEnv` |
 | `video_generate` | 视频生成 | 异步提交 + 轮询 | `submitUrl`, `pollUrl` |
@@ -626,7 +626,7 @@ The self-check validates structure, **references-without-edges**, unreachable no
 | `http` | HTTP request | `method?`, `url`, `headers?`, `body?` |
 | `web_search` | Web search (keyless engines) | `query`, `provider?`, `count?`, `timeRange?` |
 | `web_fetch` | Fetch page text / parse JSON | `url`, `maxChars?` |
-| `subagent` | Call a DSH model | `prompt`, **`model` (required)** |
+| `subagent` | Call a DSH model (optional image input) | `prompt`, **`model` (required)**, `images` (optional: one path/URL per line; a bare filename is looked up in `.dag-flow/images/`, and the params dialog offers a "🖼 pick" multi-select) |
 | `session_input` | Read a session's content | `sessionId`, `limit?` |
 | `image_generate` | Text-to-image | `prompt`, `baseURL`, `apiKey`/`apiKeyEnv` |
 | `video_generate` | Async submit + poll | `submitUrl`, `pollUrl` |

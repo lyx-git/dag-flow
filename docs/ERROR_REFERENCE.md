@@ -59,6 +59,13 @@ python/bash（code 纯空白）、http（url）、if（condition）、switch（v
 | subagent | `SUBAGENT_EMPTY_OUTPUT` | AI 节点返回空内容（模型没有输出）——不再按成功处理，请换可用模型或检查上游数据 |
 | subagent | `SUBAGENT_UNAVAILABLE` | AI 节点超时（Xms）／AI 节点调用失败: …／dsh 配置（profile 的 cordis.patch.yml；旧版 settings.yaml）中没有可用的 LLM 端点 |
 | subagent | `MODEL_MODALITY_MISMATCH` | 所选模型 &lt;显示名，缺失时回退 providerName/model&gt; 不支持图片输入（能力: text）——prompt 中引用了图片文件。请换支持对应模态的模型（如 kimi-k3），或在 dsh 配置（profile 的 cordis.patch.yml，旧版 settings.yaml）里为该模型标注 input: [text, image] |
+| subagent | `IMAGE_TOO_MANY` | images 最多 20 张（当前 N 张）——请减少后重试（宿主附件服务每条消息的上限就是 20 张） |
+| subagent | `IMAGE_UNSUPPORTED_TYPE` | 不支持的图片格式：xxx（只支持 png / jpg / jpeg / webp / gif；路径要写到具体文件、扩展名不能省） |
+| subagent | `IMAGE_NOT_FOUND` | 图片文件不存在或不可读：&lt;绝对路径&gt;（相对路径以统一图片目录 &lt;DSH_HOME&gt;/.dag-flow/images/ 为基准，放进去写文件名即可） |
+| subagent | `IMAGE_TOO_LARGE` | 图片超过 20MB 上限：xxx（N.NMB） |
+| subagent | `IMAGE_DOWNLOAD_FAILED` | 图片下载失败（HTTP xxx）：&lt;url&gt; |
+| subagent | `IMAGE_ATTACH_UNAVAILABLE` | 宿主附件服务不可用，无法传图——请重启 dsh web（插件启动日志里应有「attachments ok」那一行），或清空 images 后重试 |
+| subagent | `IMAGE_DIRECT_UNSUPPORTED` | 当前模型走直连调用（非 dsh 宿主路由），不支持图片输入——请换一个 dsh 里的模型（下拉里带「· 📷 图片」的），或清空 images 参数 |
 | session_input | `SESSION_INPUT_NO_ID` / `SESSION_INPUT_NOT_FOUND` / `SESSION_INPUT_READ` | sessionId 为空／会话不存在: xxx／读取失败 |
 | http | `HTTP_TIMEOUT` / `HTTP_ERROR` | 超时（Xms）／请求失败（附原因） |
 | web_search | `SEARCH_EMPTY_QUERY` | query 为空——搜索节点未执行，流程已在此中断 |

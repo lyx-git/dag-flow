@@ -53,3 +53,24 @@ export function checkModelModality(endpoint: Pick<LlmEndpoint, 'input' | 'model'
   //   modelLabel（宿主显示名 / settings 的 name）→ providerName → model 三级回退。
   return `所选模型 ${endpoint.modelLabel ?? endpoint.providerName ?? endpoint.model} 不支持${missingLabel}输入（能力: ${caps.join(', ')}）——prompt 中引用了${missingLabel}。请换支持对应模态的模型${suggest}，或在 dsh 配置（profile 的 cordis.patch.yml，旧版 settings.yaml）里为该模型标注 input: [text, image]`;
 }
+
+/**
+ * ★ 2026-10-16 P2（**不静默降级**）：按 `images` 参数的**真实条数**再判一次模态。
+ *
+ * 与上面 `checkModelModality`（扫 prompt 里的扩展名）是**两条互补的判据**，都要保留：
+ *   · prompt 扫描防的是"让模型读 PDF/图片路径"这种白跑（2026-10-08 特意加的）；
+ *   · 本函数防的是"**配了图但模型不收图**"——那种情况下图片会被静默丢弃、模型只拿到文本，
+ *     用户却以为图已经发出去了（最难发现的一类降级）。
+ *
+ * `count === 0` ⇒ 返回 null（不干预：不填 images 时行为与改动前完全一致）。
+ */
+export function checkImageModality(
+  endpoint: Pick<LlmEndpoint, 'input' | 'model' | 'providerName' | 'modelLabel'>,
+  count: number,
+): string | null {
+  if (!count) return null;
+  const caps = endpoint.input?.length ? endpoint.input : ['text'];
+  if (caps.includes('image')) return null;
+  const who = endpoint.modelLabel ?? endpoint.providerName ?? endpoint.model;
+  return `你配了 ${count} 张图片，但所选模型 ${who} 不支持图片输入（能力: ${caps.join(', ')}）——已停止本次调用：图片既不会静默丢掉、也不会只发文本。请换一个带「· 📷 图片」的模型（如 dsh:custom-model:kimi-k3 / minimax-m3），或清空 images 参数；也可以在 dsh 配置（profile 的 cordis.patch.yml，旧版 settings.yaml）里为该模型标注 input: [text, image] 后刷新。`;
+}

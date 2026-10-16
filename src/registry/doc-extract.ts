@@ -27,13 +27,73 @@ export class DocError extends Error {
 interface DocResult {
   /** 归一化后的格式名：pdf / docx / xlsx / pptx / text / html / csv / json / markdown */
   format: string;
-  /** 抽取出的纯文本 */
+  /** 抽取出的纯文本（含内嵌图片的位置标记，形如 `[图片 #1]`——节点侧落盘后会把 #N 换成真实文件名） */
   text: string;
   chars: number;
   /** 是否被 maxChars 截断 */
   truncated: boolean;
   /** 附加信息：页数/工作表/幻灯片/段落数、原文件名、字节数等 */
   meta: Record<string, string | number | boolean>;
+  /** ★ 2026-10-16 用户需求「doc_parse 抽图落统一目录 + 在文本相应位置注明图片位置」：
+   *  文档内嵌图片（**只回引用与字节，不落盘**——落盘由节点侧走 `src/adapter/image-library.ts`）。 */
+  images: DocImageRef[];
+}
+
+/** 从文档里抽出的内嵌图片（文本里 `[图片 #index]` 与它一一对应） */
+export interface DocImageRef {
+  /** 文档内出现顺序，从 1 开始 */
+  index: number;
+  /** 在原文档容器里的位置（如 `word/media/image1.png`），便于排查"这张图哪来的" */
+  source: string;
+  /** 原始字节（保持原格式，不做转换） */
+  bytes: Buffer;
+  /** 由扩展名推出的 MIME（白名单内：png/jpeg/gif/webp/bmp） */
+  mediaType: string;
+}
+
+/** 会抽出并落盘的图片扩展名 → MIME（emf/wmf/tiff/svg 等一律跳过并计数，避免目录里堆打不开的文件） */
+const IMAGE_MEDIA_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+};
+
+/** 取扩展名对应的图片 MIME；不是白名单里的图片格式返回 null */
+function imageMediaType(target: string): string | null {
+  const ext = (/(\.[A-Za-z0-9]+)$/.exec(target)?.[1] ?? '').toLowerCase().replace(/^\./, '');
+  return IMAGE_MEDIA_TYPES[ext] ?? null;
+}
+
+/** 相对路径归一化：`baseDir` + Target ⇒ 容器内的真实路径。
+ *  例：docx `('word', 'media/image1.png')` ⇒ `word/media/image1.png`；
+ *      pptx `('ppt/slides', '../media/image1.png')` ⇒ `ppt/media/image1.png`；
+ *      Target 以 `/` 开头＝容器绝对路径 ⇒ 去掉前导斜杠直接用。 */
+function joinRel(baseDir: string, target: string): string {
+  if (/^\//.test(target)) return target.replace(/^\//, '');
+  const parts = [...baseDir.split('/').filter(Boolean), ...target.split('/')];
+  const out: string[] = [];
+  for (const seg of parts) {
+    if (seg === '.' || seg === '') continue;
+    if (seg === '..') out.pop();
+    else out.push(seg);
+  }
+  return out.join('/');
+}
+
+/** 读 `_rels/*.rels` 的 rId → Target 映射（docx 的 `word/_rels/document.xml.rels`、pptx 的 slideN.xml.rels） */
+function relsMap(zip: Map<string, Buffer>, relsPath: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const xml = zipText(zip, relsPath);
+  if (!xml) return out;
+  for (const b of tagBlocks(xml, 'Relationship')) {
+    const id = /\bId="([^"]+)"/.exec(b.attrs)?.[1];
+    const tgt = /\bTarget="([^"]+)"/.exec(b.attrs)?.[1];
+    if (id && tgt) out.set(id, tgt.replace(/^\.\//, ''));
+  }
+  return out;
 }
 
 interface ExtractOptions {
@@ -59,6 +119,10 @@ export function extractDocument(buf: Buffer, filename: string, opts: ExtractOpti
   let format: string;
   let text: string;
   let meta: Record<string, string | number | boolean> = { file: base, bytes: buf.length };
+  // ★ 2026-10-16：「doc_parse 抽图落统一目录 + 在文本相应位置注明图片位置」——这里只**抽出引用与字节**，
+  //   落盘由节点侧（adapter/image-library）负责，内核保持"零依赖纯函数、不写盘"。
+  let images: DocImageRef[] = [];
+  let skippedImages = 0;
 
   switch (ext) {
     case '.pdf':
@@ -67,15 +131,18 @@ export function extractDocument(buf: Buffer, filename: string, opts: ExtractOpti
       const xml = zipEntry(buf, ['word/document.xml'], base);
       const raw = unzipText(buf);
       format = 'docx';
-      text = docxToText(xml);
+      const hit = collectDocxImages(xml, unzip(buf));
+      images = hit.images;
+      skippedImages = hit.skipped;
+      text = docxToText(xml, hit.refToIndex);
       meta = { ...meta, paragraphs: raw.paragraphs };
       break;
     }
     case '.xlsx': {
-      format = 'xlsx'; { const r = extractXlsx(buf); text = r.text; meta = { ...meta, ...r.meta }; } break;
+      format = 'xlsx'; { const r = extractXlsx(buf); text = r.text; images = r.images; skippedImages = r.skipped; meta = { ...meta, ...r.meta }; } break;
     }
     case '.pptx': {
-      format = 'pptx'; { const r = extractPptx(buf); text = r.text; meta = { ...meta, ...r.meta }; } break;
+      format = 'pptx'; { const r = extractPptx(buf); text = r.text; images = r.images; skippedImages = r.skipped; meta = { ...meta, ...r.meta }; } break;
     }
     case '.doc': case '.xls': case '.ppt':
       throw new DocError('DOC_UNSUPPORTED', `暂不支持旧版 Office 二进制格式 ${ext}（OLE2）——请在 Office 里另存为 ${ext === '.doc' ? '.docx' : ext === '.xls' ? '.xlsx' : '.pptx'} 后再解析`);
@@ -98,9 +165,11 @@ export function extractDocument(buf: Buffer, filename: string, opts: ExtractOpti
       throw new DocError('DOC_UNSUPPORTED', `不支持的文件类型 ${ext}——支持 pdf / docx / xlsx / pptx / txt / md / csv / json / html`);
   }
 
+  if (skippedImages > 0) meta = { ...meta, skippedImages };
+  if (images.length > 0) meta = { ...meta, images: images.length };
   const truncated = text.length > maxChars;
   const out = truncated ? text.slice(0, maxChars) : text;
-  return { format, text: out, chars: out.length, truncated, meta };
+  return { format, text: out, chars: out.length, truncated, meta, images };
 }
 
 // ==================== 文本/HTML ====================
@@ -224,8 +293,33 @@ function countTags(xml: string, name: string): number {
 
 // ==================== docx ====================
 
-/** 段落 → 行；表格单元格用 \t 分隔（w:tc 结束补 \t、w:tr 结束补 \n） */
-function docxToText(documentXml: string): string {
+/** docx 内嵌图：按 `document.xml` 里 `r:embed="rIdN"` 的**出现顺序**收集（只收白名单图片格式）。
+ *  ★ 2026-10-16：返回的 `index` 与文本里的 `[图片 #N]` 一一对应；非图片/取不到的计入 `skipped`。
+ *  同一张图被引用多次只算一条（`refToIndex` 保证文本里重复引用指向同一个 #N）。 */
+function collectDocxImages(xml: string, zip: Map<string, Buffer>): { images: DocImageRef[]; skipped: number; refToIndex: Map<string, number> } {
+  const images: DocImageRef[] = [];
+  const refToIndex = new Map<string, number>();
+  let skipped = 0;
+  const ridMap = relsMap(zip, 'word/_rels/document.xml.rels');
+  for (const m of xml.matchAll(/r:embed="([^"]+)"/g)) {
+    const rid = m[1]!;
+    if (refToIndex.has(rid)) continue;
+    const target = ridMap.get(rid);
+    if (!target) { skipped++; continue; }
+    const mediaType = imageMediaType(target);
+    const mediaPath = joinRel('word', target);
+    const bytes = zip.get(mediaPath);
+    if (!bytes || !mediaType) { skipped++; continue; }
+    const index = images.length + 1;
+    refToIndex.set(rid, index);
+    images.push({ index, source: mediaPath, bytes, mediaType });
+  }
+  return { images, skipped, refToIndex };
+}
+
+/** 段落 → 行；表格单元格用 \t 分隔（w:tc 结束补 \t、w:tr 结束补 \n）
+ *  ★ 2026-10-16：段落里内嵌的图片在该行末尾补 `[图片 #N]`（**没传映射时输出与改动前完全一致**）。 */
+function docxToText(documentXml: string, refToIndex?: Map<string, number>): string {
   if (!documentXml) return '';
   let s = documentXml
     .replace(/<\/w:tc>/g, '</w:tc>\t')
@@ -237,7 +331,15 @@ function docxToText(documentXml: string): string {
     const runs = tags(para, 'w:t').map((t) => decodeEntities(t)).join('');
     const tabs = countTags(para, 'w:tab');
     const brs = countTags(para, 'w:br');
-    lines.push(runs + (tabs ? '' : '') + (brs ? '\n'.repeat(brs) : ''));
+    let marks = '';
+    if (refToIndex) {
+      const seen = new Set<number>();
+      for (const m of para.matchAll(/r:embed="([^"]+)"/g)) {
+        const n = refToIndex.get(m[1]!);
+        if (n && !seen.has(n)) { seen.add(n); marks += ` [图片 #${n}]`; }
+      }
+    }
+    lines.push(runs + marks + (tabs ? '' : '') + (brs ? '\n'.repeat(brs) : ''));
   }
   return squeezeLines(lines.join('\n').replace(/\t\n/g, '\n'));
 }
@@ -252,11 +354,21 @@ function colIndex(ref: string): number {
   return n - 1;
 }
 
-function extractXlsx(buf: Buffer): { text: string; meta: Record<string, string | number | boolean> } {
+function extractXlsx(buf: Buffer): { text: string; meta: Record<string, string | number | boolean>; images: DocImageRef[]; skipped: number } {
   const zip = unzip(buf);
   const shared = tags(zipText(zip, 'xl/sharedStrings.xml'), 'si').map((si) => tags(si, 't').map((t) => decodeEntities(t)).join(''));
   const wb = zipText(zip, 'xl/workbook.xml');
   const sheetNames = tagBlocks(wb, 'sheet').map((s) => decodeEntities(/name="([^"]*)"/.exec(s.attrs)?.[1] ?? ''));
+  // ★ 2026-10-16：工作表里的浮动图片（`xl/media/*`）——xlsx 的 XML 不含"图在第几行"的可靠信息，
+  //   故按文件序号收集、在**文末**统一标注（docx/pptx 能做到精确定位，所以那边是行内标记）。
+  const images: DocImageRef[] = [];
+  let skipped = 0;
+  for (const k of [...zip.keys()].filter((n) => /^xl\/media\//.test(n)).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))) {
+    const mediaType = imageMediaType(k);
+    const bytes = zip.get(k);
+    if (!bytes || !mediaType) { skipped++; continue; }
+    images.push({ index: images.length + 1, source: k, bytes, mediaType });
+  }
   const files = [...zip.keys()]
     .filter((k) => /^xl\/worksheets\/sheet\d+\.xml$/.test(k))
     .sort((a, b) => (Number(/(\d+)\.xml$/.exec(a)?.[1] ?? 0) - Number(/(\d+)\.xml$/.exec(b)?.[1] ?? 0)));
@@ -291,8 +403,10 @@ function extractXlsx(buf: Buffer): { text: string; meta: Record<string, string |
   });
 
   return {
-    text: tidyTable(parts.join('\n\n')),
+    text: tidyTable(parts.join('\n\n')) + (images.length ? `\n\n[图片 #${images.map((i) => i.index).join('] [图片 #')}]` : ''),
     meta: { sheets: files.length, sheetNames: sheetNames.join(' / '), rows },
+    images,
+    skipped,
   };
 }
 
@@ -309,21 +423,36 @@ function tidyTable(s: string): string {
 
 // ==================== pptx ====================
 
-function extractPptx(buf: Buffer): { text: string; meta: Record<string, string | number | boolean> } {
+function extractPptx(buf: Buffer): { text: string; meta: Record<string, string | number | boolean>; images: DocImageRef[]; skipped: number } {
   const zip = unzip(buf);
   const files = [...zip.keys()]
     .filter((k) => /^ppt\/slides\/slide\d+\.xml$/.test(k))
     .sort((a, b) => (Number(/(\d+)\.xml$/.exec(a)?.[1] ?? 0) - Number(/(\d+)\.xml$/.exec(b)?.[1] ?? 0)));
   if (!files.length) throw new DocError('DOC_PARSE_FAILED', 'pptx 里没有找到幻灯片（ppt/slides/slideN.xml）');
+  // ★ 2026-10-16：每页按 `<p:pic>` 里 `r:embed` 的出现顺序收图，并在该页文本末尾补 `[图片 #N]`
+  const images: DocImageRef[] = [];
+  let skipped = 0;
   const slides = files.map((f, i) => {
     const xml = zipText(zip, f);
+    const ridMap = relsMap(zip, `ppt/slides/_rels/${f.replace(/^ppt\/slides\//, '')}.rels`);
+    const marks: string[] = [];
+    for (const m of xml.matchAll(/r:embed="([^"]+)"/g)) {
+      const target = ridMap.get(m[1]!);
+      if (!target) { skipped++; continue; }
+      const mediaType = imageMediaType(target);
+      const mediaPath = joinRel('ppt/slides', target);   // slide 的 Target 多为 `../media/image1.png`
+      const bytes = zip.get(mediaPath);
+      if (!bytes || !mediaType) { skipped++; continue; }
+      images.push({ index: images.length + 1, source: mediaPath, bytes, mediaType });
+      marks.push(`[图片 #${images.length}]`);
+    }
     const lines = tags(xml, 'a:p')
       .map((p) => tags(p, 'a:t').map((t) => decodeEntities(t)).join(''))
       .map((l) => l.trim())
       .filter(Boolean);
-    return `## 第 ${i + 1} 页\n${lines.join('\n')}`;
+    return `## 第 ${i + 1} 页\n${lines.join('\n')}${marks.length ? `\n${marks.join(' ')}` : ''}`;
   });
-  return { text: squeezeLines(slides.join('\n\n')), meta: { slides: files.length } };
+  return { text: squeezeLines(slides.join('\n\n')), meta: { slides: files.length }, images, skipped };
 }
 // ==================== PDF → 已拆至 ./doc-pdf.ts（2026-10-14 重构轮 3） ====================
 // extractPdf / CMap / parseCMap / contentToText / decodeShowString 都在那边；

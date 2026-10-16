@@ -10,6 +10,9 @@ import { makeResult, safeNodeRun } from '../external.js';
 import { extractDocument, DocError, DOC_MAX_BYTES } from '../doc-extract.js';
 import { ocrImages, ocrPdf, normalizeOcrMode, OcrError } from '../../adapter/ocr.js';
 import { dagFlowTmpDir } from '../../adapter/workspace.js';
+// ★ 2026-10-16 用户需求「doc_parse 抽图落统一目录 + 文本相应位置注明图片位置」：写入侧（读取侧在 image-inputs）
+import { saveImagesToLibrary, libraryNameFor } from '../../adapter/image-library.js';
+import { dagFlowImagesDir } from '../../dsh-gate/paths.js';
 import { humanizeFetchError } from '../../adapter/fetch-errors.js';
 import { startedEnded, finish, resolveCodePath } from './shared.js';
 
@@ -17,7 +20,7 @@ import { startedEnded, finish, resolveCodePath } from './shared.js';
 //   零依赖（解析逻辑在 ./doc-extract.ts）。支持 pdf/docx/xlsx/pptx/txt/md/csv/json/html；
 //   **图片（png/jpg/webp/bmp/tif）走 OCR**（引擎 RapidOCR，适配层 ../../adapter/ocr.ts；需把「OCR」设为自动/强制）；
 //   扫描版 PDF（无文本层）明确报 DOC_NO_TEXT_LAYER；旧版 .doc/.xls/.ppt 提示另存为 docx/xlsx/pptx。
-interface DocParseParams { path?: string; url?: string; maxChars?: number; timeoutMs?: number; ocr?: unknown; ocrMaxPages?: unknown; ocrTimeoutMs?: unknown }
+interface DocParseParams { path?: string; url?: string; maxChars?: number; timeoutMs?: number; ocr?: unknown; ocrMaxPages?: unknown; ocrTimeoutMs?: unknown; extractImages?: unknown }
 async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeResult> {
   const { startedAt, t0 } = startedEnded();
   const fail = (code: string, message: string): NodeResult =>
@@ -148,7 +151,42 @@ async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeRes
     try {
       const mc = Number(p.maxChars);        // 同上：字符串形态（面板 blur / 模板 / 手写 JSON）也要生效
       const r = extractDocument(buf, name, { maxChars: Number.isFinite(mc) && mc > 0 ? mc : undefined });
-      return finish(t0, startedAt, { out: r as never });
+      // ★ 2026-10-16（用户需求「图片抽到哪里去了，需要在文本资料里面相应位置注明图片位置」）：
+      //   把文档内嵌图**落进统一图片目录**（与 AI 节点 images 参数同一个目录），再把文本里的
+      //   `[图片 #N]` 占位换成真实文件名 ⇒ 文本里就地能看到「这张图在哪、叫什么」。
+      //   · 默认 `extractImages: auto`；填 `off` 则只解析文本、不落盘（老行为）。
+      //   · **fail-soft**：落盘失败不拖垮整份解析——文本保留 `[图片 #N]`，meta.imageError 说明原因。
+      const wantImages = String(p.extractImages ?? 'auto').toLowerCase() !== 'off';
+      if (!wantImages || r.images.length === 0) {
+        return finish(t0, startedAt, { out: { ...r, images: [] } as never });
+      }
+      let text = r.text;
+      let saved: Awaited<ReturnType<typeof saveImagesToLibrary>> = [];
+      let imageError = '';
+      try {
+        saved = await saveImagesToLibrary(r.images.map((im) => ({
+          name: libraryNameFor(name, im.index, im.mediaType), bytes: im.bytes, mediaType: im.mediaType,
+        })));
+        for (let i = 0; i < saved.length; i++) {
+          const ref = r.images[i];
+          if (!ref) continue;
+          text = text.split(`[图片 #${ref.index}]`).join(`[图片：${saved[i]!.name}]`);
+        }
+      } catch (e) {
+        imageError = (e as Error).message;
+      }
+      const imagesOut = saved.map((s, i) => ({
+        name: s.name, path: s.path, mediaType: s.mediaType, bytes: s.bytes,
+        source: r.images[i]?.source ?? '', reused: s.reused,
+      }));
+      const meta = {
+        ...r.meta,
+        ...(imagesOut.length ? { imageCount: imagesOut.length, imageDir: dagFlowImagesDir() } : {}),
+        ...(imageError ? { imageError } : {}),
+      };
+      return finish(t0, startedAt, {
+        out: { ...r, text, chars: text.length, meta, images: imagesOut } as never,
+      });
     } catch (e) {
       if (e instanceof DocError) {
         // 扫描版 PDF：没有文本层 → 栅格化 + OCR（轮 3 起真做，不再只是提示）
@@ -182,6 +220,7 @@ export const docParseDef: NodeDefinition<DocParseParams> = {
       ocr: { type: 'string', enum: ['off', 'auto', 'force'], description: '图片 OCR：off 关 / auto 自动（图片就识别）/ force 强制' },
       ocrMaxPages: { type: 'integer', minimum: 1, maximum: 200 },
       ocrTimeoutMs: { type: 'integer', minimum: 1000, maximum: 1_800_000 },
+      extractImages: { type: 'string', enum: ['auto', 'off'], description: '抽取文档内嵌图片：auto 自动（抽到就存进统一图片目录 .dag-flow/images/，并在文本相应位置标注文件名）/ off 只解析文本' },
     },
   },
   run: async (ctx, p) => safeNodeRun(() => runDocParseNode(p as never, ctx)),

@@ -4,7 +4,7 @@ import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 
 // 可独立执行节点走 /run-node；依赖上游数据的节点（merge/loop.over 等）已在 api-e2e 覆盖。
 // 跑法：node test/node-matrix.test.mjs
 import * as http from 'node:http';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -273,6 +273,59 @@ const target = (r) => r.body?.summary?.results?.target;
   writeFileSync(join(relDir, 'matrix-rel-ok.md'), '相对路径正文\n', 'utf8');
   const relOk = await runNode('doc_parse', { path: 'documents/matrix-rel-ok.md' });
   t('21g. doc_parse 相对路径按 <DSH_HOME>/.dag-flow/ 锚定（正例）', target(relOk)?.status === 'success' && String(target(relOk)?.out?.text).includes('相对路径正文'), JSON.stringify(target(relOk)?.error ?? target(relOk)?.out)?.slice(0, 160));
+
+  // ★ 21g2–21g6（2026-10-16 用户需求「图片抽到哪里去了，需要在文本资料里面相应位置注明图片位置」）：
+  //   造一个**最小含图 docx**（stored zip，自带打包器），跑真实节点，断言端到端链路：
+  //   ①文本里就地标注真实文件名 ②文件真的落进统一图片目录 ③out.images 结构
+  //   ④extractImages:'off' 只解析文本不落盘 ⑤重复解析幂等（同名同内容不重写）
+  const docxWithImage = (() => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7, 7, 7]);
+    const documentXml = '<w:document><w:body><w:p><w:r><w:t>图前文字</w:t></w:r>'
+      + '<w:r><w:drawing><a:blip r:embed="rId9"/></w:drawing></w:r></w:p></w:body></w:document>';
+    const rels = '<Relationships><Relationship Id="rId9" Type="image" Target="media/pic.png"/></Relationships>';
+    const entries = [
+      ['word/document.xml', Buffer.from(documentXml, 'utf8')],
+      ['word/_rels/document.xml.rels', Buffer.from(rels, 'utf8')],
+      ['word/media/pic.png', png],
+    ];
+    const chunks = []; const central = []; let offset = 0;
+    for (const [nm, data] of entries) {
+      const nb = Buffer.from(nm, 'utf8');
+      const lh = Buffer.alloc(30);
+      lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0, 6); lh.writeUInt16LE(0, 8);
+      lh.writeUInt32LE(0, 14); lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(data.length, 22);
+      lh.writeUInt16LE(nb.length, 26);
+      chunks.push(lh, nb, data);
+      central.push({ nb, len: data.length, offset });
+      offset += lh.length + nb.length + data.length;
+    }
+    const cds = []; let cdSize = 0;
+    for (const c of central) {
+      const h = Buffer.alloc(46);
+      h.writeUInt32LE(0x02014b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(20, 6);
+      h.writeUInt32LE(c.len, 20); h.writeUInt32LE(c.len, 24);
+      h.writeUInt16LE(c.nb.length, 28); h.writeUInt32LE(c.offset, 42);
+      cds.push(h, c.nb); cdSize += h.length + c.nb.length;
+    }
+    const eocd = Buffer.alloc(22);
+    eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(central.length, 8); eocd.writeUInt16LE(central.length, 10);
+    eocd.writeUInt32LE(cdSize, 12); eocd.writeUInt32LE(offset, 16);
+    return Buffer.concat([...chunks, ...cds, eocd]);
+  })();
+  const docxPath = join(process.cwd(), 'matrix-with-image.docx');
+  writeFileSync(docxPath, docxWithImage);
+  const rImg = await runNode('doc_parse', { path: docxPath });
+  const oImg = target(rImg)?.out;
+  t('21g2. ★ doc_parse 抽图：文本里就地标注真实文件名', target(rImg)?.status === 'success' && /\[图片：matrix-with-image-1\.png\]/.test(String(oImg?.text)), JSON.stringify(oImg?.text)?.slice(0, 200));
+  const imgDir = join(ISOLATED_HOME, '.dag-flow', 'images');
+  const landed = existsSync(join(imgDir, 'matrix-with-image-1.png'));
+  t('21g3. ★ 抽出的图真的落进统一图片目录（.dag-flow/images/）', landed && Number(oImg?.meta?.imageCount) === 1, `landed=${landed} meta=${JSON.stringify(oImg?.meta)?.slice(0, 160)}`);
+  t('21g4. out.images 结构（name/mediaType/bytes/source）', oImg?.images?.[0]?.name === 'matrix-with-image-1.png' && oImg?.images?.[0]?.mediaType === 'image/png' && oImg?.images?.[0]?.source === 'word/media/pic.png' && Number(oImg?.images?.[0]?.bytes) === 11, JSON.stringify(oImg?.images)?.slice(0, 200));
+  const rOff = await runNode('doc_parse', { path: docxPath, extractImages: 'off' });
+  const oOff = target(rOff)?.out;
+  t('21g5. extractImages:off → 只解析文本（保留 [图片 #1] 占位、不落盘）', target(rOff)?.status === 'success' && String(oOff?.text).includes('[图片 #1]') && Array.isArray(oOff?.images) && oOff.images.length === 0, JSON.stringify(oOff?.text)?.slice(0, 160));
+  const rAgain = await runNode('doc_parse', { path: docxPath });
+  t('21g6. 重复解析幂等（同名同内容不重写，reused=true）', target(rAgain)?.status === 'success' && target(rAgain)?.out?.images?.[0]?.reused === true, JSON.stringify(target(rAgain)?.out?.images)?.slice(0, 160));
 
   // ★ 21h–21l（2026-10-11 轮 2：图片 OCR）。用**假引擎**（DAGFLOW_OCR_* 逃生舱 + node 冒充解释器）
   //   ⇒ 链路完整、但整链仍然**离线**、不依赖真引擎装没装。
