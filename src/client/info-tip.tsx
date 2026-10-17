@@ -30,7 +30,13 @@ export interface InfoTipProps {
 export function InfoTip({ text, className }: InfoTipProps): ReactElement {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ left: number; top: number; arrow: number } | null>(null);
-  const btnRef = useRef<HTMLButtonElement | null>(null);
+  // ★ 2026-10-19：根元素由 `<button>` 改成 `<span role="button" tabIndex={0}>`。
+  //   真因（用户报「小问号现在不直接点在按钮上，也会显示提示信息，有问题」）：问号被放在 `<label>` 里
+  //   （`row()` / 面板各处的「标签 + 问号」都是这个结构），而 `<label>` 的默认激活行为会把它关联到
+  //   **第一个 labelable 后代**——`<button>` 正是 labelable ⇒ **点 label 上任意位置（哪怕离问号很远）
+  //   都会被浏览器当成点击问号**，气泡就弹出来了。`stopPropagation` 拦不住（浏览器是直接对控件派发 click）。
+  //   span 不是 labelable ⇒ label 不再关联它，点标签文字不再误触；键盘可达性用 role + tabIndex + onKeyDown 补齐。
+  const btnRef = useRef<HTMLSpanElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
 
   const close = useCallback((): void => {
@@ -97,15 +103,22 @@ export function InfoTip({ text, className }: InfoTipProps): ReactElement {
   useEffect(() => () => { if (closeCurrent === close) closeCurrent = null; }, [close]);
 
   return createElement('span', { className: 'dsh-wf-info-wrap' },
-    createElement('button', {
+    createElement('span', {
       ref: btnRef,
-      type: 'button',
+      role: 'button',
+      tabIndex: 0,
       className: `dsh-wf-info${open ? ' on' : ''}${className ? ` ${className}` : ''}`,
       'aria-label': '说明',
       'aria-expanded': open,
       // ★ 故意不写 title：全局 hover-tip 会接管 title 再弹一层悬浮提示（与点击气泡重复）
       'data-tip': text,
       onClick: (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); toggle(); },
+      onKeyDown: (e: React.KeyboardEvent) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        e.stopPropagation();
+        toggle();
+      },
       onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
     }, ICON),
     open ? createPortal(

@@ -63,8 +63,12 @@ export function registerMetaRoutes({ route, sendJson, readJsonBody }: ApiRouteDe
     },
   });
 
-  // 6.5 图片 API 连通性/模型支持性测试（image_generate 节点「提前测试」用）
+  // 6.5 图片 API 连通性/模型支持性测试
   //     真实发一次最小生成请求验证 baseURL+key+model 组合；会产生一张测试图的最小费用。
+  //   ★ 2026-10-19 用户拍板 B：「图片生成节点里面的提前测试……是否可以直接删掉提前测试按钮」→ **UI 入口已删除**
+  //     （面板上不再有「🔍 测试连接」，验证改走参数弹窗底部的「▶ 试跑本节点」）。
+  //     路由本身保留：属纯后台能力（不落盘、不写 runs、不需要 prompt），离线测试 `test/modality.test.mjs` C 段
+  //     与 `test/apply-host.test.mjs` 的路由清单都断言它存在 —— 与 `skipSelfcheck` 的"只作 API 保留"同一口径。
   route({
     kind: 'exact',
     path: '/api/dag-flow/test-image-api',

@@ -7,7 +7,7 @@ import { readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Context, NodeDefinition, NodeResult } from '../../types.js';
 import { makeResult, safeNodeRun } from '../external.js';
-import { extractDocument, extractPdfImages, stripImageMarks, DocError, DOC_MAX_BYTES } from '../doc-extract.js';
+import { extractDocument, extractPdfImages, stripImageMarks, downloadedFileName, DocError, DOC_MAX_BYTES } from '../doc-extract.js';
 import { ocrImages, ocrPdf, normalizeOcrMode, OcrError } from '../../adapter/ocr.js';
 import { dagFlowTmpDir } from '../../adapter/workspace.js';
 // ★ 2026-10-16 用户需求「doc_parse 抽图落统一目录 + 文本相应位置注明图片位置」：写入侧（读取侧在 image-inputs）
@@ -52,8 +52,11 @@ async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeRes
       const ab = await resp.arrayBuffer();
       if (ab.byteLength > DOC_MAX_BYTES) return fail('DOC_TOO_LARGE', `文件过大（${(ab.byteLength / 1048576).toFixed(1)} MB，上限 ${DOC_MAX_BYTES / 1048576} MB）`);
       buf = Buffer.from(ab);
-      const last = new URL(url).pathname.split('/').filter(Boolean).pop();
-      if (last) { try { name = decodeURIComponent(last); } catch { name = last; } }
+      // ★ 2026-10-19 用户报缺陷：「抓 https://example.com 报无法识别文件类型（没有扩展名）」。
+      //   以前只取 URL pathname 最后一段当文件名 ⇒ 首页型地址（pathname 就是 `/`）拿不到段、
+      //   `.php`/`.aspx` 页面壳的扩展名又不在支持集里 ⇒ 后面按扩展名分派时直接失败。
+      //   现在统一由 downloadedFileName() 三级兜底（pathname → content-disposition → content-type）。
+      name = downloadedFileName(url, resp.headers);
     } catch (e) {
       if (timedOut) return fail('DOC_URL_FAILED', `下载超时（${timeoutMs}ms）——若文件较大可加大 timeoutMs`);
       if (ctx.signal?.aborted || (e as Error).name === 'AbortError') return fail('RUN_CANCELLED', '下载期间运行被取消');

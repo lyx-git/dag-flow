@@ -20,7 +20,8 @@ const ROOT = resolve(import.meta.dirname, '..');
 const dirTmp = tmpRoot('df-doc-extract-');
 const OUT = join(dirTmp, 'doc-extract.mjs');
 await build({ entryPoints: [join(ROOT, 'src/registry/doc-extract.ts')], bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent' });
-const { extractDocument, htmlToText, readZip, DocError, DOC_MAX_BYTES } = await import(pathToFileURL(OUT).href);
+const { extractDocument, htmlToText, readZip, DocError, DOC_MAX_BYTES,
+  extFromContentType, fileNameFromDisposition, downloadedFileName } = await import(pathToFileURL(OUT).href);
 
 // ---------- fixture：zip 打包器（store / deflate） ----------
 const CRC_TABLE = (() => {
@@ -622,6 +623,48 @@ console.log('== 6. 错误路径 ==');
   const e6 = errOf(() => extractDocument(Buffer.from('zz'), 'x.rtf'));
   t('未知扩展名 → DOC_UNSUPPORTED 并列出支持的格式', e6?.code === 'DOC_UNSUPPORTED' && /pdf/.test(String(e6?.message)), String(e6?.message));
   t('错误都带 code 与中文消息', e1 instanceof DocError && /[\u4e00-\u9fa5]/.test(String(e1?.message)), String(e1?.message));
+}
+
+// ==================== 7. 下载文件的命名推导（2026-10-19 用户报缺陷：抓首页型 URL 报"没有扩展名"） ====================
+console.log('== 7. url 下载 → 文件名/扩展名推导 ==');
+{
+  const H = (obj) => new Headers(obj);
+
+  t('content-type 带 charset ⇒ .html', extFromContentType('text/html; charset=UTF-8') === '.html', extFromContentType('text/html; charset=UTF-8'));
+  t('application/pdf ⇒ .pdf', extFromContentType('application/pdf') === '.pdf');
+  t('族后缀 +xml ⇒ .xml', extFromContentType('application/rss+xml') === '.xml', extFromContentType('application/rss+xml'));
+  t('族后缀 +json ⇒ .json', extFromContentType('application/problem+json') === '.json');
+  t('未知 text/* ⇒ .txt', extFromContentType('text/x-weird') === '.txt');
+  t('application/octet-stream ⇒ 不猜（空串）', extFromContentType('application/octet-stream') === '', extFromContentType('application/octet-stream'));
+  t('content-type 为空 ⇒ 空串', extFromContentType('') === '');
+
+  t('disposition filename 解析', fileNameFromDisposition('attachment; filename="年报.pdf"') === '年报.pdf', fileNameFromDisposition('attachment; filename="年报.pdf"'));
+  t("disposition filename* 优先且解 UTF-8", fileNameFromDisposition("attachment; filename=\"fallback.pdf\"; filename*=UTF-8''%E4%B8%AD%E6%96%87.pdf") === '中文.pdf', fileNameFromDisposition("attachment; filename=\"fallback.pdf\"; filename*=UTF-8''%E4%B8%AD%E6%96%87.pdf"));
+  t('disposition 没有 filename ⇒ 空串', fileNameFromDisposition('inline') === '');
+
+  // ★ 用户报的那条：首页型 URL（pathname 就是 /）
+  const home = downloadedFileName('https://example.com/', H({ 'content-type': 'text/html; charset=utf-8' }));
+  t('首页型 URL + text/html ⇒ download.html（不再无扩展名）', home === 'download.html', home);
+  // ★ 端到端：补出来的名字能直接被内核按 html 解析（这是"修好了"的真正判据）
+  const r0 = extractDocument(Buffer.from('<!doctype html><html><head><title>示例站</title></head><body><p>你好，世界</p></body></html>'), home);
+  t('端到端：补名后可解析成 html 且拿到正文', r0.format === 'html' && r0.text.includes('你好，世界'), `${r0.format} / ${JSON.stringify(r0.text.slice(0, 40))}`);
+
+  t('pathname 已是支持的类型 ⇒ 原样用（pdf 不被 content-type 改写）',
+    downloadedFileName('https://x.com/files/report.pdf', H({ 'content-type': 'application/octet-stream' })) === 'report.pdf',
+    downloadedFileName('https://x.com/files/report.pdf', H({ 'content-type': 'application/octet-stream' })));
+  t('pathname 是页面壳 .php ⇒ 换成 content-type 的类型',
+    downloadedFileName('https://x.com/view.php?id=1', H({ 'content-type': 'text/html' })) === 'view.html',
+    downloadedFileName('https://x.com/view.php?id=1', H({ 'content-type': 'text/html' })));
+  t('pathname 无段、靠 disposition 取到带扩展名的名字',
+    downloadedFileName('https://x.com/download?id=9', H({ 'content-disposition': 'attachment; filename="summary.docx"' })) === 'summary.docx',
+    downloadedFileName('https://x.com/download?id=9', H({ 'content-disposition': 'attachment; filename="summary.docx"' })));
+  t('pathname 中文段被 decodeURIComponent 还原',
+    downloadedFileName('https://x.com/%E6%97%A5%E6%8A%A5.pdf', H({})) === '日报.pdf',
+    downloadedFileName('https://x.com/%E6%97%A5%E6%8A%A5.pdf', H({})));
+  t('完全没有线索 ⇒ download（后续仍明确报 DOC_UNSUPPORTED，不静默）',
+    downloadedFileName('https://x.com/', H({ 'content-type': 'application/octet-stream' })) === 'download',
+    downloadedFileName('https://x.com/', H({ 'content-type': 'application/octet-stream' })));
+  t('非法 URL 不抛异常', typeof downloadedFileName('不是 URL', H({ 'content-type': 'text/plain' })) === 'string');
 }
 
 console.log(`\n=== doc-extract：${pass} passed, ${fail} failed ===`);

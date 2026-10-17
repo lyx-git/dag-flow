@@ -544,12 +544,19 @@
    带小字的项会被裁（上一轮实测：CDP ② 当场变红）。 */
 /* 展开列表：Portal 到 body + position:fixed（面板的 backdrop-filter 会给 fixed 造包含块，挂在面板里会被困住）；
    只做 opacity 淡入（有几何依赖的浮层不用位移/缩放动画）。 */
+/* ★ 2026-10-19 修 bug（用户报「参数弹窗里面的下拉选都不能用了」）：
+   下拉列表/悬停提示原先是 z-index **90 / 91**（当初只服务右侧面板，面板层级 2~30，够用）；
+   2026-10-19 批 1 把这批下拉随专属表单搬进「参数与试跑」弹窗后，弹窗遮罩是 **10000** ⇒ 列表被整层压住，
+   真机表现＝点开看不到列表、也点不着（DOM 还在，所以只断言"存在"的用例照样绿）。
+   ⇒ 交互浮层的层级必须高于所有容器层：下拉 10120、悬停提示 10130（提示在列表之上）。
+   ★ 本项目的层级约定：面板内 2~30 / 弹窗遮罩 10000 / InfoTip 气泡 10006 / 顶部 toast 10030 /
+     试跑结果浮层 10100 / 下拉 10120 / 下拉悬停提示 10130。新增浮层请按"最后打开的在上"插值，别再用 ≤100。 */
 .dsh-wf-sel-list {
   /* ★ 2026-10-19：浮层列表**自己**用 border-box —— 这样调用方传的 width 就是**总宽**（严格等于控件宽），
      maxHeight 就是**总高**（select-box.tsx 的高度估算按总高算）。
      注意：**不要**写成 `.dsh-wf-sel-list *`（上一轮踩过：把项内部 padding 也算进固定尺寸 ⇒ 带小字的项被裁）。 */
   box-sizing: border-box;
-  position: fixed; z-index: 90; display: flex; flex-direction: column; gap: 2px;
+  position: fixed; z-index: 10120; display: flex; flex-direction: column; gap: 2px;
   padding: 6px; overflow: hidden; opacity: 0;
   background: var(--wf-panel3, #162135); border: 1px solid var(--wf-border3, #365173);
   border-radius: 10px; box-shadow: 0 14px 32px rgba(0, 0, 0, .5);
@@ -586,7 +593,7 @@
    同样要 `box-sizing: border-box` —— 它也是 Portal 到 body 的，不在 `.dsh-wf-root` 里。 */
 .dsh-wf-sel-tip {
   box-sizing: border-box;
-  position: fixed; z-index: 91; max-width: 340px; padding: 6px 10px;
+  position: fixed; z-index: 10130; max-width: 340px; padding: 6px 10px;
   background: var(--wf-panel3, #162135); border: 1px solid var(--wf-border3, #365173);
   border-radius: 8px; box-shadow: 0 10px 24px rgba(0, 0, 0, .45);
   color: var(--wf-text, #e6edf7); font-size: 12px; line-height: 1.5;
@@ -830,6 +837,9 @@
   vertical-align: middle;
 }
 .dsh-wf-info {
+  /* ★ 2026-10-19：根元素由 <button> 换成 <span role="button">（修「点标签文字也弹气泡」），
+     span 默认 content-box ⇒ 不补这条，16px 的圆会被 border 撑成 18px（实测几何变化）。 */
+  box-sizing: border-box;
   width: 16px;
   height: 16px;
   padding: 0;

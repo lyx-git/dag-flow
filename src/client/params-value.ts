@@ -26,7 +26,11 @@ export function toText(v: unknown): string {
   return String(v);
 }
 
-export function rowsFromParams(params: Record<string, unknown>, codeLang?: CodeLang, fieldHints?: Record<string, string>, fieldPlaceholders?: Record<string, string>): Row[] {
+/** ★ 2026-10-19（用户拍板 A）：`param-meta.ts` 登记的键在弹窗里**必须全部出现**——弹窗已是这些参数
+ *  的唯一入口（右侧面板不再重复渲染一份），不补行就等于"新节点看不到可填项"。`multi` 只影响默认控件形态。 */
+export type AutoRow = { k: string; multi?: boolean; placeholder?: string };
+
+export function rowsFromParams(params: Record<string, unknown>, codeLang?: CodeLang, fieldHints?: Record<string, string>, fieldPlaceholders?: Record<string, string>, autoRows?: readonly AutoRow[]): Row[] {
   const rows: Row[] = Object.entries(params ?? {}).map(([k, v]) => {
     const text = toText(v);
     // ★ 2026-10-11：代码行默认就用富文本框（脚本天生多行）；其余行按内容长度自动判断——
@@ -55,6 +59,19 @@ export function rowsFromParams(params: Record<string, unknown>, codeLang?: CodeL
       const ph = fieldPlaceholders?.[k];
       rows.push({ k, text: '', multi: true, auto: true, ...(ph ? { placeholder: ph } : {}) });
     }
+  }
+  // ★ 2026-10-19（用户拍板 A）：登记了中文元数据的参数（image_generate / video_generate）同样补行，
+  //   语义与上面一致（auto ⇒ 留空不写进 def，清空＝删键）。顺序按登记表，未填的排在已填的后面。
+  //   ★ 已填过值的键（走上面的 params 分支）也要吃到元数据的 `multi` / 示例：否则同是 `prompt`，
+  //     新节点是富文本框、填过字的反而退化成单行框（截图复核时抓到的形态不一致）。
+  for (const a of autoRows ?? []) {
+    const hit = rows.find((r) => r.k === a.k);
+    if (hit) {
+      if (a.multi) hit.multi = true;
+      if (!hit.placeholder && a.placeholder) hit.placeholder = a.placeholder;
+      continue;
+    }
+    rows.push({ k: a.k, text: '', multi: !!a.multi, auto: true, ...(a.placeholder ? { placeholder: a.placeholder } : {}) });
   }
   return rows;
 }

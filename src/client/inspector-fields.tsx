@@ -93,8 +93,6 @@ export function MediaFields({ node, onParamsChange }: {
   onParamsChange: (params: Record<string, unknown>) => void;
 }) {
   const p = node.params ?? {};
-  const [imageTesting, setImageTesting] = useState(false);
-  const [imageTestMsg, setImageTestMsg] = useState<string | null>(null);
   // label 以「!」开头 = 必填行：名称前渲染红星标识（纯视觉，2026-10-02 用户需求）
   // ★ 2026-10-16（用户：「解释的信息统一放到合适的地方用个小问号，单击显示解释内容，现在平铺解释信息很乱」）：
   //   `hint` 不再平铺在行下方，而是变成**标签右侧的小问号**（单击展开解释）。
@@ -111,57 +109,15 @@ export function MediaFields({ node, onParamsChange }: {
       onBlur: (e: React.FocusEvent<HTMLInputElement>) => onParamsChange({ [key]: e.target.value }),
     });
 
-  if (node.type === 'image_generate') {
-    const runImageTest = async () => {
-      setImageTesting(true);
-      setImageTestMsg(null);
-      try {
-        const res = await fetch('/api/dag-flow/test-image-api', {
-          method: 'POST', credentials: 'include',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ baseURL: p.baseURL, apiKey: p.apiKey, apiKeyEnv: p.apiKeyEnv, model: p.model, size: p.size }),
-        });
-        const data = await res.json().catch(() => ({})) as { ok?: boolean; note?: string; hint?: string; detail?: string; error?: string };
-        setImageTestMsg(
-          data.error ? `✗ ${data.error}`
-            : data.ok ? `✓ ${data.note ?? '连接成功且模型可用'}`
-              : `✗ ${data.hint ?? '测试失败'}${data.detail ? ` — ${data.detail}` : ''}`.slice(0, 320),
-        );
-      } catch (e) {
-        setImageTestMsg(`✗ ${(e as Error).message}`);
-      } finally {
-        setImageTesting(false);
-      }
-    };
-    return createElement('div', null,
-      row('!画面描述 (prompt)', createElement('textarea', {
-        className: 'dsh-wf-input', rows: 3, placeholder: '描述想生成的画面…',
-        defaultValue: typeof p.prompt === 'string' ? p.prompt : '',
-        onBlur: (e: React.FocusEvent<HTMLTextAreaElement>) => onParamsChange({ prompt: e.target.value }),
-      }), '运行后图片直接保存到 <DSH_HOME>/.dag-flow/ 目录，输出含相对路径。测试会真实生成 1 张最小图（产生少量费用）。'),
-      row('!API 地址 (baseURL)', text('baseURL', 'https://…/compatible-mode/v1'), 'OpenAI images/generations 兼容接口'),
-      row('模型', text('model', 'wanx-v1'), '必须是该 API 服务支持的图片模型（用下方测试验证）'),
-      row('尺寸', text('size', '1024*1024')),
-      row('API Key（或留空用环境变量）', text('apiKey', 'sk-…；留空则用 apiKeyEnv')),
-      row('Key 环境变量名', text('apiKeyEnv', 'DASHSCOPE_API_KEY')),
-      row('🔍 提前测试（验证 API 与模型）', createElement('button', {
-        className: 'dsh-wf-btn',
-        onClick: () => void runImageTest(),
-        disabled: imageTesting,
-        title: '真实发一次最小生成请求，验证 baseURL/Key/模型组合是否可用',
-      }, imageTesting ? '⏳ 测试中…' : '🔍 测试连接')),
-      imageTestMsg && createElement('div', { className: 'dsh-wf-panel-hint' }, imageTestMsg),
-    );
-  }
-  if (node.type === 'video_generate') {
-    return createElement('div', null,
-      row('!任务提交地址', text('submitUrl', 'https://…/video/generation（POST）'), '异步任务模式：提交 → 按 interval 轮询 statusPath → videoUrlPath 有值即完成，视频直接下载到 <DSH_HOME>/.dag-flow/ 目录。'),
-      row('!任务查询地址', text('pollUrl', 'https://…/video/task?taskId={taskId}'), '支持 {taskId} 占位符'),
-      row('Key 环境变量名 / apiKey', text('apiKeyEnv', 'DASHSCOPE_API_KEY')),
-      row('轮询间隔 (ms)', text('pollIntervalMs', '5000')),
-      row('最长等待 (ms)', text('maxWaitMs', '600000'), '超时后节点失败并给出最后任务状态'),
-    );
-  }
+  // ★ 2026-10-19（用户拍板 A：「图片/视频生成的参数既在右面板又在参数与试跑弹窗里，感觉多余，只想保留弹窗那份」）：
+  //   这两个节点的**参数统一收进「🧪 参数与试跑」弹窗**（那边每个参数都有中文名 + 问号释义，见 param-meta.ts）。
+  //   ★ 同日用户补一句「右侧面板参数删除掉之后，就不用留下备注信息了，没必要」⇒ 面板这边**一句说明都不留**。
+  //   ★★ 同日再拍板 B：「图片生成节点里面的提前测试，是不是利用参数与试跑弹窗里面的试跑本节点也能完成，
+  //   是否可以直接删掉提前测试按钮」→ 直接删掉 ⇒ 这两个节点的面板**整块不渲染**（视频节点本来也是空的）。
+  //   「验证 API / Key / 模型」改由弹窗底部的「▶ 试跑本节点」完成（它真跑一遍节点，顺带验通路 + 落盘输出）。
+  //   宿主路由 `POST /api/dag-flow/test-image-api` **保留**（纯后台能力，离线测试 modality.test.mjs C 段仍覆盖它，
+  //   与 `skipSelfcheck` 的"只作 API 保留"同一口径），只是不再有 UI 入口。
+  if (node.type === 'image_generate' || node.type === 'video_generate') return null;
   // file_save
   return createElement('div', null,
     row('内容来源', createElement(SelectBox, {
@@ -249,7 +205,11 @@ export function WebFields({ node, onParamsChange }: {
     // ★ 2026-10-18 用户要求：「文件解析节点的文件路径和 url 合并成一个输入框，输入框分为两段，前面选类型，
     //   后面填路径」⇒ 一个 row 内：前段 select 选类型（本地路径 / 下载地址）、后段 input 填值。
     //   切换类型时清掉另一侧（传 null ＝ 删键），避免"两个都填"的歧义（执行层 url 优先，会打架）。
-    const srcKind = String(p.url ?? '').trim() ? 'url' : 'path';
+    // ★ 2026-10-19 修 bug（用户报「文件来源的下拉选无法切换」）：以前判类型用 `String(p.url ?? '').trim()`，
+    //   而切到「下载地址」时写的正是 **`url: ''`（空串）** ⇒ trim 后为空 ⇒ 判据立刻回退成 path，
+    //   下拉一选就弹回「本地路径」（表现就是"切不过去"）。
+    //   ⇒ 改成**看键在不在**（null ＝ 删键，见 onParamsChange 的 null 语义）：有 url 键就是 url 模式，哪怕值还空。
+    const srcKind = Object.prototype.hasOwnProperty.call(p, 'url') && p.url !== null ? 'url' : 'path';
     return createElement('div', null,
       row('!文件来源', createElement('div', { className: 'dsh-wf-srcrow' },
         createElement(SelectBox, {

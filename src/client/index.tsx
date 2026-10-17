@@ -6,7 +6,7 @@
 // 原先"头注释 + apply() 的 console.log"两处手写，升位时容易漏改一处；改客户端必升位）。
 
 /** ★ 客户端版本标记的唯一出处（升位只改这一行）。产物级闸门＝tmp-test/verify-build-markers.mjs。 */
-export const CLIENT_VERSION = 'v20261019-nowhile';
+export const CLIENT_VERSION = 'v20261019-loophint';
 
 import { applyTheme, getThemeMode } from './theme';
 import { mountSidebarEntry } from './sidebar';

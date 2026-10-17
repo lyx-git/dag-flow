@@ -9,7 +9,7 @@
 // 写回：沿用 FlowPanel.handleNodeChange 的既有语义——**浅合并 + null 表示删除键**，所以这里发的是
 //   「差异补丁」：新增/改值传值，被删掉的键传 null。字符串值永远按字符串存（不猜 JSON），
 //   非字符串值（数字/布尔/对象/数组）按 JSON 解析。
-import { Fragment, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { createElement } from 'react';
 import type { ReactElement } from 'react';
 import { createPortal } from 'react-dom';
@@ -34,6 +34,7 @@ import {
   rowsFromParams, singleLinePlaceholder, looksJsonLike, toText, paramsFromRows, diffPatch,
 } from './params-value';
 import type { Row } from './params-value';
+import type { ParamMeta } from './param-meta';
 
 // ★ 2026-10-11 图标换成**内联 SVG**（用户反馈「单行输入和多行编辑框的 icon 有点丑」）：
 //   原来是字体符号 ▭（U+25AD 空心方块）与 ⤢（冷僻箭头区字符）——不属于常用字形，
@@ -87,7 +88,7 @@ function IconMultiLine(): ReactElement {
 // ★ 2026-10-17：`toText` / `rowsFromParams` / `singleLinePlaceholder` / `looksJsonLike` / `valueOfText` /
 //   `paramsFromRows` / `diffPatch` 与 `Row` 类型已抽到 ./params-value（纯函数层，可离线单测）。
 
-export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHint, inputDefaults = {}, canTest = true, testRunning = false, testResult = null, codeLang, fieldHints, fieldPlaceholders, imagePickKeys, onRunTest, onParamsChange, onClose }: {
+export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHint, inputDefaults = {}, canTest = true, testRunning = false, testResult = null, codeLang, fieldHints, fieldPlaceholders, imagePickKeys, paramMeta, extraFields, handledKeys, onRunTest, onParamsChange, onClose }: {
   nodeId: string;
   nodeLabel?: string;
   params: Record<string, unknown>;
@@ -110,15 +111,52 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
   fieldPlaceholders?: Record<string, string>;
   /** ★ 2026-10-16 方案 A：这些参数行提供「🖼 选图」（从统一图片目录勾选多张，逐行写入） */
   imagePickKeys?: string[];
+  /** ★ 2026-10-19（用户要求「所有节点的右侧编辑模板的参数…全部挪到一个地方」）：**节点专属参数控件区**——
+   *  由 NodeInspector 把这几个块（会话选择 / 文件保存 / 网页与文档解析）原样搬进来，渲染在通用参数行**上方**。
+   *  它们不是"一格一值"的参数，塞进通用键值编辑器会退化成裸输入框，所以是整块搬、不是拆成行。
+   *  后续批次（subagent 模型 / python·bash 代码 / switch 分支 / loop 循环设置）同样走这条通道。 */
+  extraFields?: React.ReactNode;
+  /** ★ 2026-10-19（批 1）：这些 params 键由 `extraFields` 里的专属表单负责编辑 ⇒ 通用参数行里**不重复列出**，
+   *  写回时也**原样保留**（否则会被 diffPatch 当成"已删除"）。 */
+  handledKeys?: string[];
+  /** ★ 2026-10-19（用户拍板 A）：参数的**中文名/释义/示例占位**（唯一源＝./param-meta.ts）。
+   *  登记了的参数会在参数名左侧显示中文名、右侧显示问号释义；未登记的节点/参数保持原样（只有参数名）。 */
+  paramMeta?: Record<string, ParamMeta>;
   /** 点「▶ 试跑本节点」时把解析好的 inputs 交给上层（参数数据取当前节点 params，由上层负责发请求） */
   onRunTest?: (inputs: Record<string, unknown>) => void;
   onParamsChange: (patch: Record<string, unknown>) => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<'fields' | 'json'>('fields');
-  const [rows, setRows] = useState<Row[]>(() => rowsFromParams(params, codeLang, fieldHints, fieldPlaceholders));
+  // ★ 2026-10-19（用户拍板 A）：登记了中文元数据的参数（image_generate / video_generate）—— 元数据里的示例
+  //   直接进 placeholder（单行/多行都吃这一份），登记的键**全部补行**（弹窗是这些参数唯一的入口）。
+  //   ★ 注意：**不要**把示例并进 `fieldPlaceholders` 一起传 rowsFromParams —— 那张表会强制该行变富文本框
+  //   （`multi = !!ph`），而这里多数参数（model / size / n / 各种 URL）应当是单行框。
+  const metaAutoRows = paramMeta
+    ? Object.entries(paramMeta).map(([k, m]) => ({ k, multi: !!m.multi, placeholder: m.placeholder }))
+    : undefined;
+  const [rows, setRows] = useState<Row[]>(() => {
+    const all = rowsFromParams(params, codeLang, fieldHints, fieldPlaceholders, metaAutoRows);
+    return handledKeys?.length ? all.filter((r) => !handledKeys.includes(r.k.trim())) : all;
+  });
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
+  // ★ 2026-10-19 用户要求：「试跑本节点的结果，现在是在弹窗下面显示，改成中上部弹窗告知」
+  //   ⇒ 结果不再挤在底部条里，而是**中上部浮层卡片**（与既有"运行终态浮窗"同一口径）：
+  //     成功 2.6s 自动消失、失败常驻且可手动关闭。底部试跑条只剩按钮与输入。
+  const [resultToast, setResultToast] = useState<TestResult | null>(null);
+  // 依赖用"特征串"而不是对象引用：父组件每次重渲染都会传新对象，用引用会反复重置计时器。
+  const resultSig = testResult ? `${testResult.ok ? 1 : 0}|${testResult.status ?? ''}|${testResult.ms ?? ''}|${testResult.error ?? ''}` : '';
+  useEffect(() => {
+    if (!testResult) { setResultToast(null); return undefined; }
+    setResultToast(testResult);
+    if (testResult.ok) {
+      const t = setTimeout(() => setResultToast(null), 2600);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resultSig]);
   // ★ 试跑条（方案 A）：输入按工作流参数逐字段填（默认值预填），默认收起；结果就地展开
   const [inputsOpen, setInputsOpen] = useState(false);
   // ★ 代码行「清空」的两击确认（沿用原代码编辑弹窗的防误触口径）
@@ -221,13 +259,26 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
    *  "用户改过" ⇒ 它们重新过 `valueOfText`：`"0012"`→12、`"true"`→布尔、`"null"`→**该参数键被整条删掉**。
    *  现在**不再做粘性标记**，改由 `paramsFromRows` 直接与 `orig`（从 def 读出的原值）比对文本
    *  —— 判据只看"这一行的文本是否还等于它当初的原值"，删行/换行位置都不会污染别的行。 */
+  /** ★ 2026-10-19（批 1）：`handledKeys` 里的键由**节点专属表单**（extraFields）负责编辑，
+   *  它们不在通用行里出现 —— 但写回时必须**原样保留**，否则 `diffPatch` 会把"旧有新无"的键判成删键，
+   *  一改任何参数就把 path / ocr / filename 这类字段删掉（高危面，必须拦住）。 */
+  const handled = handledKeys ?? [];
+  const keepHandled = (rec: Record<string, unknown>): Record<string, unknown> => {
+    if (!handled.length) return rec;
+    const out: Record<string, unknown> = { ...rec };
+    for (const k of handled) if (Object.prototype.hasOwnProperty.call(params, k)) out[k] = params[k];
+    return out;
+  };
+  const visibleRows = (rs: Row[]): Row[] => (handled.length ? rs.filter((r) => !handled.includes(r.k.trim())) : rs);
+
   const pushRows = (next: Row[]): void => {
     setRows(next);
-    onParamsChange(diffPatch(params, paramsFromRows(next)));
+    onParamsChange(diffPatch(params, keepHandled(paramsFromRows(next))));
   };
 
   const openJson = (): void => {
-    setJsonText(JSON.stringify(paramsFromRows(rows), null, 2));
+    // ★ 有个专属表单管的键也要出现在 JSON 里（否则用户从 JSON 看/改会以为参数丢了）
+    setJsonText(JSON.stringify(keepHandled(paramsFromRows(rows)), null, 2));
     setJsonError(null);
     setTab('json');
   };
@@ -241,9 +292,10 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
         return;
       }
       setJsonError(null);
-      const next = rowsFromParams(parsed as Record<string, unknown>, codeLang, fieldHints, fieldPlaceholders);
+      const nextAll = rowsFromParams(parsed as Record<string, unknown>, codeLang, fieldHints, fieldPlaceholders, metaAutoRows);
+      const next = handled.length ? nextAll.filter((r) => !handled.includes(r.k.trim())) : nextAll;
       setRows(next);
-      onParamsChange(diffPatch(params, paramsFromRows(next)));
+      onParamsChange(diffPatch(params, keepHandled(paramsFromRows(next))));
     } catch (e) {
       setJsonError(`JSON 解析失败：${(e as Error).message}（未写回，改对即生效）`);
     }
@@ -255,18 +307,48 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
     //   ⇒ **所有行一套控件**：[T 类型] [单行/富文本] [✕]，凡是富文本框都带「复制 / 清空」图标工具条；
     //   **放大/缩小**不再是行里的按钮，而是**富文本框内部右上角**的斜双箭头把手（点了放大成全屏弹窗）。
     //   语言只影响**着色**（code 行按节点类型高亮），不影响控件。
-    const hint = fieldHints?.[r.k];
-    return createElement('div', { className: 'dsh-wf-params-row', key: i },
-      createElement('input', {
-        className: 'dsh-wf-input dsh-wf-params-k',
-        placeholder: '参数名',
-        value: r.k,
-        onChange: (e: React.ChangeEvent<HTMLInputElement>) => setRow({ k: e.target.value }),
-      }),
-      // ★ 2026-10-16 用户需求（「解释的信息统一放到合适的地方用个小问号，单击显示解释内容，现在平铺解释信息很乱」）：
-      //   字段的**静态说明**收进小问号，紧跟在参数名输入框右侧（原来平铺在值框下方，`images` 那种 180 字说明
-      //   会把一行撑到 4 行高、参数之间挤在一起）。
-      hint ? createElement(InfoTip, { text: hint, className: 'dsh-wf-params-k-tip' }) : null,
+    // ★ 2026-10-19（用户拍板 A）：参数名的中文元数据（label/desc/placeholder）—— 登记过的参数
+    //   用**两行式**：中文名在上（正常字号/正常颜色），参数名在下当注脚（更小、更浅、等宽字体），问号跟注脚后面。
+    //   用户原话：「显示成两行，中文名在上面，参数名在下面，并且参数名变小，字体颜色变浅，弱化，中文名正常显示，
+    //   参数名就像注脚」。desc 优先于 fieldHints（后者是节点级特例说明）。
+    const meta = paramMeta?.[r.k];
+    const hint = meta?.desc ?? fieldHints?.[r.k];
+    // 参数名（key）是引擎写死的（prompt / submitUrl…），登记过的行**不再给输入框**（改了不报错、只是静默失效）；
+    // 注脚形态正好满足这一点。只在"登记过且是本节点真有的键"时走两行式：
+    //   `r.auto` ＝ 登记表补出来的行，`r.orig !== undefined` ＝ def 里本来就有的键；
+    //   「+ 添加参数」新起的那行（两者都不满足）仍是可编辑输入框 —— 否则输到 'prompt' 时会变成只读、
+    //   输入框消失、焦点丢失，加不回被删掉的参数。
+    const named = !!meta?.label && (r.auto === true || r.orig !== undefined);
+    return createElement('div', {
+      className: `dsh-wf-params-row${named ? ' named' : ''}`,
+      key: i,
+      // ★ 2026-10-19：行上带 `data-key`（两个用途）——① 测试/调试可以稳定按参数名定位行
+      //   （两行式之后参数名不再是 input，`.dsh-wf-params-k` 的 value 读不到了）；
+      //   ② 排查时一眼看出这一行管的是哪个键。
+      'data-key': r.k,
+    },
+      createElement('div', { className: `dsh-wf-params-kcell${named ? ' named' : ''}` },
+        named
+          ? createElement(Fragment, null,
+              createElement('span', { className: 'dsh-wf-params-kname', title: meta.label }, meta.label),
+              createElement('span', { className: 'dsh-wf-params-ksub' },
+                createElement('span', { className: 'dsh-wf-params-kkey', title: `参数名：${r.k}` }, r.k),
+                hint ? createElement(InfoTip, { text: hint, className: 'dsh-wf-params-k-tip' }) : null,
+              ),
+            )
+          : createElement(Fragment, null,
+              createElement('input', {
+                className: 'dsh-wf-input dsh-wf-params-k',
+                placeholder: '参数名',
+                value: r.k,
+                onChange: (e: React.ChangeEvent<HTMLInputElement>) => setRow({ k: e.target.value }),
+              }),
+              // ★ 2026-10-16 用户需求（「解释的信息统一放到合适的地方用个小问号，单击显示解释内容，现在平铺解释信息很乱」）：
+              //   字段的**静态说明**收进小问号，紧跟在参数名输入框右侧（原来平铺在值框下方，`images` 那种 180 字说明
+              //   会把一行撑到 4 行高、参数之间挤在一起）。
+              hint ? createElement(InfoTip, { text: hint, className: 'dsh-wf-params-k-tip' }) : null,
+            ),
+      ),
       createElement('div', { className: 'dsh-wf-params-v' },
         r.multi
           ? createElement(CodeText, {
@@ -275,7 +357,7 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
               lang: langOf(r),
               height: 150,
               // 占位只留"示例/该填什么"，解释性文字进问号（弹窗级问号里有完整说明）
-              placeholder: r.placeholder ?? (r.k === 'code' && codeLang
+              placeholder: meta?.placeholder ?? r.placeholder ?? (r.k === 'code' && codeLang
                 ? (codeLang === 'bash' ? "echo 'hello'\ndate" : "import datetime\nprint('你好，当前时间：' + datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))")
                 : '值'),
               toolbar: codeToolbar(r),
@@ -286,7 +368,9 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
           : createElement('div', { className: 'dsh-wf-params-single' },
               createElement('input', {
                 className: 'dsh-wf-input',
-                placeholder: singleLinePlaceholder(r),
+                // ★ 2026-10-19：元数据里的示例可能是多行（如 images 的三行示例）——单行框要走
+                //   `singleLinePlaceholder` 把换行折成 " / "（input 不认换行，直接塞会变成空格）。
+                placeholder: singleLinePlaceholder({ ...r, placeholder: meta?.placeholder ?? r.placeholder }),
                 value: r.text,
                 onChange: (e: React.ChangeEvent<HTMLInputElement>) => setRow({ text: e.target.value }),
               }),
@@ -312,7 +396,10 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
     onClick: (e: React.MouseEvent) => { if (e.target === e.currentTarget) onClose(); },
   },
     createElement('div', {
-      className: 'dag-flow-picker', style: { width: '80vw', maxWidth: 1100 },
+      // ★ 2026-10-19 用户要求：「参数与试跑按钮的弹窗，如果参数较多，用滚动的方式，不要整个弹窗页平铺」
+      //   ⇒ 加 `dsh-wf-params-dialog`：弹窗自身限高（flex 列 = 标题/页签固定 + 参数区内部滚动 + 底部试跑条常驻），
+      //   取代上一版"遮罩整页滚动"。内容少时 max-height 不生效，观感与以前一致。
+      className: 'dag-flow-picker dsh-wf-params-dialog', style: { width: '80vw', maxWidth: 1100 },
       // 记住"最近聚焦的那个值框"（插变量要插到它的光标处；参数名框不算）
       onFocusCapture: onEditCapture,
       onKeyUpCapture: onEditCapture,
@@ -330,7 +417,8 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
         //   ⇒ 计数 + 关键提示合成一小段，紧跟说明问号之后（标题行左区；关闭按钮自带 margin-left:auto 在最右，
         //   两者都不会贴右内边）。样式与计数同款 `.dsh-wf-params-meta`（**不带 margin-left:auto**）。
         createElement('span', { className: 'dsh-wf-params-meta' },
-          `${rows.filter((r) => r.k.trim()).length} 个参数 · 改动即自动保存`),
+          // ★ 计数把"由专属表单编辑的键"也算进去（那些键不在通用行里，但确实是本节点的参数）
+          `${rows.filter((r) => r.k.trim()).length + handled.filter((k) => Object.prototype.hasOwnProperty.call(params, k)).length} 个参数 · 改动即自动保存`),
         createElement('button', { className: 'dag-flow-picker-close', title: '关闭', onClick: onClose }, '✕'),
       ),
       createElement('div', { className: 'dsh-wf-params-tabs' },
@@ -352,6 +440,9 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
       createElement('div', { className: 'dsh-wf-params-main' },
       tab === 'fields'
         ? createElement('div', { className: 'dsh-wf-params-body' },
+            // ★ 2026-10-19：节点专属参数控件区（整块搬进来的，不是一行一值）——放在通用参数行上方，
+            //   与参数行同处一个滚动容器（`.dsh-wf-params-main`），弹窗限高后一起滚。
+            extraFields ? createElement('div', { className: 'dsh-wf-params-extras' }, extraFields) : null,
             rows.map(rowEl),
             createElement('div', { className: 'dsh-wf-params-addbar' },
               createElement('button', {
@@ -423,12 +514,25 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
               )),
             )
           : null,
-        testResult
-          ? createElement('div', { className: 'dsh-wf-testbar-result' }, createElement(TestResultView, { result: testResult }))
-          : null,
+        // ★ 2026-10-19 用户要求：结果改成**中上部浮层告知**（见组件顶部的 resultToast）——底部条不再渲染结果。
       ),
     ),
   ), document.body),
+  // ★ 2026-10-19 用户要求：「试跑本节点的结果，现在是在弹窗下面显示，改成中上部弹窗告知」
+  //   ⇒ 固定定位卡片（top 16vh、水平居中、z-index 高于弹窗遮罩的 10000）：
+  //     成功（ok）2.6s 自动消失；失败/取消常驻，右上角 ✕ 手动关（内容沿用 TestResultView，逐字不变）。
+  resultToast
+    ? createPortal(createElement('div', {
+        className: `dsh-wf-testtoast ${resultToast.error || !resultToast.ok ? 'is-err' : 'is-ok'}`,
+        role: 'status',
+        'aria-live': 'polite',
+      },
+        createElement('button', {
+          className: 'dsh-wf-testtoast-close', title: '关闭', onClick: () => setResultToast(null),
+        }, '✕'),
+        createElement(TestResultView, { result: resultToast }),
+      ), document.body)
+    : null,
   // ★ 2026-10-11 用户要求：富文本框内部右上角的斜双箭头点了「放大到弹窗，遮盖其他部分」；
   //   大窗里同一个把手变成「缩小」，点回来。**单独 Portal 到 body**（不能嵌在参数弹窗里：遮罩有
   //   backdrop-filter 会给 fixed 元素造包含块，弹窗会被困住——同早前代码编辑弹窗的教训）。

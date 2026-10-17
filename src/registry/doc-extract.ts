@@ -131,6 +131,112 @@ const DEFAULT_MAX_CHARS = 200_000;
 /** 单文件字节上限（100 MB）——避免把内存吃爆 */
 export const DOC_MAX_BYTES = 100 * 1024 * 1024;
 
+// ==================== 下载文件的"命名"推导（2026-10-19 用户报缺陷后新增） ====================
+//  背景：doc_parse 的 url 分支以前只用 URL pathname 的最后一段当文件名。抓**首页型地址**
+//  （`https://example.com/` 的 pathname 就是 `/`）时取不到任何段 ⇒ 扩展名为空 ⇒ 报
+//  「无法识别文件类型（没有扩展名）」；抓 `.php` / `.aspx` 页面同理（扩展名不在支持集里）。
+//  这里按「pathname → content-disposition → content-type」三级兜底推导出一个**带可识别扩展名**的名字，
+//  节点侧拿它去分派即可；字节不动、只是给"没有文件名的响应"补一个名字。
+//  ★ 只认本内核真正支持的扩展名：`.php` / `.aspx` 这类页面壳不算，会继续往后兜底换成 `.html`。
+
+/** extractDocument / doc_parse 的图片-OCR 通路认识的扩展名 */
+const KNOWN_FILE_EXTS = new Set([
+  '.pdf', '.docx', '.xlsx', '.pptx', '.doc', '.xls', '.ppt',
+  '.html', '.htm', '.txt', '.log', '.md', '.markdown', '.csv', '.tsv', '.json', '.xml', '.yaml', '.yml',
+  '.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tif', '.tiff',
+]);
+
+/** 取文件名尾部的扩展名（小写，含点；没有则空串） */
+function extOfName(name: string): string {
+  return (/(\.[A-Za-z0-9]{1,8})$/.exec(String(name ?? ''))?.[1] ?? '').toLowerCase();
+}
+
+/** content-type → 支持集的扩展名；不认识返回空串 */
+export function extFromContentType(contentType: string): string {
+  const base = String(contentType ?? '').split(';')[0]!.trim().toLowerCase();
+  if (!base) return '';
+  const table: Record<string, string> = {
+    'text/html': '.html',
+    'application/xhtml+xml': '.html',
+    'application/pdf': '.pdf',
+    'text/plain': '.txt',
+    'text/markdown': '.md',
+    'text/x-markdown': '.md',
+    'text/csv': '.csv',
+    'text/tab-separated-values': '.tsv',
+    'application/json': '.json',
+    'application/ld+json': '.json',
+    'application/xml': '.xml',
+    'text/xml': '.xml',
+    'application/yaml': '.yaml',
+    'application/x-yaml': '.yaml',
+    'text/yaml': '.yaml',
+    'application/msword': '.doc',
+    'application/vnd.ms-excel': '.xls',
+    'application/vnd.ms-powerpoint': '.ppt',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/webp': '.webp',
+    'image/gif': '.gif',
+    'image/bmp': '.bmp',
+    'image/tiff': '.tiff',
+  };
+  const hit = table[base];
+  if (hit) return hit;
+  // 族后缀：application/rss+xml / application/problem+json 之类
+  if (base.endsWith('+json')) return '.json';
+  if (base.endsWith('+xml')) return '.xml';
+  // 未知的 text/* 一律按纯文本读（decodeText 能吃）
+  if (base.startsWith('text/')) return '.txt';
+  return '';
+}
+
+/** 从 content-disposition 里取文件名；`filename*=UTF-8''…` 优先，取不到返回空串 */
+export function fileNameFromDisposition(disposition: string): string {
+  const s = String(disposition ?? '');
+  if (!s) return '';
+  const star = /filename\*\s*=\s*([^;]+)/i.exec(s);
+  if (star) {
+    const v = star[1]!.trim().replace(/^["']|["']$/g, '');
+    const quoted = /^[^']*'[^']*'(.*)$/.exec(v);   // charset'lang'value
+    const raw = quoted ? quoted[1]! : v;
+    try {
+      const d = decodeURIComponent(raw);
+      if (d) return d.replace(/^.*[\\/]/, '');
+    } catch { /* 解码失败退回下面那条 */ }
+  }
+  const plain = /filename\s*=\s*("([^"]*)"|([^;]+))/i.exec(s);
+  const v2 = (plain?.[2] ?? plain?.[3] ?? '').trim();
+  return v2 ? v2.replace(/^.*[\\/]/, '') : '';
+}
+
+/**
+ * 给一个 HTTP 响应的字节推导文件名（供按扩展名分派用）。
+ * 顺序：URL pathname 的最后一段（仅当扩展名在支持集里）→ content-disposition → content-type 兜底。
+ * 拿不到任何线索时返回 `download`（无扩展名 ⇒ 后续仍会明确报 DOC_UNSUPPORTED，不会静默）。
+ */
+export function downloadedFileName(urlStr: string, headers: { get(name: string): string | null }): string {
+  let last = '';
+  try {
+    const seg = new URL(String(urlStr)).pathname.split('/').filter(Boolean).pop() ?? '';
+    if (seg) { try { last = decodeURIComponent(seg); } catch { last = seg; } }
+  } catch { /* 非法 URL：交给后面兜底 */ }
+
+  if (last && KNOWN_FILE_EXTS.has(extOfName(last))) return last;
+
+  const disp = fileNameFromDisposition(headers.get('content-disposition') ?? '');
+  if (disp && KNOWN_FILE_EXTS.has(extOfName(disp))) return disp;
+
+  const ext = extFromContentType(headers.get('content-type') ?? '');
+  // 页面壳（.php/.aspx/.jsp…）不算文件类型 ⇒ 用 content-type 换掉它；没有 content-type 线索时原样返回（保持原有报错）
+  const baseName = (last || disp || 'download').replace(/\.[A-Za-z0-9]{1,8}$/, '');
+  if (!ext) return last || disp || 'download';
+  return (baseName || 'download') + ext;
+}
+
 // ==================== 入口 ====================
 
 /** 按扩展名分发；buf 为该文件的原始字节 */

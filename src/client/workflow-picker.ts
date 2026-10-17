@@ -29,6 +29,10 @@ const PICKER_CSS_ID = 'dag-flow-picker-styles';
 const PICKER_CSS = `
 .dag-flow-picker-overlay { position: fixed; inset: 0; z-index: 10000; display: flex;
   align-items: flex-start; justify-content: center; padding-top: 14vh;
+  /* ★ 2026-10-19：弹窗内容可能比视口还高（参数最多的节点＝视频生成 15 个参数，实测 1285px）
+     ⇒ 遮罩层自己可滚，否则底部参数**看不到也点不到**（position:fixed 的 flex 容器默认不滚）。
+     只在内容溢出时才出现滚动条，其它弹窗行为不变。 */
+  overflow-y: auto; padding-bottom: 24px; box-sizing: border-box;
   background: rgba(4, 9, 20, 0.55); }
 /* ★ 2026-10-15 性能（用户报「富文本框遇到大数据，上下滑动会卡」）——真因不在富文本框，在这里：
    背景模糊原先挂在 .dag-flow-picker-overlay 上（backdrop-filter: blur 2px），而它是弹窗内容的祖先

@@ -9,6 +9,7 @@ import type { WorkflowDef } from './types';
 import { findMeta, outSpecOf } from './types';
 import { fieldsFromValue } from './outFields';
 import { ParamsEditor } from './params-editor';
+import { paramMetaOf } from './param-meta';
 import type { VarPickGroup } from './var-picker';
 import type { TestResult } from './test-result';
 import { varMatch } from './util/varSearch';
@@ -304,12 +305,12 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
     // ★ 2026-10-19（用户拍板：while 条件循环 + 每轮"为真/为假"两种模式整条移除）——老节点兜底提示 + 出路
     if (loopBound === 'legacy') out.push(createElement('div', { className: 'dsh-wf-panel-hint', key: 'loop-legacy-while' },
       '⚠ 旧的「条件真就继续」循环已移除（引擎不再支持）——请改成固定次数 count 或遍历数组 over；要"跑到满足条件为止"，在循环体里用条件节点判断，满足就让 end 输出 break: true。'));
-    if (loopBound === 'none') out.push(createElement('div', { className: 'dsh-wf-panel-hint', key: 'loop-nobound' }, '⚠ 没有边界时运行会立即失败（LOOP_NO_BOUND），画布问题面板也会报错。'));
-    // 选了边界类型但值还空着 → 引擎视作「没有边界」（会 LOOP_NO_BOUND 失败），面板明说
-    const boundBlank = (loopBound === 'count' && typeof loopParam.count !== 'number')
-      || (loopBound === 'over' && !(Array.isArray(loopParam.over) ? loopParam.over.length > 0 : String(loopParam.over ?? '').trim() !== ''));
-    if (boundBlank) out.push(createElement('div', { className: 'dsh-wf-panel-hint', key: 'loop-blank' },
-      '⚠ 边界值还是空的——引擎会当作没有边界，运行报 LOOP_NO_BOUND（卡片副标题也会显示「⚠ 无循环边界」）。'));
+    // ★ 2026-10-19（用户：「这个提示还有用吗，有用就不删，没用就删掉」）：这里**不再**提示「无边界 / 边界值还空着」。
+    //   同一件事已经在两处说清：①画布卡片副标题「⚠ 无循环边界」（不点开节点就能看见，判据与引擎一致）；
+    //   ②左下角问题面板的 error「循环边界缺失（count / over 至少配置一个）」。
+    //   弹窗里再写一遍就是第三处；而「刚切到 over、值还没填」是过程态，填入即消失，属边填边骂。
+    //   改法本来就在上面的边界下拉与下面的输入框里，不需要旁白。
+    //   （`legacy` 那条「旧版条件循环已移除」提示仍保留 —— 那是"引擎不再支持"这一新事实，别处没有。）
     // ★ 2026-10-19（用户拍板 A：新增「每轮条件」；并按"配置直觉"把它挪到边界之后、上限之前）——
     //   用户自定义语句：为真才执行本轮循环体，为假就跳过这一轮、进入下一轮。
     if (loopBound === 'count' || loopBound === 'over') out.push(createElement('div', {
@@ -591,6 +592,111 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
       legend: selfSpec.note ? `本节点输出是什么：${selfSpec.note}` : undefined,
     },
   ];
+  // ★ 2026-10-19（用户要求「所有节点的右侧编辑模板的参数都改成图片生成节点和视频生成节点一样，挪到参数与试跑的
+  //   弹窗里面，右侧面板就不再配置参数了，全部挪到一个地方」）：节点专属参数控件**整块**搬进弹窗的 `extraFields`。
+  //   本批（批 1）＝ session_input / file_save / web_search / web_fetch / doc_parse；
+  //   后续批次：批 2 ＝ subagent 模型 + python·bash 代码 + switch 分支；批 3 ＝ loop 循环设置。
+  const paramExtras = [
+    node.type === 'session_input' && createElement(SessionInputFields, { node, onParamsChange, key: 'x-session' }),
+    node.type === 'file_save' && createElement(MediaFields, { node, onParamsChange, key: 'x-media' }),
+    (node.type === 'web_search' || node.type === 'web_fetch' || node.type === 'doc_parse')
+      && createElement(WebFields, { node, onParamsChange, key: 'x-web' }),
+    // ★ 2026-10-19 批 2：switch 分支列表（case 增删）——原来整块在右侧面板里，现在搬进弹窗。
+    //   每个 case 在画布上生成一个输出口（外加 * 兜底口）；value 与 case 值相等时激活该分支、其余跳过。
+    node.type === 'switch' && createElement('div', { className: 'dsh-wf-panel-row', key: 'x-switch' },
+      createElement('label', { className: 'dsh-wf-panel-label' }, reqMark(), '🔀 分支设置（case 列表）',
+        createElement(InfoTip, { text: '每个 case 在画布上生成一个输出口（从对应口拖线连目标，边自动带条件）；value 与 case 值相等时激活该分支，其余跳过。value 支持 {{上游.out}} 引用或字面量。' })),
+      caseRows.length === 0 && createElement('div', { className: 'dsh-wf-panel-hint' }, '暂无 case——点下方按钮添加（至少 1 个才能画分支）。'),
+      caseRows.map((row, i) => createElement('div', { key: i, style: { display: 'flex', gap: 6, marginBottom: 6 } },
+        createElement('input', {
+          className: 'dsh-wf-input', placeholder: 'case 值（如 A）', value: row.k, style: { flex: '0 0 45%' },
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) => writeCaseRows(caseRows.map((r, j) => (j === i ? { ...r, k: e.target.value } : r))),
+        }),
+        createElement('input', {
+          className: 'dsh-wf-input', placeholder: '说明（可选）', value: row.v, style: { flex: 1 },
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) => writeCaseRows(caseRows.map((r, j) => (j === i ? { ...r, v: e.target.value } : r))),
+        }),
+        createElement('button', {
+          className: 'dsh-wf-btn', title: '删除该 case',
+          onClick: () => writeCaseRows(caseRows.filter((_, j) => j !== i)),
+        }, '✕'),
+      )),
+      createElement('button', {
+        className: 'dsh-wf-inputs-add', title: '添加 case',
+        onClick: () => setCaseRows((rs) => [...rs, { k: '', v: '' }]),
+      }, '+'),
+    ),
+    // ★ 2026-10-19 批 2：subagent 选择模型 + 动态提示（能力徽标 / 未选警告 / 旧 id 警告 / 执行 id 回显）。
+    //   动态内容按项目口径**平铺**（不进问号）。
+    node.type === 'subagent' && createElement('div', { key: 'x-model' },
+      createElement('div', { className: 'dsh-wf-panel-row' },
+        createElement('label', { className: 'dsh-wf-panel-label' }, reqMark(), '选择模型',
+          createElement(InfoTip, { text: '模型自动发现自 dsh 配置（存在 profile 的 cordis.patch.yml 里，旧版是 settings.yaml），密钥由 dsh 统一管理，无需在此录入。必须选择执行模型（必选）；prompt 留空（或上游输出为空）时本节点不执行，流程在此中断。' })),
+        createElement(SelectBox, {
+          value: selectedModel,
+          onChange: handleModelSelect,
+          style: !selectedModel ? { borderColor: 'var(--wf-warn, #fbbf24)' } : undefined,
+          options: [
+            {
+              value: '',
+              label: models.length === 0 ? '（dsh 未配置可用模型，请先在 dsh 添加）' : '⬇ 请选择执行模型',
+              disabled: true,
+            },
+            // 存值不在当前列表里（旧工作流快照 id、或 dsh 已下架）→ 显式列出来，别让人以为"没选"
+            ...(selectedModel && !models.some((m) => m.id === selectedModel)
+              ? [{ value: selectedModel, label: `✓ ⚠ ${selectedModel}`, sub: '当前值，dsh 当前未提供' }] : []),
+            ...orderedModels.map((m) => ({
+              value: m.id,
+              label: `${m.id === selectedModel ? '✓ ' : ''}⚙️ ${modelLabelOf(m)}${modelDisambig(m) ? `（${modelDisambig(m)}）` : ''}${m.hasImage ? ' · 📷 图片' : ''}`,
+            })),
+          ],
+        }),
+      ),
+      selectedModel && !models.some((m) => m.id === selectedModel) && createElement('div', { className: 'dsh-wf-panel-hint' },
+        models.length === 0
+          ? `⚠ 当前保存的模型「${selectedModel}」不在 dsh 当前列表里（本次没取到模型列表）——运行时仍按这个 id 执行。`
+          : `⚠ 当前保存的模型「${selectedModel}」不在 dsh 当前可用列表里——运行时仍按这个 id 执行（可能失败）。请从上面重新选一个实际可用的模型。`,
+      ),
+      !selectedModel && createElement('div', { className: 'dsh-wf-panel-hint' },
+        models.length === 0
+          ? 'dsh 未发现可用模型——请先在 dsh 侧配置模型后刷新。未选择模型前，本节点无法试跑、无法保存。'
+          : '⚠ 必须选择执行模型后，本节点才能试跑与保存。',
+      ),
+      selectedModel && createElement('div', { className: 'dsh-wf-panel-hint' },
+        `执行 id：${selectedModel}（下拉里显示的是模型显示名，运行时按这个 id 调用）`,
+      ),
+      selectedModel && (() => {
+        const m = models.find((x) => x.id === selectedModel);
+        if (!m) return null;
+        const caps = (m.input ?? ['text']).join(', ');
+        const n = countImageRows(node.params?.images);
+        if (m.hasImage) {
+          return createElement('div', { className: 'dsh-wf-panel-hint' },
+            `✓ 所选模型支持图片输入（能力: ${caps}）${n ? `；当前已配 ${n} 张图，运行时会把它们一起发给模型` : ''}`);
+        }
+        return createElement('div', { className: 'dsh-wf-panel-hint' },
+          `⚠️ 所选模型不支持图片输入（能力: ${caps}，仅文本）——${n ? `你已配 ${n} 张图：` : ''}prompt 中引用图片/视频/文件、或 images 里配了图时，运行会在发调用前直接失败（MODEL_MODALITY_MISMATCH，不会静默丢图）。需要处理图片请换带 📷 的模型，或在 dsh 配置（profile 的 cordis.patch.yml，旧版 settings.yaml）里为该模型标注 input: [text, image] 后刷新。`);
+      })(),
+    ),
+    // ★ 2026-10-19 批 3：loop 的「🔁 循环设置」整块（边界下拉 / 跑几次 / 每轮条件 / 最大迭代 /
+    //   循环体 + 参数映射 / 某轮失败策略）搬进弹窗 —— 搬完右侧面板对所有节点就彻底没有参数控件了。
+    node.type === 'loop' && loopConfigNodes(),
+  ].filter(Boolean);
+  // 这些键已由上面的专属表单负责编辑 ⇒ 弹窗里的通用参数行不再重复列一遍（写回时原样保留）。
+  const paramHandledKeys = (
+    node.type === 'session_input' ? ['sessionId', 'limit']
+      : node.type === 'file_save' ? ['source', 'url', 'content', 'filename']
+        : node.type === 'web_search' ? ['query', 'provider', 'count', 'timeRange']
+          : node.type === 'web_fetch' ? ['url', 'maxChars', 'raw']
+            : node.type === 'doc_parse' ? ['path', 'url', 'maxChars', 'ocr', 'extractImages']
+              // ★ 批 2：switch 的 value/cases 由「🔀 分支设置」管；subagent 的 model 由「选择模型」管
+              : node.type === 'switch' ? ['value', 'cases']
+                : node.type === 'subagent' ? ['model']
+                  // ★ 批 3：loop 的边界/上限/每轮条件/循环体/某轮失败策略全由「🔁 循环设置」管
+                  //   （含 three 个已退役的 while 键，免得老节点在弹窗里冒出三行看不懂的参数）
+                  : node.type === 'loop' ? ['count', 'over', 'roundIf', 'maxIterations', 'body', 'onIterationError', 'while', 'whileMode', 'dangerouslyAllowInfinite']
+                    : []
+  );
   return createElement(
     'div',
     null,
@@ -792,113 +898,12 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
         }),
       }),
     ),
-    // ★ loop 循环设置（P2，2026-10-03 用户拍板）
-    node.type === 'loop' && loopConfigNodes(),
-    // ★ switch 分支设置（2026-10-02 用户需求「根据不同条件分成多个分支」）：
-    //   每个 case 键在画布上生成一个输出口（外加 * 兜底口）——从对应口拖线到目标节点，
-    //   边的 when 自动=case 键，执行器按 value 匹配激活对应分支、其余跳过。
-    node.type === 'switch' && createElement('div', { className: 'dsh-wf-panel-row' },
-      createElement('label', { className: 'dsh-wf-panel-label' }, reqMark(), '🔀 分支设置（case 列表）',
-        createElement(InfoTip, { text: '每个 case 在画布上生成一个输出口（从对应口拖线连目标，边自动带条件）；value 与 case 值相等时激活该分支，其余跳过。value 支持 {{上游.out}} 引用或字面量。' })),
-      caseRows.length === 0 && createElement('div', { className: 'dsh-wf-panel-hint' }, '暂无 case——点下方按钮添加（至少 1 个才能画分支）。'),
-      caseRows.map((row, i) => createElement('div', { key: i, style: { display: 'flex', gap: 6, marginBottom: 6 } },
-        createElement('input', {
-          className: 'dsh-wf-input', placeholder: 'case 值（如 A）', value: row.k, style: { flex: '0 0 45%' },
-          onChange: (e: React.ChangeEvent<HTMLInputElement>) => writeCaseRows(caseRows.map((r, j) => (j === i ? { ...r, k: e.target.value } : r))),
-        }),
-        createElement('input', {
-          className: 'dsh-wf-input', placeholder: '说明（可选）', value: row.v, style: { flex: 1 },
-          onChange: (e: React.ChangeEvent<HTMLInputElement>) => writeCaseRows(caseRows.map((r, j) => (j === i ? { ...r, v: e.target.value } : r))),
-        }),
-        createElement('button', {
-          className: 'dsh-wf-btn', title: '删除该 case',
-          onClick: () => writeCaseRows(caseRows.filter((_, j) => j !== i)),
-        }, '✕'),
-      )),
-      createElement('button', {
-        className: 'dsh-wf-inputs-add', title: '添加 case',
-        onClick: () => setCaseRows((rs) => [...rs, { k: '', v: '' }]),
-      }, '+'),
-    ),
-    // ★ 代码两种录入途径（python/bash，2026-10-02 用户定档：两种互补）——
-    //   a) 简单脚本：面板「📝 编辑代码」弹窗直接写多行（存 params.code，随工作流走）；
-    //   b) 复杂/多脚本：文件引用 codePath —— 约定 <DSH_HOME>/.dag-flow/scripts/<工作流名>/xxx.py
-    //     （相对路径锚定 .dag-flow/，也支持绝对路径）；填了 codePath 优先于内联 code。
-    // ★ 2026-10-11 用户拍板方案 A：python/bash 的「代码文件」输入框与「📝 编辑代码」按钮**都搬进
-    //   「🧪 参数与试跑」弹窗**（它们本质就是 params.code / params.codePath）——面板这里只留一行只读摘要，
-    //   改代码不再需要第二个弹窗；弹窗里 code 行是语言感知的代码编辑器（python/bash 高亮 + 行号 + Tab）。
-    (node.type === 'python' || node.type === 'bash') && createElement('div', { className: 'dsh-wf-panel-row' },
-      createElement('label', { className: 'dsh-wf-panel-label' }, '📄 代码',
-        createElement(InfoTip, { text: '代码与代码文件都在「🧪 参数与试跑」弹窗里改（一个弹窗搞定，改完可直接试跑）。' })),
-      createElement('div', { className: 'dsh-wf-params-summary' }, codeSummary(node.params as Record<string, unknown> | undefined, workflowName)),
-    ),
-    // #1 单节点试跑（2026-10-11 用户拍板方案 A：整块搬进「🧪 参数与试跑」弹窗——试跑输入按工作流参数
-    //   逐字段填（默认值预填）、参数与试跑同屏、结果就地展开；面板不再放输入框与按钮，只留下面的结果区，
-    //   这样面板里不会再有"又一个输入框"，而且改完参数直接就地跑。）
-    // ★ 2026-10-11 用户真机反馈：「试跑输出的结果,在右侧面板里面也弹出来了，不应该弹」——
-    //   试跑已整块搬进「🧪 参数与试跑」弹窗，结果**只在弹窗里就地显示**，面板不再重复渲染一份
-    //   （结果状态仍留在 NodeInspector 里，因为要作为 prop 传给弹窗）。
-    node.type === 'subagent' && createElement('div', { className: 'dsh-wf-panel-row' },
-      createElement('label', { className: 'dsh-wf-panel-label' }, reqMark(), '选择模型',
-        createElement(InfoTip, { text: '模型自动发现自 dsh 配置（存在 profile 的 cordis.patch.yml 里，旧版是 settings.yaml），密钥由 dsh 统一管理，无需在此录入。必须选择执行模型（必选）；prompt 留空（或上游输出为空）时本节点不执行，流程在此中断。' })),
-      createElement(SelectBox, {
-        value: selectedModel,
-        onChange: handleModelSelect,
-        style: !selectedModel ? { borderColor: 'var(--wf-warn, #fbbf24)' } : undefined,
-        options: [
-          {
-            value: '',
-            label: models.length === 0 ? '（dsh 未配置可用模型，请先在 dsh 添加）' : '⬇ 请选择执行模型',
-            disabled: true,
-          },
-          // ★ 存值不在当前列表里（旧工作流留下的快照 id、或 dsh 已下架该模型）→ **显式列出来**。
-          //   否则控件的值匹配不到任何一项，界面显示"请选择执行模型"，而工作流里仍是旧 id
-          //   → 看起来没选模型、实际按旧 id 执行（2026-10-03 用户问「模型不是实时获取的吗」时发现的缺口）。
-          ...(selectedModel && !models.some((m) => m.id === selectedModel)
-            ? [{ value: selectedModel, label: `✓ ⚠ ${selectedModel}`, sub: '当前值，dsh 当前未提供' }] : []),
-          ...orderedModels.map((m) => ({
-            value: m.id,
-            // ★ 显示「模型显示名」（用户 2026-10-03：不用内部 id，不容易分辨）；重名才补提供方名消歧
-            // ★ 已选中项打「✓」前缀（用户 2026-10-03：「点开下拉选项的已经选中的下拉选项就有一个选中的状态
-            //   标记它……」）——自研下拉里除了 ✓ 前缀，选中项本身也有高亮底色（比原生 option 更强的状态提示）。
-            label: `${m.id === selectedModel ? '✓ ' : ''}⚙️ ${modelLabelOf(m)}${modelDisambig(m) ? `（${modelDisambig(m)}）` : ''}${m.hasImage ? ' · 📷 图片' : ''}`,
-          })),
-        ],
-      }),
-    ),
-    node.type === 'subagent' && selectedModel && !models.some((m) => m.id === selectedModel) && createElement('div', { className: 'dsh-wf-panel-hint' },
-      models.length === 0
-        ? `⚠ 当前保存的模型「${selectedModel}」不在 dsh 当前列表里（本次没取到模型列表）——运行时仍按这个 id 执行。`
-        : `⚠ 当前保存的模型「${selectedModel}」不在 dsh 当前可用列表里——运行时仍按这个 id 执行（可能失败）。请从上面重新选一个实际可用的模型。`,
-    ),
-    node.type === 'subagent' && !selectedModel && createElement('div', { className: 'dsh-wf-panel-hint' },
-      models.length === 0
-        ? 'dsh 未发现可用模型——请先在 dsh 侧配置模型后刷新。未选择模型前，本节点无法试跑、无法保存。'
-        : '⚠ 必须选择执行模型后，本节点才能试跑与保存。',
-    ),
-    // ★ 保底不丢 id（用户 2026-10-03：下拉显示模型显示名，不用 id；但对照 JSON/排查时要能看到真实 id）
-    node.type === 'subagent' && selectedModel && createElement('div', { className: 'dsh-wf-panel-hint' },
-      `执行 id：${selectedModel}（下拉里显示的是模型显示名，运行时按这个 id 调用）`,
-    ),
-    node.type === 'subagent' && selectedModel && (() => {
-      const m = models.find((x) => x.id === selectedModel);
-      if (!m) return null;
-      const caps = (m.input ?? ['text']).join(', ');
-      // ★ 2026-10-16 P2（不静默降级）：把"当前配了几张图"直接显示出来——不用等跑起来才知道会不会丢图。
-      //   与 host 的 `countImageEntries` 同口径（字符串按行 / 数组递归 / 对象取 path→url→file）。
-      const n = countImageRows(node.params?.images);
-      if (m.hasImage) {
-        return createElement('div', { className: 'dsh-wf-panel-hint' },
-          `✓ 所选模型支持图片输入（能力: ${caps}）${n ? `；当前已配 ${n} 张图，运行时会把它们一起发给模型` : ''}`);
-      }
-      return createElement('div', { className: 'dsh-wf-panel-hint' },
-        `⚠️ 所选模型不支持图片输入（能力: ${caps}，仅文本）——${n ? `你已配 ${n} 张图：` : ''}prompt 中引用图片/视频/文件、或 images 里配了图时，运行会在发调用前直接失败（MODEL_MODALITY_MISMATCH，不会静默丢图）。需要处理图片请换带 📷 的模型，或在 dsh 配置（profile 的 cordis.patch.yml，旧版 settings.yaml）里为该模型标注 input: [text, image] 后刷新。`);
-    })(),
-    node.type === 'session_input' && createElement(SessionInputFields, { node, onParamsChange }),
-    (node.type === 'image_generate' || node.type === 'video_generate' || node.type === 'file_save')
-      && createElement(MediaFields, { node, onParamsChange }),
-    (node.type === 'web_search' || node.type === 'web_fetch' || node.type === 'doc_parse')
-      && createElement(WebFields, { node, onParamsChange }),
+    // ★ 2026-10-19 批 3：loop 的「🔁 循环设置」也搬进弹窗了（见 paramExtras）⇒ 面板不再渲染它。
+    // ★ 2026-10-19 批 2（用户要求「所有节点的右侧编辑模板的参数都…挪到参数与试跑的弹窗里面，右侧面板就不再配置参数了」）：
+    //   ①switch 分支列表 ②subagent 选择模型（含能力徽标/未选警告/执行 id 回显）都已搬进弹窗的 `extraFields`；
+    //   ③python/bash 原来那行「📄 代码」摘要**直接删掉**——代码本来就在弹窗里的语言感知编辑器改，
+    //     面板不必再留一行只读摘要（用户上轮已明确：删干净之后不用留备注）。
+    //   面板现在只剩：显示名 / 节点ID / 节点类型 / 变量引用 / 失败策略 / 本节点输出 / 参数与试跑按钮。
     // ★ 2026-10-11 用户反馈：「画布右侧编辑框里面的显示名应该放到面板的上面，放在中间有点奇怪」
     //   → 「显示名 (label)」已挪到面板最上面（节点 ID 之前），这里不再渲染。
     createElement('div', { className: 'dsh-wf-panel-row' },
@@ -927,6 +932,12 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
       // ★ 方案 A：python/bash 的 `code` 行在弹窗里用**语言感知的代码编辑器**（取代原「📝 编辑代码」弹窗）；
       //   `codePath` 行给该字段专用说明（约定路径 / 填了文件优先于内联代码）。
       codeLang: node.type === 'bash' ? 'bash' : node.type === 'python' ? 'python' : undefined,
+      // ★ 2026-10-19（用户拍板 A）：image/video 的参数只在这个弹窗里编辑 ⇒ 每个参数显示中文名 + 问号释义
+      //   （唯一源 src/client/param-meta.ts）。未登记的节点保持原样，不受影响。
+      paramMeta: paramMetaOf(node.type),
+      // ★ 2026-10-19（批 1）：节点专属参数控件整块搬进弹窗（见上方 paramExtras）。
+      extraFields: paramExtras.length ? paramExtras : undefined,
+      handledKeys: paramHandledKeys.length ? paramHandledKeys : undefined,
       fieldHints: (node.type === 'python' || node.type === 'bash')
         ? {
             codePath: `约定路径 scripts/${workflowName || '工作流名'}/xxx.py（📁 工作流文件夹按钮可达，按工作流分目录）；相对路径锚定 .dag-flow/，也支持绝对路径。★填了代码文件时优先于内联代码。`,

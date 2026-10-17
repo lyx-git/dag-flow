@@ -7,6 +7,166 @@
 
 ---
 
+// v20261019-loophint（纯客户端，硬刷新即可）：删掉 loop「🔁 循环设置」弹窗里两处边界 ⚠ 长句
+//   （2026-10-19 用户原话：「⚠ 边界值还是空的…这个提示是啥意思，需要吗」→「有用就不删，没用就删掉」）。
+//   · 删的两句：①`loopBound==='none'` 的「没有边界时运行会立即失败（LOOP_NO_BOUND），画布问题面板也会报错」；
+//     ②`boundBlank` 的「边界值还是空的——引擎会当作没有边界，运行报 LOOP_NO_BOUND（卡片副标题也会显示「⚠ 无循环边界」）」。
+//     判定＝同一事实已在两处说清（画布卡片副标题「⚠ 无循环边界」+ 左下角问题面板 error「循环边界缺失」），
+//     弹窗里是第三处；且第②句只在「刚切到 over、值还没填」的过程态出现，填入即消失，属边填边骂。
+//   · 保留的：下拉兜底项「（当前值：无循环边界）」+ 小字「运行会失败——请改成 count / over」（控件要有显示值，
+//     删了下拉会空白）；画布卡片副标题；问题面板；`legacy` 那条「旧版条件循环已移除」（那是引擎新事实，别处没有）。
+//   · 断言翻转：markers 把这两句从「文案在」改成「不在产物里」（反向），并正向断卡片副标题与下拉 sub 仍在。
+//   · 验证：typecheck 0 / markers **164/164** / CDP `loop-visible`+`select-box`+`params-editor` 3/3。
+// v20261019-docurl（**宿主**改动，需重启 dsh web）：修 doc_parse 抓「首页型 URL」报
+//   `DOC_UNSUPPORTED 无法识别文件类型（没有扩展名）`（2026-10-19 用户报「现在修」）。
+//   · 真因：url 分支只用 `new URL(url).pathname` 的最后一段当文件名 ⇒ `https://example.com/`
+//     的 pathname 就是 `/`，取不到任何段 ⇒ 扩展名为空 ⇒ 按扩展名分派时失败；
+//     `.php` / `.aspx` 这类页面壳同理（扩展名不在支持集里 ⇒ 「不支持的文件类型 .php」）。
+//   · 修法：新增 `downloadedFileName(url, headers)`（`src/registry/doc-extract.ts`，纯函数、可单测）做**三级兜底**：
+//     ① pathname 末段（**仅当其扩展名在内核支持集里**才算数）→ ② `content-disposition` 的 filename/filename* →
+//     ③ `content-type` 映射（html/pdf/txt/md/csv/json/xml/yaml/ooxml/图片，另含 `+json` `+xml` 族与未知 `text/*`）。
+//     都没有线索时名字退回 `download`（无扩展名 ⇒ 仍然明确报 DOC_UNSUPPORTED，**不静默**）。
+//   · 影响面：只影响「此前必然失败」的两类 URL（首页型、页面壳扩展名）。pathname 已是支持类型的
+//     URL 一字不动（单测 D 段断 `.pdf` 不被 content-type 改写）；本地 path 分支一行没碰。
+//   · 验证：`test/doc-extract.test.mjs` 新增 §7 共 18 条（引擎侧纯函数 + 端到端"补名后能解析成 html"）；
+//     `tmp-test/probe-doc-url-name.mjs` 真起 HTTP 服务跑节点 def（12/12，含"旧逻辑对照"复现原缺陷）；
+//     `tmp-test/probe-doc-url-live.mjs` 打真宿主 3080（未重启时 1/8 —— 精确复现旧行为，作为 A/B 的 A 侧）。
+//     全链：typecheck 0 / markers **160/160** / 离线链 exit 0 / install-check 断言产物含新标记。
+//   · 标记：host `v20261019-docurl`（**需重启 dsh web**）；client 仍 `v20261019-toast22`。
+// v20261019-toast22：「试跑本节点的结果」浮层从 16vh 下移到 **22vh**（2026-10-19 用户选 A）。
+//   · 原因：16vh 时卡片顶边会压住参数弹窗的标题栏（「参数与试跑」那颗标题 + 页签），看着像弹窗自己的内容。
+//   · 只改 `.dsh-wf-testtoast { top }` 一处（水平居中仍走 left/right + margin:auto，不用 transform，保住几何断言）；
+//     `test-params-testbar` 的 toast 顶边断言同步改成 `0.22`，CDP 量真实几何通过（真机 800px 视口卡片 top≈176px）。
+//   · 顺带产出 `docs/PARAM-LABELS.md`（由 `node tmp-test/export-param-labels.mjs` 从 param-meta.ts 导出，
+//     20 个节点 / 90 条，供逐条校对中文名与释义措辞；改词请改 param-meta.ts 再重跑脚本）。
+//   · 验证：markers **158/158** / CDP `params-testbar` 通过。
+//   · 纯客户端改动 ⇒ **硬刷新即可**（宿主标记仍是 `v20261019-nowhile`）。
+// v20261019-paramtab3：**批 3——loop「🔁 循环设置」搬进「参数与试跑」弹窗**（2026-10-19 用户「开始批3」）。
+//   · 整块搬进弹窗 `extraFields`：边界下拉（固定次数 count / 遍历数组 over，老数据给「当前值」兜底）、
+//     跑几次（count 单框）、每轮条件 `roundIf`、最大迭代 `maxIterations`（仅 over）、旧 maxIterations 的
+//     警示 + 「清除」按钮、循环体（子工作流下拉 + 该子工作流声明的参数列表 + 传参映射行 + `+`）、
+//     某轮失败策略（stop / continue）。
+//   · `handledKeys` 纳入 `count/over/roundIf/maxIterations/body/onIterationError` **以及三个已退役的 while 键**
+//     （否则老节点会在弹窗里冒出三行看不懂的通用参数行）。
+//   · `param-meta.ts` 里 `loop.body` 的释义同步改口（原来写"右侧面板「🔁 循环设置」里有可视化编辑"，
+//     现在改成"弹窗下方「🔁 循环设置」里可以选子工作流并配传参"）。
+//   · **右侧节点面板至此对全部 21 类节点都不再有参数控件**：只剩 显示名 / 节点ID / 节点类型 / 变量引用 /
+//     失败策略 / 本节点输出 / 「🧪 参数与试跑」按钮。
+//   · 用例同步：`loop-visible` 作用域改到 `.dsh-wf-params-extras` + 每处查询前幂等打开弹窗（切节点后弹窗会随面板卸载）；
+//     `select-box` ⑧ 的循环设置段落同样改成"先开弹窗再取 extras 里的下拉"。
+//   · 验证：markers **157/157** / 离线链 exit 0 / CDP 全量见交付记录；截图 `tmp-test/build/shot-batch3-loop.png`。
+//   · 纯客户端改动 ⇒ **硬刷新即可**（宿主标记仍是 `v20261019-nowhile`）。
+// v20261019-paramtab2：**批 2——switch 分支列表 + subagent 选择模型搬进「参数与试跑」弹窗**（2026-10-19 用户「开始批2」）。
+//   · switch：整块「🔀 分支设置（case 列表）」（每行 case 值 + 说明 + ✕ 删除 + `+` 添加）搬进弹窗 `extraFields`；
+//     `value`/`cases` 加入 `handledKeys`（通用行不再重复列，写回原样保留）。
+//   · subagent：「选择模型」下拉 + 动态提示（未选警告 / 旧 id 不在列表的警告 / 执行 id 回显 / 模型能力徽标与
+//     "已配 N 张图"）全部搬进弹窗；动态内容按项目口径**平铺**（不进问号）。`model` 加入 `handledKeys`。
+//   · python/bash：面板那行「📄 代码」只读摘要**直接删除**（代码本来就在弹窗里的语言感知编辑器改，
+//     用户上轮明确"删干净之后不用留备注"）。
+//   · 面板现在对**全部节点**只剩：显示名 / 节点ID / 节点类型 / 变量引用 / 失败策略 / 本节点输出 / 参数与试跑按钮
+//     ——只剩批 3 的 loop 循环设置还是面板控件。
+//   · 用例同步：`code-file` ①（面板「📄 代码」行从"只读摘要"改成"已无该行"）、⑥（不再有代码摘要，改成断面板里
+//     没有任何代码相关文案）；markers 里那条"面板代码行改成只读摘要"同步反转。其余用例零改动。
+//   · 验证：markers **156/156** / 离线链 exit 0 / CDP 子集（select-box / inspector-switch / code-file / params-editor /
+//     params-varpick / hovertip / params-images / doc-parse-panel / params-testbar）+ 全量见交付记录。
+//   · 纯客户端改动 ⇒ **硬刷新即可**（宿主标记仍是 `v20261019-nowhile`）。
+// v20261019-paramlabel：**所有节点的参数行统一成「图片生成」那套两行式（中文名 + 参数名注脚）**
+//   （2026-10-19 用户原话：「弹窗里面参数的形式，也都要改成和图片生成的样式一样」）。
+//   · `src/client/param-meta.ts` 从 2 个节点（image/video）扩到**全部节点**：end / set_var / if / switch / loop /
+//     log / manual / merge / subflow / session_input / http / file_save / web_search / web_fetch / python / bash /
+//     doc_parse / subagent，共新增约 75 条 label + desc（+ 示例占位与 multi）。文案口径：一句讲清"填什么 / 限制 /
+//     为什么"，不写 Markdown、不写新旧对照。
+//   · 形态复用图片生成那套：`.dsh-wf-params-kcell.named`（150px）= 中文名 12.5px 正常色在上、参数名 11px 等宽灰注脚
+//     在下 + 问号；**参数名只读**（键名是引擎契约，改了静默失效）；未登记的键（用户自己加的参数）仍是可编辑输入框。
+//   · 副作用（正向）：登记过的可选参数现在**全部铺出来**（`auto` 语义：留空不写进 def）——以前 http 只露 method/url，
+//     headers / body / timeoutMs 用户根本不知道能填；python 的 codePath / cwd / requirements / packages 同理。
+//   · 行新增 `data-key` 属性：两行式之后参数名不再是 input，`.dsh-wf-params-k` 的 value 读不到了 ⇒ 测试按
+//     `data-key` 定位行（**优先 data-key、回退旧写法**，`__df_prow` 等 7 处已改）。
+//   · 单行框的示例占位统一走 `singleLinePlaceholder`（元数据里的多行示例要折成 " / "，否则 input 里换行变空格）。
+//   · 验证：markers **154/154**（新增：抽样 5 个只存在于元数据里的中文名 + data-key 锚点）/ 离线链 exit 0 /
+//     CDP 全量见交付记录（params-editor ③ 改成"每个 def 键都有行 + 登记键也铺出来"，params-images ②c/③、
+//     code-file ④ 的文案断言随新 desc 调整）。
+//   · 纯客户端改动 ⇒ **硬刷新即可**（宿主标记仍是 `v20261019-nowhile`）。
+// v20261019-tipfix：**修「小问号不点在按钮上也会弹提示」**（2026-10-19 用户原话：
+//   「小问号现在不直接点在按钮上，也会显示提示信息，有问题」）。
+//   · 真因（浏览器默认行为，不是事件冒泡）：小问号被放在 `<label>` 标签里（`row()` 与面板各处「标签 + 问号」
+//     都是这个结构），而 `<label>` 会把它**关联到第一个 labelable 后代** —— 问号是 `<button>`，正好是
+//     labelable ⇒ **点标签文字上任意位置（离问号几十上百 px 也算）浏览器都会把 click 直接派发给问号**，
+//     气泡就弹出来。`stopPropagation` / `preventDefault` 都拦不住（浏览器是"直接对控件派发"，不经冒泡链）。
+//   · 修法：InfoTip 根元素 `<button>` → **`<span role="button" tabIndex={0}>`**（span 不是 labelable ⇒ label
+//     不再关联它），键盘可达性用 role + tabIndex + Enter/Space 补齐；CSS 补 `box-sizing: border-box`
+//     保持 16×16 不变（span 默认 content-box，不补会被 border 撑成 18px）。**一处改动修掉所有"标签包问号"的位置。**
+//   · 回归锁（doc-parse-panel）：在弹窗里点问号**左侧 10px 的标签文字** ⇒ 断言气泡**不出现**；再点问号本身 ⇒ 出现；
+//     并断问号仍 16×16。**A/B 反证过**：改回 `<button>` 时第一条精确变红
+//     （`命中 "dsh-wf-panel-label" / 问号 BUTTON {"w":16,"h":16}`），改成 span 即绿。
+//   · 验证：markers **152/152**（新增"小问号是 span role=button 形态"）/ 离线链 exit 0 / CDP 全量见交付记录。
+//   · 纯客户端改动 ⇒ **硬刷新即可**（宿主标记仍是 `v20261019-nowhile`）。
+// v20261019-selzfix：**修「参数弹窗里面的下拉选都不能用了」**（2026-10-19 用户原话：
+//   「出问题，参数弹窗里面的下拉选都不能用了」）。
+//   · 真因（我们自己上一轮引入的回归）：批 1 把专属表单搬进「🧪 参数与试跑」弹窗，而弹窗遮罩
+//     `.dag-flow-picker-overlay` 是 **z-index 10000**；下拉列表 `.dsh-wf-sel-list` 仍是最初服务右侧面板时的
+//     **z-index 90**（悬停提示 91）⇒ 列表被整层压在弹窗下面：控件看得见、点开却没有列表、也点不着。
+//     DOM 一直在，所以"只断言列表存在"的用例照样绿（select-box ② 就是这种），真机才撞得到。
+//   · 修法：交互浮层必须高于所有容器层 —— 列表 90 → **10120**、悬停提示 91 → **10130**（提示在列表之上）。
+//     并在 styles.css 里补了一张层级约定表（面板 2~30 / 遮罩 10000 / InfoTip 10006 / toast 10030 /
+//     试跑结果浮层 10100 / 下拉 10120 / 下拉提示 10130），规定新增浮层按"最后打开的在上"插值。
+//   · 回归锁（select-box，弹窗内点开 OCR 下拉后）：①z-index > 10000 ②`document.elementFromPoint` 命中的元素
+//     **在列表内部**（= 没被任何东西盖住）③列表完整落在视口内。**A/B 反证过**：把 z-index 退回 90 时
+//     第一条精确变红（`z-index 90 > 10000`），修回即绿。
+//   · 验证：markers **151/151**（新增一条：产物里 `z-index: 10120 / 10130` 都在）/ 离线链 exit 0 / CDP 子集与全量见交付记录。
+//   · 纯客户端改动 ⇒ **硬刷新即可**（宿主标记仍是 `v20261019-nowhile`）。
+// v20261019-paramcentral：**节点专属参数表单搬进「🧪 参数与试跑」弹窗（批 1）+ 试跑结果改中上部浮层告知**
+//   （2026-10-19 用户原话：「所有节点的右侧编辑模板的参数都改成图片生成节点和视频生成节点一样，挪到参数与试跑的
+//    弹窗里面，右侧面板就不再配置参数了，全部挪到一个地方」；「试跑本节点的结果，现在是在弹窗下面显示，
+//    改成中上部弹窗告知」。拍板：分 3 批搬（A）、结果用固定定位的中上部卡片（A））。
+//   · 盘点结论：21 类节点里有 14 类**本来就只能在弹窗里配参数**（面板没有表单）；真正留在面板的只有 7 个专用块
+//     ⇒ 迁移范围＝这 7 块，不是 21 类全重做。本批（批 1）＝ session_input / file_save / web_search / web_fetch / doc_parse。
+//   · `ParamsEditor` 新增两条通道：`extraFields`（专属控件**整块**渲染在通用参数行上方，不拆成一格一值）与
+//     `handledKeys`（这些键由专属表单负责 ⇒ 通用行不重复列出；**写回时原样保留**，否则 diffPatch 会把
+//     "旧有新无"的键判成删键，一改参数就把 path / ocr / filename 删掉。JSON 视图里仍显示、计数也含它们）。
+//   · 试跑结果：不再渲染在底部试跑条里，改成 `dsh-wf-testtoast`（position:fixed、top:16vh、左右 margin:auto 居中、
+//     z-index 10100 > 遮罩 10000、宽 ≤720、内部可滚、深色细滚动条）；成功 2.6s 自动消失、失败常驻 + 右上角 ✕；
+//     内容仍用 `TestResultView`（逐字不变）。用特征串做依赖避免父组件重渲染反复重置计时器。
+//   · 用例同步（锚点搬家，断言语义不动）：`doc-parse-panel` / `file-save-click` 改成"面板里**没有** + 弹窗里**有**"；
+//     `select-box` 的 7 处行查询改到 `.dag-flow-picker` 作用域（循环设置仍留面板，2 处保留 `.dsh-wf-right`）、
+//     助手 `__df_sel` 同时查两处；`params-testbar` / `testrun-noupstream` / `inspector-switch` 的结果锚点改到浮层，
+//     并新增 6 条浮层几何断言（fixed / top≈16vh±6 / 左右留白差 ≤2 / 宽 ≤720 且不贴边 / z>10000 / 底部条无结果块）。
+//   · 验证：tsc 0 / markers **150/150** / 离线链 exit 0 / CDP 全量见交付记录；三产物重建。
+//   · 纯客户端改动 ⇒ **硬刷新即可**（宿主标记仍是 `v20261019-nowhile`）。
+// v20261019-parammeta：**图片/视频生成节点的参数只留「🧪 参数与试跑」弹窗，并改成两行式（中文名 + 参数名注脚）**
+//   （2026-10-19 用户四轮原话：「参数既在右边面板、又在参数与试跑面板里…只想保留参数与试跑面板的参数…
+//    最好对每个参数加个中文名称或释义」→ 拍板 A；「右侧面板参数删除掉之后，就不用留下备注信息了，没必要」；
+//    「最好显示成两行，中文名在上面，参数名在下面，并且参数名变小，字体颜色变浅，弱化，中文名正常显示，
+//    参数名就像注脚」；「参数与试跑按钮的弹窗，如果参数较多，用滚动的方式，不要整个弹窗页平铺」；
+//    「图片生成节点里面的提前测试…是否可以直接删掉提前测试按钮」→ 拍板 B 删掉）。
+//   · 新增 `src/client/param-meta.ts`＝**参数的唯一元数据源**（image_generate 9 项 + video_generate 15 项：
+//     中文名 label / 问号释义 desc / 示例 placeholder / 是否默认富文本 multi）。`ParamsEditor` 新增 `paramMeta` prop。
+//   · 行内形态：`.dsh-wf-params-kcell.named`（150px）= 中文名 12.5px 正常色在上 + 参数名 11px 等宽灰注脚在下（问号跟注脚）。
+//     参数名**不再可编辑**（key 是引擎写死的，改了不报错、只是静默失效）；判据 `named = meta && (r.auto || r.orig !== undefined)`
+//     ——只对"登记表补出来的行 / def 里本来就有的键"生效，「+ 添加参数」新起的那行仍是可编辑输入框（否则输到 prompt 时会丢焦点）。
+//   · 弹窗是唯一入口：`rowsFromParams` 新增第 5 参 `autoRows` ⇒ 登记表里的键**全部自动补行**（auto 语义：留空不写进 def，
+//     清空＝删键）。这一步是必须的：不然新节点 params 为空时弹窗一片空白、一个参数都填不了。
+//   · 右侧面板**整块不渲染**（连一句备注都不留）；图片节点的「🔍 提前测试」按钮已删除（用户拍板 B：改由弹窗底部
+//     「▶ 试跑本节点」验证；宿主路由 `POST /api/dag-flow/test-image-api` 保留为纯后台能力，离线测试仍覆盖它）。
+//   · 弹窗限高 + 参数区内部滚动：`max-height: calc(100vh - 14vh - 44px)`，标题/页签固定、参数区 `overflow-y:auto;min-height:0`、
+//     底部试跑条 `flex:0 0 auto` 常驻（实测视口 800 时弹窗 646px、试跑条 bottom 757 可见）；滚动条改深色细条；
+//     遮罩不再承担整页滚动。参数区左内边距补到 21px（原来贴到弹窗边框 1px）。
+//   · 回归锁：markers 147/147（新增 3 条：元数据文案在产物里 / 面板已无「提前测试」与那句备注 / 弹窗限高类存在）；
+//     离线链 exit 0；CDP 子集 11/11（params-editor / params-images / params-testbar / file-save-click / doc-parse-panel /
+//     select-box / loop-visible / inspector-switch / testrun-noupstream / node-result-tip / undo-redo）。
+//   · 纯客户端改动 ⇒ **硬刷新即可**（宿主标记仍是 `v20261019-nowhile`）。
+// v20261019-srcrowfix：**修 doc_parse 面板「文件来源」下拉切不过去**（2026-10-19 用户原话：
+//   「文档解析节点右侧的编辑框有个文件来源，下拉选，本地路径还是下载地址，下拉选无法切换」）。
+//   · 真因（一行判据）：面板用 `String(p.url ?? '').trim() ? 'url' : 'path'` 判当前类型，而切到「下载地址」时
+//     写入的正是 **`url: ''`（空串）** ⇒ trim 后为空 ⇒ 判据立刻回退成 path ⇒ 下拉一选就弹回「本地路径」。
+//     现象看着像"下拉坏了"，其实是"写了 url 键但显示按值回退"（A/B 反证时断言打印 `下拉=path / def url 键=true`，正是这个病象）。
+//   · 修法：改成**看键在不在**（`hasOwnProperty('url') && p.url !== null`）—— 与项目里"null＝删键"的既有语义一致，
+//     也和 loop 的边界判据（按键存在、不按值非空）同一口径。
+//   · 回归锁：CDP `select-box` 新增 ②f —— 依次点「下载地址」「本地路径」，同时断**下拉显示**与 **def 里的键**；
+//     A/B 反证过：退回旧实现时 ②f 精确变红（下拉=path，但 def 里 url 键已存在）。
+//   · 验证：tsc 0 / markers 144/144 / 离线链 exit 0 / CDP `select-box` + `doc-parse-panel` 2/2。
+//   · **纯客户端改动 ⇒ 硬刷新即可**（宿主标记仍是 `v20261019-nowhile`）。
+
 // v20261019-nowhile：**while 条件循环整条移除（引擎 + 面板），循环只保留 count / over**（2026-10-19 用户拍板：
 //   「那就删掉 while 循环逻辑，引擎逻辑也删掉，历史工作流也同步处理掉」；同时「每轮条件保留，输入框位置按循环逻辑调整」）。
 //   · 宿主 `control.ts`：删掉 while 分支、`whileMode`、`dynamicWhile`、`whileCap`、`condWanted/keepOn`、两处

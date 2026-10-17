@@ -267,7 +267,7 @@
 /* 代码级文本编辑框（code-text.tsx）：编辑区 + 状态栏 */
 .dsh-wf-codetext > .dsh-wf-code-status { display: block; text-align: right; margin-top: 6px; }
 /* 页签行：字段视图 / JSON 视图 */
-.dsh-wf-params-tabs { display: flex; gap: 6px; align-items: center; margin-bottom: 12px; }
+.dsh-wf-params-tabs { display: flex; gap: 6px; align-items: center; margin-bottom: 12px; padding: 0 20px; }
 .dsh-wf-params-tab {
   padding: 6px 12px; border-radius: 9px; border: 1px solid var(--wf-border2, #29405f);
   background: var(--wf-panel2, #111e32); color: var(--wf-muted, #8b9bb3);
@@ -297,6 +297,28 @@
    形态自动；"升级为多行"是单行框内右侧的小把手，"改回单行"在富文本工具栏里） */
 .dsh-wf-params-row { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
 .dsh-wf-params-k { flex: 0 0 210px; }
+/* ★ 2026-10-19（用户拍板 A）：登记了中文名的参数（src/client/param-meta.ts）走**两行式**——
+   中文名在上（正常字号/正常颜色），参数名在下当注脚（更小、更浅、等宽），问号跟注脚后面。
+   用户原话：「中文名在上面，参数名在下面，并且参数名变小，字体颜色变浅，弱化，中文名正常显示，参数名就像注脚」。
+   未登记的节点/行完全不受影响（仍是原来那一格可编辑的参数名框）。 */
+.dsh-wf-params-kcell { flex: 0 0 210px; display: flex; align-items: center; gap: 4px; min-width: 0; }
+.dsh-wf-params-kcell .dsh-wf-params-k { flex: 1 1 auto; min-width: 0; }
+.dsh-wf-params-kcell .dsh-wf-params-k-tip { margin-left: 0; margin-top: 0; }
+/* 两行式：宽度按"最长中文名 + 注脚"取 150px（原来一行的参数名框是 210px ⇒ 值框反而变宽） */
+.dsh-wf-params-kcell.named {
+  flex: 0 0 150px; flex-direction: column; align-items: flex-start;
+  justify-content: center; gap: 1px;
+}
+.dsh-wf-params-kname {
+  max-width: 100%; font-size: 12.5px; line-height: 1.25; color: var(--wf-text, #e6edf7);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dsh-wf-params-ksub { display: flex; align-items: center; gap: 3px; max-width: 100%; min-width: 0; }
+.dsh-wf-params-kkey {
+  min-width: 0; font-size: 11px; line-height: 1.2; color: var(--wf-muted, #8b9bb3);
+  font-family: ui-monospace, Consolas, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dsh-wf-params-ksub .dsh-wf-params-k-tip { flex: 0 0 auto; }
 .dsh-wf-params-v { flex: 1; min-width: 0; }
 .dsh-wf-params-del {
   flex: none; width: 30px; min-height: 38px; border-radius: 9px;
@@ -328,8 +350,34 @@
 }
 
 /* ===== 参数弹窗右侧「变量抽屉」（2026-10-11 用户拍板方案 A） ===== */
-.dsh-wf-params-split { display: flex; gap: 14px; align-items: flex-start; }
+.dsh-wf-params-split { display: flex; gap: 14px; align-items: flex-start; padding: 0 20px 16px; }
 .dsh-wf-params-main { flex: 1; min-width: 0; }
+/* ★ 2026-10-19 用户要求：「参数较多时用滚动的方式，不要整个弹窗页平铺」——
+   弹窗变成 flex 列：标题 / 页签固定，参数区自己滚，底部试跑条常驻可见。
+   限高 = 视口 − 顶部 14vh 留白 − 底部余量（遮罩 padding-top 是 14vh）。
+   内容少时 max-height 不生效 ⇒ 小参数量的节点观感与以前完全一致。 */
+.dag-flow-picker.dsh-wf-params-dialog {
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 14vh - 44px);
+}
+.dsh-wf-params-dialog .dsh-wf-params-split { flex: 1 1 auto; min-height: 0; align-items: stretch; }
+.dsh-wf-params-dialog .dsh-wf-params-main { overflow-y: auto; min-height: 0; }
+.dsh-wf-params-dialog .dsh-wf-params-drawer { max-height: 100%; }
+.dsh-wf-params-dialog .dsh-wf-testbar { flex: 0 0 auto; }
+/* 参数区/变量抽屉的滚动条也走深色细条（默认的原生滚动条是白底宽条，在深色主题里很扎眼，
+   2026-10-19 出图时当场发现）；只作用于这两个滚动容器，不碰富文本框内部的滚动条。 */
+.dsh-wf-params-dialog .dsh-wf-params-main,
+.dsh-wf-params-dialog .dsh-wf-params-drawer { scrollbar-width: thin; scrollbar-color: var(--wf-border2, #29405f) transparent; }
+.dsh-wf-params-dialog .dsh-wf-params-main::-webkit-scrollbar,
+.dsh-wf-params-dialog .dsh-wf-params-drawer::-webkit-scrollbar { width: 10px; }
+.dsh-wf-params-dialog .dsh-wf-params-main::-webkit-scrollbar-track,
+.dsh-wf-params-dialog .dsh-wf-params-drawer::-webkit-scrollbar-track { background: transparent; }
+.dsh-wf-params-dialog .dsh-wf-params-main::-webkit-scrollbar-thumb,
+.dsh-wf-params-dialog .dsh-wf-params-drawer::-webkit-scrollbar-thumb {
+  background: var(--wf-border2, #29405f); border-radius: 5px;
+}
+.dsh-wf-params-dialog .dsh-wf-params-main::-webkit-scrollbar-thumb:hover,
+.dsh-wf-params-dialog .dsh-wf-params-drawer::-webkit-scrollbar-thumb:hover { background: var(--wf-accent, #4f8cff); }
 .dsh-wf-params-drawer {
   flex: none; width: 272px; max-height: 64vh; overflow-y: auto;
   border-left: 1px solid var(--wf-border, #1c2d47); padding-left: 14px;
@@ -413,7 +461,32 @@
   font-family: ui-monospace, Consolas, monospace;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.dsh-wf-testbar-result { margin-top: 10px; }
+/* ★ 2026-10-19：节点专属参数控件区（从右侧面板整块搬进弹窗的那几块，批 1：会话选择 / 文件保存 / 网页抓取与文档解析）。
+   与通用参数行同处一个滚动容器；底部一条细线把它和"一格一值"的参数行分开，不加标题文案。 */
+.dsh-wf-params-extras { margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--wf-border, #1c2d47); }
+/* ★ 2026-10-19 用户要求「试跑本节点的结果…改成中上部弹窗告知」⇒ 固定定位卡片：
+   top 22vh、水平居中（用 left/right+margin:auto 居中，不用 transform，免得几何断言量错）、z-index 高于弹窗遮罩 10000。
+   22vh 是为参数弹窗留出的抬头区（16vh 会压住弹窗标题栏）；成功 2.6s 自动消失、失败常驻；内容超高时卡片内部滚动。 */
+.dsh-wf-testtoast {
+  position: fixed; top: 22vh; left: 0; right: 0; margin: 0 auto;
+  z-index: 10100; width: min(720px, calc(100vw - 40px)); max-height: 62vh; overflow-y: auto;
+  padding: 14px 40px 14px 16px; border-radius: 12px; box-sizing: border-box;
+  background: var(--wf-panel2, #162135); border: 1px solid var(--wf-border-strong, #2a3a56);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  animation: dsh-wf-fade 160ms ease-out;
+  scrollbar-width: thin; scrollbar-color: var(--wf-border2, #29405f) transparent;
+}
+.dsh-wf-testtoast::-webkit-scrollbar { width: 10px; }
+.dsh-wf-testtoast::-webkit-scrollbar-track { background: transparent; }
+.dsh-wf-testtoast::-webkit-scrollbar-thumb { background: var(--wf-border2, #29405f); border-radius: 5px; }
+.dsh-wf-testtoast.is-ok { border-left: 3px solid #22c55e; }
+.dsh-wf-testtoast.is-err { border-left: 3px solid #f87171; }
+.dsh-wf-testtoast-close {
+  position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 8px;
+  border: 1px solid transparent; background: transparent; color: var(--wf-muted, #8b9bb3);
+  cursor: pointer; font-size: 13px; font-family: inherit; line-height: 1;
+}
+.dsh-wf-testtoast-close:hover { border-color: var(--wf-border2, #29405f); color: var(--wf-text, #e6edf7); }
 
 /* ========== 人工确认（manual 节点挂起，2026-10-03 方案 A） ========== */
 /* 头部等待徽标：accent 描边 + 呼吸光晕，与「运行中/成功/失败」区分（可点击重开弹窗） */
