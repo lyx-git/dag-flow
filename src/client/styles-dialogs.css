@@ -266,7 +266,7 @@
 /* ===== 参数编辑器弹窗（2026-10-11 用户拍板：把「参数」从窄面板里独立出来） ===== */
 /* 代码级文本编辑框（code-text.tsx）：编辑区 + 状态栏 */
 .dsh-wf-codetext > .dsh-wf-code-status { display: block; text-align: right; margin-top: 6px; }
-/* 页签行：字段视图 / JSON 视图 + 右侧计数 */
+/* 页签行：字段视图 / JSON 视图 */
 .dsh-wf-params-tabs { display: flex; gap: 6px; align-items: center; margin-bottom: 12px; }
 .dsh-wf-params-tab {
   padding: 6px 12px; border-radius: 9px; border: 1px solid var(--wf-border2, #29405f);
@@ -278,7 +278,11 @@
   background: color-mix(in srgb, var(--wf-accent, #4f8cff) 22%, transparent);
   border-color: var(--wf-accent, #4f8cff); color: #dbe7ff;
 }
-.dsh-wf-params-meta { margin-left: auto; font-size: 11px; color: var(--wf-muted2, #647895); font-family: ui-monospace, Consolas, monospace; }
+/* ★ 2026-10-18 定稿：计数 + 关键提示合成一段，放在**标题行里紧跟说明问号之后**（`.dsh-wf-params-meta`）。
+   ⚠ **绝不能带 `margin-left:auto`** —— 那会把它顶到弹窗右内边上（2026-10-16 / 10-18 两次被用户报；
+   右侧让位交给关闭按钮自己的 `margin-left:auto`）。样式与它旁边的计数同款：11px / 浅色 / 等宽，
+   **不刻意加粗或换亮色**（用户原话「字体颜色大小，状态统一成"3 个参数"一样的」）。 */
+.dsh-wf-params-meta { flex: 0 0 auto; white-space: nowrap; font-size: 11px; color: var(--wf-muted2, #647895); font-family: ui-monospace, Consolas, monospace; }
 /* 2026-10-16：静态解释收进小问号——标题栏那个（弹窗级说明）与紧贴参数名框的那个（字段说明）。
    ★弹窗级问号必须留在标题行：原先挂在页签行末尾（`.dsh-wf-params-meta` 的 margin-left:auto 之后），
    天生顶在弹窗右内边上（用户报「在最右边线边上」）；标题行是 flex + gap:8px、关闭按钮自带

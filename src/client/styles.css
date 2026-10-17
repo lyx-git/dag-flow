@@ -699,6 +699,12 @@
   gap: 6px;
 }
 
+/* 两段式输入行（2026-10-18 用户要求：doc_parse 的「文件路径 / 下载地址」合并成**一个**输入框——
+   前段选类型、后段填值。判据见 docs/CONVENTIONS.md 第 6 节第 3 条） */
+.dsh-wf-srcrow { display: flex; align-items: center; gap: 6px; width: 100%; }
+.dsh-wf-srcrow > .dsh-wf-srcrow-kind { flex: 0 0 auto; width: auto; min-width: 104px; }
+.dsh-wf-srcrow > .dsh-wf-srcrow-val { flex: 1 1 auto; min-width: 0; }
+
 
 /* 运行状态徽标（现仅用于头部「⏸ 等待人工确认」） */
 .dsh-wf-run-result {

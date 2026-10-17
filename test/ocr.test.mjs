@@ -68,10 +68,11 @@ const img2 = join(work, 'b.png');
 
 // ==================== A. 参数容错（面板写的是字符串！） ====================
 console.log('== A. 参数形态容错 ==');
-t("normalizeOcrMode：undefined/false/'off' → off", normalizeOcrMode(undefined) === 'off' && normalizeOcrMode(false) === 'off' && normalizeOcrMode('off') === 'off');
+t("normalizeOcrMode：false/'off'/'关' → off（显式关）", normalizeOcrMode(false) === 'off' && normalizeOcrMode('off') === 'off' && normalizeOcrMode('关') === 'off');
+t("★ normalizeOcrMode：undefined/null/空串 → auto（2026-10-18 用户要求「OCR 识别默认成自动」）", normalizeOcrMode(undefined) === 'auto' && normalizeOcrMode(null) === 'auto' && normalizeOcrMode('') === 'auto');
 t("normalizeOcrMode：true/'auto'/'自动'/'1'/'true'/'是' → auto（表示开启但没明说强制）", ['auto', '自动', '1', 'true', 'on', 'yes', '是'].every((v) => normalizeOcrMode(v) === 'auto') && normalizeOcrMode(true) === 'auto');
 t("normalizeOcrMode：只有 'force'/'强制' → force", normalizeOcrMode('force') === 'force' && normalizeOcrMode('强制') === 'force');
-t("normalizeOcrMode：乱填的值一律当 off（不偷下载引擎）", normalizeOcrMode('xyz') === 'off' && normalizeOcrMode('') === 'off' && normalizeOcrMode({}) === 'off');
+t("normalizeOcrMode：乱填的值一律当 off（不偷下载引擎）", normalizeOcrMode('xyz') === 'off' && normalizeOcrMode({}) === 'off');
 t("clampMaxPages：空串/0 → 默认 20；'50' → 50；超界 → 200", clampMaxPages('') === 20 && clampMaxPages(0) === 20 && clampMaxPages('50') === 50 && clampMaxPages(9999) === 200);
 t("clampTimeout：空串/负数 → 120000；'2000' → 2000；下限 1000；上限 1800000", clampTimeout('') === 120000 && clampTimeout(-5) === 120000 && clampTimeout('2000') === 2000 && clampTimeout(10) === 1000 && clampTimeout(99999999) === 1800000);
 

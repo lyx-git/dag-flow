@@ -54,8 +54,14 @@ const PARAMS_TIPS = [
   '值里可用上游数据引用：{{节点id.out}} / {{节点id.out.字段}} / {{vars.变量}} / {{inputs.输入}}。',
   '长文本点该行框内右侧的「多行框」图标切成代码级编辑框（不用写 JSON 转义）；要改回单行，点编辑器工具栏上的「单行框」图标。',
   '值类型自动识别：纯数字、true / false、{…} / […] 会按对应类型保存，其余按原文字符串；要强制当字符串时切「JSON 视图」给值加引号。',
-  'Tab = 4 空格缩进 · 改动即自动保存。',
+  'Tab = 4 空格缩进。',
 ].join('\n');
+// ★ 2026-10-18 用户两轮定稿：`改动即自动保存` **不进问号**（原话「还是要在明显地方提示的，不能放到
+//   小问号里面，这个提示信息属于关键提示」），但**也不另起一行、不加粗提亮**（第三轮原话「恢复成这样，
+//   并且放到小问号后面，字体颜色大小，状态统一成"3 个参数"一样的」）⇒ 最终＝标题行里紧跟说明问号之后
+//   的一小段：`N 个参数 · 改动即自动保存`，字号 / 颜色 / 字体与计数完全同款（`.dsh-wf-params-meta`）。
+//   口径：**关键提示**（影响"数据会不会丢 / 会不会真的生效"这类判断的句子）必须平铺在显眼位置——
+//   位置显眼就够了，样式跟随所在行；只有纯操作说明（语法 / 快捷键 / 怎么切多行框）才进问号。
 
 /**
  * 单行输入（扁框 + 一横线）
@@ -320,6 +326,11 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
         //   现挪到标题文字右侧（左上区）：标题行 flex+gap:8px，关闭按钮自带 margin-left:auto，
         //   插在两者之间即可稳定停在标题旁，不贴任何边线。
         createElement(InfoTip, { text: PARAMS_TIPS, className: 'dsh-wf-params-tip' }),
+        // ★ 2026-10-18 定稿：「恢复成这样，并且放到小问号后面，字体颜色大小，状态统一成"3 个参数"一样的」
+        //   ⇒ 计数 + 关键提示合成一小段，紧跟说明问号之后（标题行左区；关闭按钮自带 margin-left:auto 在最右，
+        //   两者都不会贴右内边）。样式与计数同款 `.dsh-wf-params-meta`（**不带 margin-left:auto**）。
+        createElement('span', { className: 'dsh-wf-params-meta' },
+          `${rows.filter((r) => r.k.trim()).length} 个参数 · 改动即自动保存`),
         createElement('button', { className: 'dag-flow-picker-close', title: '关闭', onClick: onClose }, '✕'),
       ),
       createElement('div', { className: 'dsh-wf-params-tabs' },
@@ -336,8 +347,6 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
           title: '变量引用：点变量插入到当前值框的光标处',
           onClick: () => setVarOpen((v) => !v),
         }, `🔗 变量（${varGroups.reduce((n, g) => n + g.chips.length, 0)}）`),
-        createElement('span', { className: 'dsh-wf-params-meta' },
-          `${rows.filter((r) => r.k.trim()).length} 个参数 · 改动即自动保存`),
       ),
       createElement('div', { className: 'dsh-wf-params-split' },
       createElement('div', { className: 'dsh-wf-params-main' },

@@ -41,6 +41,12 @@
 | Python | 3.12.14 (python-build-standalone 20260901) | `python/3.12.14+20260901/win-x64/python.exe` |
 | Bash | 2.55.0.5 (MinGit 完整版，`usr/bin/sh.exe`) | `bash/2.55.0.5/win-x64/usr/bin/sh.exe` |
 | uv | 0.12.10 | `uv/0.12.10/win-x64/uv.exe` |
+| OCR 引擎（RapidOCR） | rapidocr-onnxruntime 1.4.4 / onnxruntime 1.19.2 / opencv-python-headless / pypdfium2 5.14.0 | `rapidocr/1.4.4/win-x64/`（含模型；调用脚本 `runtime/ocr/rapid_ocr.py`、`pdf_ocr.py`、`ocr_client.py`） |
+
+**Windows 上 OCR 引擎也已随包内置**（`package.json#files` 含 `runtime`）⇒ doc_parse 走 OCR **不需要下载任何东西**，
+首次跑只是第一次加载 onnxruntime + 模型（本机实测：首次识别一张 909×849 的图 **1.9s**、置信度 0.97）。
+`ensureEngine()` 只在**引擎目录读不到**时才会按需安装（当前实际情形＝非 win-x64 平台，或引擎被裁剪/删掉）：
+装进插件自带区优先、不可写才落 `<DSH_HOME>/runtime/rapidocr/<版本>/<平台>/`，装完必须真 `import` 一次复核。
 
 **macOS / Linux 用户**：首次运行（python / OCR 节点）时自动下载到 `<DSH_HOME>/runtime/`，**bash 用系统自带**。
 

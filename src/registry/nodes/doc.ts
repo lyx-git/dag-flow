@@ -276,7 +276,7 @@ export const docParseDef: NodeDefinition<DocParseParams> = {
       url: { type: 'string' },
       maxChars: { type: 'integer', minimum: 200, maximum: 2_000_000 },
       timeoutMs: { type: 'integer', minimum: 1000, maximum: 300_000 },
-      ocr: { type: 'string', enum: ['off', 'auto', 'force'], description: '图片 OCR：off 关 / auto 自动（图片就识别）/ force 强制' },
+      ocr: { type: 'string', enum: ['off', 'auto', 'force'], description: '图片 OCR：auto 自动（默认）—— 图片与扫描版 PDF 自动识别 / off 关 / force 强制（连有文本层的 PDF 也重识别）' },
       ocrMaxPages: { type: 'integer', minimum: 1, maximum: 200 },
       ocrTimeoutMs: { type: 'integer', minimum: 1000, maximum: 1_800_000 },
       extractImages: { type: 'string', enum: ['auto', 'off'], description: '抽取文档内嵌图片：auto 自动（抽到就存进统一图片目录 .dag-flow/images/，并在文本相应位置标注文件名）/ off 只解析文本' },

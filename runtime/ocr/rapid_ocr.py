@@ -8,8 +8,9 @@
 #   退出码：0 成功 / 2 入参问题 / 3 引擎导入或初始化失败 / 4 识别失败
 # ★ 除了那行带标记的 JSON，**其它一切输出都走 stderr**（OCR 库自己会往 stdout 打日志，
 #   适配层只认标记行，这样两边都不会被对方的输出干扰）。
-# ★ 引擎不在这个文件里：它由适配层装到 <DSH_HOME>/runtime/rapidocr/<版本>/<平台>/，
-#   启动时通过 PYTHONPATH 注入；本文件只负责"读图 → 调引擎 → 吐 JSON"。
+# ★ 引擎不在这个文件里：**Windows 已随包内置** runtime/rapidocr/<版本>/win-x64/（适配层首选它）；
+#   读不到时才按需装（非 win-x64 平台 / 被裁剪）：先装插件自带区，不可写再落 <DSH_HOME>/runtime/rapidocr/<版本>/<平台>/。
+#   两种情形都由适配层通过 PYTHONPATH 注入；本文件只负责"读图 → 调引擎 → 吐 JSON"。
 
 import json
 import sys

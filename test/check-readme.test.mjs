@@ -38,8 +38,10 @@ for (let i = 0; i < lines.length; i++) {
   }
 }
 if (inFence) errs.push(`代码围栏未配平：L${fenceStart} 开始的围栏没有收尾`);
-if (fenceCount % 2 !== 0) errs.push(`代码围栏总数是奇数（${fenceCount}）`);
-ok.push(`代码围栏 ${fenceCount} 个、围栏内 ${fenced.size} 行`);
+// ★ 2026-10-18 修：原先这里按「围栏总数是奇数」报错，而 fenceCount 记的是**块数**（开围栏才 ++）
+//   ⇒ 任何**只有奇数个代码块**的文档都被误判（README 恰好 16 块＝偶数才没暴露；拿本脚本校验
+//   RUNTIME_SETUP.md（1 块）时假红）。配平已由上一行的 inFence 兜住，这里不再做多余判据。
+ok.push(`代码围栏 ${fenceCount} 块、围栏内 ${fenced.size} 行`);
 
 // ---------- ② 标题与锚点 ----------
 const slugify = (s) =>
@@ -107,7 +109,9 @@ for (let i = 0; i < lines.length; i++) {
 if (badTables.length) errs.push(`表格结构问题：${badTables.join('；')}`);
 else ok.push(`表格 ${blocks} 个，列数全部对齐`);
 
-// ---------- ⑤ 过时事实回归锁 ----------
+// ---------- ⑤ 过时事实回归锁（**只对 README 生效**；传其它 .md 时只做结构校验） ----------
+const isReadme = !process.argv[2];
+if (isReadme) {
 const stale = [
   [/<工作区>\/\.dag-flow/, '「<工作区>/.dag-flow」旧存储根'],
   [/<workspace>\/\.dag-flow/, '「<workspace>/.dag-flow」旧存储根'],
@@ -130,6 +134,29 @@ for (const [needle, min] of need) {
   if (n < min) errs.push(`缺失/偏少：应至少出现 ${min} 次的「${needle}」实际 ${n} 次`);
 }
 ok.push('过时事实回归锁：无「工作区=数据根」旧表述、无 CHANGELOG 死链');
+
+// ⑥ 离线链文件数自同步（2026-10-18：README 里写死的「N 个文件」曾漂到 46、实际 52）
+//   规则：README 里若写了数字，就必须与 package.json#test:offline 的真实去重文件数一致；
+//   没写数字则跳过（不给未来改措辞的人添麻烦）。
+const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+const realCount = new Set(
+  String(pkg.scripts?.['test:offline'] ?? '')
+    .split('&&')
+    .map((s) => /^\s*node\s+(\S+)/.exec(s)?.[1])
+    .filter(Boolean),
+).size;
+const zhNum = /离线回归套件（(\d+) 个文件）/.exec(text)?.[1];
+const enNum = /offline regression suite \((\d+) files?\)/.exec(text)?.[1];
+if (zhNum || enNum) {
+  if (zhNum && Number(zhNum) !== realCount) errs.push(`离线链文件数漂了：README 中文写 ${zhNum}、实际 ${realCount}`);
+  if (enNum && Number(enNum) !== realCount) errs.push(`离线链文件数漂了：README 英文写 ${enNum}、实际 ${realCount}`);
+  if (Number(zhNum) === realCount && Number(enNum) === realCount) ok.push(`离线链文件数与 package.json 一致（${realCount} 个）`);
+} else {
+  ok.push('（README 未写离线链文件数：跳过该项比对）');
+}
+} else {
+  ok.push('（非 README：跳过"过时事实 / 必备串"检查，只校验围栏·锚点·链接·表格）');
+}
 
 // ---------- 输出 ----------
 console.log(`${relative(ROOT, README) || README}: ${lines.length} 行 / ${text.length} 字符`);

@@ -242,21 +242,45 @@ export function WebFields({ node, onParamsChange }: {
     );
   }
   if (node.type === 'doc_parse') {
+    // ★ 2026-10-18 用户要求：「文件解析节点的文件路径和 url 合并成一个输入框，输入框分为两段，前面选类型，
+    //   后面填路径」⇒ 一个 row 内：前段 select 选类型（本地路径 / 下载地址）、后段 input 填值。
+    //   切换类型时清掉另一侧（传 null ＝ 删键），避免"两个都填"的歧义（执行层 url 优先，会打架）。
+    const srcKind = String(p.url ?? '').trim() ? 'url' : 'path';
     return createElement('div', null,
-      row('!文件路径 (path)', text('path', 'documents/公告.pdf 或 D:\\文件\\报告.docx（可引用 {{u.out.path}}）'),
-        '相对路径锚定 <DSH_HOME>/.dag-flow/；支持 pdf / docx / xlsx / pptx / txt / md / csv / json / html。\n把 PDF / Office 文档 / 图片抽成纯文本喂给下游（PDF / Office 零依赖，不需要装任何库；图片和扫描版 PDF 走 OCR 引擎）。扫描版 PDF 有文本层就直接读、没有文本层才转图片识别（OCR 选「关」时它会明确报错告诉你怎么开）；旧版 .doc/.xls/.ppt 请先另存为 docx/xlsx/pptx。path 与 url 都为空时节点不执行、流程在此中断。'),
-      row('或：下载地址 (url)', text('url', 'https://…/公告.pdf'),
-        '填了 url 就忽略 path（会先下载再解析，60s 超时）'),
+      row('!文件来源', createElement('div', { className: 'dsh-wf-srcrow' },
+        createElement('select', {
+          className: 'dsh-wf-input dsh-wf-srcrow-kind',
+          title: '选择这一行填的是本地文件路径，还是下载地址',
+          value: srcKind,
+          onChange: (e: React.ChangeEvent<HTMLSelectElement>) => {
+            const next = e.target.value;
+            onParamsChange(next === 'url' ? { url: '', path: null } : { path: '', url: null });
+          },
+        },
+          createElement('option', { value: 'path' }, '本地路径'),
+          createElement('option', { value: 'url' }, '下载地址'),
+        ),
+        createElement('input', {
+          className: 'dsh-wf-input dsh-wf-srcrow-val',
+          value: srcKind === 'url' ? String(p.url ?? '') : String(p.path ?? ''),
+          // ★ 2026-10-18：两段式后输入框只剩一百多像素宽，旧 placeholder（两种路径示例 + 引用示例）
+          //   会被截成「documents/公告.pdf 或」这种半句话 ⇒ 这里只留一个能完整显示的示例，
+          //   绝对路径 / {{}} 引用 / 相对路径锚定都搬进问号气泡。
+          placeholder: srcKind === 'url' ? 'https://…/公告.pdf' : 'documents/公告.pdf',
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) => onParamsChange(
+            srcKind === 'url' ? { url: e.target.value } : { path: e.target.value }),
+        }),
+      ), '左侧「本地路径」＝读磁盘文件：相对路径锚定 <DSH_HOME>/.dag-flow/（例：documents/公告.pdf），也可以直接填绝对路径（例：D:\\文件\\报告.docx），还可以引用上游输出 {{u.out.path}}；「下载地址」＝先下载再解析（60s 超时，填了就忽略本地路径）。\n支持 pdf / docx / xlsx / pptx / txt / md / csv / json / html。把 PDF / Office 文档 / 图片抽成纯文本喂给下游（PDF / Office 零依赖，不需要装任何库；图片和扫描版 PDF 走 OCR 引擎）。扫描版 PDF 有文本层就直接读、没有文本层才转图片识别（OCR 选「关」时它会明确报错告诉你怎么开）；旧版 .doc/.xls/.ppt 请先另存为 docx/xlsx/pptx。两者都为空时节点不执行、流程在此中断。'),
       row('文本上限 (字符)', text('maxChars', '200000', 'number'), '默认 20 万；超出会截断并把 truncated 置为 true'),
       row('OCR（图片识别）', createElement('select', {
         className: 'dsh-wf-input',
-        value: (p.ocr === 'auto' || p.ocr === 'force') ? String(p.ocr) : 'off',
+        value: p.ocr === 'force' ? 'force' : (p.ocr === 'off' ? 'off' : 'auto'),
         onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onParamsChange({ ocr: e.target.value }),
       },
-        createElement('option', { value: 'off' }, '关（默认）'),
-        createElement('option', { value: 'auto' }, '自动 —— 图片识别；扫描版 PDF 自动转图片识别'),
+        createElement('option', { value: 'off' }, '关 —— 不跑 OCR（图片会明确报错、扫描版 PDF 只拿到空文本）'),
+        createElement('option', { value: 'auto' }, '自动（默认）—— 图片识别；扫描版 PDF 自动转图片识别'),
         createElement('option', { value: 'force' }, '强制 —— 连有文本层的 PDF 也重新识别'),
-      ), '图片（png / jpg / webp / bmp / tif）与扫描版 PDF（没有文本层的）都走 OCR 引擎；有文本层的 PDF 默认直接读文本、不做无用功（想强制重识别选「强制」）。扫描版 PDF 按页栅格化，最多 20 页（参数 ocrMaxPages 可调），页多会慢。'),
+      ), '图片（png / jpg / webp / bmp / tif）与扫描版 PDF（没有文本层的）都走 OCR 引擎；有文本层的 PDF 直接读文本、不做无用功（想强制重识别选「强制」）。扫描版 PDF 按页栅格化，最多 20 页（参数 ocrMaxPages 可调），页多会慢。'),
       row('抽取内嵌图片', createElement('select', {
         className: 'dsh-wf-input',
         value: p.extractImages === 'off' ? 'off' : 'auto',

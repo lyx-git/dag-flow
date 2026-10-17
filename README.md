@@ -388,16 +388,19 @@ registerNode({
 | [`docs/ERROR_REFERENCE.md`](docs/ERROR_REFERENCE.md) | 全部错误码与含义 |
 | [`docs/SCHEDULE-PLAN.md`](docs/SCHEDULE-PLAN.md) | 定时任务设计 |
 | [`docs/EXEC-MODEL-MERGE.md`](docs/EXEC-MODEL-MERGE.md) | 执行模型（失败策略语义） |
+| [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) | 开发规范（每次改动必读 + 检查清单） |
 | [`RUNTIME_SETUP.md`](RUNTIME_SETUP.md) | 运行时（Python/Bash/uv）说明 |
 
 ---
 
 ## 开发者
 
+> **动手前先读 [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md)**：公共开发规范（分层/命名/UI 口径/参数设计/闸门/交付流程 + 每次修改的检查清单），每次改动都要照它走。
+
 ```bash
 npm run typecheck        # TypeScript 类型检查
 npm run build            # 构建 host + client 两个产物
-npm run test:offline     # 离线回归套件（46 个文件）
+npm run test:offline     # 离线回归套件（52 个文件）
 npm run fetch:runtime    # 按需下载内置运行时
 ```
 
@@ -702,7 +705,7 @@ Python / Bash nodes run inside that data root (empty `cwd` = `<DSH_HOME>/.dag-fl
 ```bash
 npm run typecheck        # TypeScript check
 npm run build            # build host + client bundles
-npm run test:offline     # offline regression suite (46 files)
+npm run test:offline     # offline regression suite (52 files)
 npm run fetch:runtime    # download bundled runtime on demand
 ```
 

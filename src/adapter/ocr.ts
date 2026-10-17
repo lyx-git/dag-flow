@@ -106,15 +106,18 @@ interface OcrEngineState {
 
 // ==================== 参数容错（面板写的是字符串！见 lesson「面板参数形态」） ====================
 
-/** 把面板/JSON/模板传进来的任意值收敛成三档。未知值一律当 `off`（不改变既有行为、不偷偷下载引擎）。
+/** 把面板/JSON/模板传进来的任意值收敛成三档。
+ *  ★ 2026-10-18 用户要求「OCR 识别默认成自动」：**未给 / 空串 = `auto`**（不再默认关）。
+ *    显式关闭只认 `off` / `false` / `0` / `关`；**未知值仍一律当 `off`**（不改变既有行为、不偷偷下载引擎）。
  *  ★ 凡"表示开启但没明说强制"的值（true / '1' / 'on' / 'yes'）都收敛成 **auto**：
  *    auto 的语义是"有原生文本就用文本，没有才 OCR"，比 force 安全（不会白花几十秒）。强制要明说 `force` / `强制`。 */
 export function normalizeOcrMode(v: unknown): OcrMode {
   if (v === true) return 'auto';
-  if (v === false || v == null) return 'off';
+  if (v === false) return 'off';
+  if (v == null) return 'auto';                                    // ★ 未给 ⇒ 默认自动
   if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? 'auto' : 'off';
   const s = String(v).trim().toLowerCase();
-  if (!s) return 'off';
+  if (!s) return 'auto';                                           // ★ 空串 ⇒ 视为未给 ⇒ 默认自动
   if (s === 'force' || s === '强制') return 'force';
   if (s === 'auto' || s === '自动' || s === 'true' || s === '1' || s === 'on' || s === 'yes' || s === 'y' || s === '是') return 'auto';
   return 'off';

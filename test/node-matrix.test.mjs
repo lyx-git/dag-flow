@@ -361,7 +361,8 @@ const target = (r) => r.body?.summary?.results?.target;
   t('21g10. PDF 重复解析幂等（reused=true）', target(rPdfAgain)?.status === 'success' && target(rPdfAgain)?.out?.images?.[0]?.reused === true, JSON.stringify(target(rPdfAgain)?.out?.images)?.slice(0, 160));
 
   // ★ 21g11–21g13（2026-10-16 第二轮·用户追加：「只有图没有文字的，text 里面说明抽出来的图片地址就行」）：
-  //   扫描件（无文本层 + 整页图片）+ OCR 关 ⇒ **不再报错**，文本给出抽出的图片名（落盘后的真实地址）。
+  //   扫描件（无文本层 + 整页图片）+ OCR **显式关** ⇒ **不再报错**，文本给出抽出的图片名（落盘后的真实地址）。
+  //   注意：2026-10-18 起 ocr 默认值 = auto，所以这三条必须**显式**传 off 才表达「关」的语义。
   const scanImgPdf = (() => {
     const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(20, 0x44), Buffer.from([0xff, 0xd9])]);
     const content = 'q 100 0 0 100 50 600 cm /Im1 Do Q';          // 没有 BT/ET ⇒ 无文本层
@@ -381,11 +382,11 @@ const target = (r) => r.body?.summary?.results?.target;
   })();
   const scanImgPath = join(process.cwd(), 'matrix-scan-img.pdf');
   writeFileSync(scanImgPath, scanImgPdf.buf);
-  const rOnly = await runNode('doc_parse', { path: scanImgPath });
+  const rOnly = await runNode('doc_parse', { path: scanImgPath, ocr: 'off' });
   const oOnly = target(rOnly)?.out;
-  t('21g11. ★ 纯图 PDF（无文本层）+ OCR 关 ⇒ 成功返回、文本给出图片地址', target(rOnly)?.status === 'success' && /\[图片：matrix-scan-img-1\.jpg\]/.test(String(oOnly?.text)) && oOnly?.meta?.imagesOnly === true, JSON.stringify(oOnly?.text)?.slice(0, 200) + ' / ' + String(target(rOnly)?.error?.code));
+  t('21g11. ★ 纯图 PDF（无文本层）+ OCR 显式关 ⇒ 成功返回、文本给出图片地址', target(rOnly)?.status === 'success' && /\[图片：matrix-scan-img-1\.jpg\]/.test(String(oOnly?.text)) && oOnly?.meta?.imagesOnly === true, JSON.stringify(oOnly?.text)?.slice(0, 200) + ' / ' + String(target(rOnly)?.error?.code));
   t('21g12. 纯图 PDF 抽出的图落进统一图片目录（且字节原样）', existsSync(join(imgDir, 'matrix-scan-img-1.jpg')) && Number(oOnly?.meta?.imageCount) === 1 && Number(oOnly?.images?.[0]?.bytes) === scanImgPdf.jpeg.length, JSON.stringify(oOnly?.meta) + ' ' + JSON.stringify(oOnly?.images)?.slice(0, 160));
-  const rOnlyOff = await runNode('doc_parse', { path: scanImgPath, extractImages: 'off' });
+  const rOnlyOff = await runNode('doc_parse', { path: scanImgPath, extractImages: 'off', ocr: 'off' });
   t('21g13. 纯图 PDF + extractImages:off ⇒ 保持原报错（契约不变）', target(rOnlyOff)?.error?.code === 'DOC_NO_TEXT_LAYER', String(target(rOnlyOff)?.error?.code));
 
   // ★ 21h–21l（2026-10-11 轮 2：图片 OCR）。用**假引擎**（DAGFLOW_OCR_* 逃生舱 + node 冒充解释器）
@@ -402,8 +403,8 @@ const target = (r) => r.body?.summary?.results?.target;
   const png = join(process.cwd(), 'matrix-img.png');
   writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));   // 假引擎不真读图，内容随意
 
-  const imgOff = await runNode('doc_parse', { path: png });
-  t('21h. 图片 + OCR 关（缺省）→ OCR_DISABLED，明确告诉去开', target(imgOff)?.error?.code === 'OCR_DISABLED' && /OCR/.test(String(target(imgOff)?.error?.message)), String(target(imgOff)?.error?.code));
+  const imgOff = await runNode('doc_parse', { path: png, ocr: 'off' });
+  t('21h. 图片 + OCR 显式关 → OCR_DISABLED，明确告诉去开', target(imgOff)?.error?.code === 'OCR_DISABLED' && /OCR/.test(String(target(imgOff)?.error?.message)), String(target(imgOff)?.error?.code));
 
   const imgAuto = await runNode('doc_parse', { path: png, ocr: 'auto' });
   const imgOut = target(imgAuto)?.out;
@@ -427,8 +428,8 @@ const target = (r) => r.body?.summary?.results?.target;
     'trailer\n<< /Root 1 0 R >>\n%%EOF',
   ].join('\n'), 'latin1');
 
-  const scanOff = await runNode('doc_parse', { path: scanPdf });
-  t('21l. 扫描版 PDF + OCR 关 → DOC_NO_TEXT_LAYER（不静默）', target(scanOff)?.error?.code === 'DOC_NO_TEXT_LAYER', String(target(scanOff)?.error?.code));
+  const scanOff = await runNode('doc_parse', { path: scanPdf, ocr: 'off' });
+  t('21l. 扫描版 PDF + OCR 显式关 → DOC_NO_TEXT_LAYER（不静默）', target(scanOff)?.error?.code === 'DOC_NO_TEXT_LAYER', String(target(scanOff)?.error?.code));
 
   // 假「栅格化 + OCR」脚本（契约与 runtime/ocr/pdf_ocr.py 一致），链保持离线
   const fakePdfStub = join(process.cwd(), 'matrix-pdf-ocr-stub.mjs');
