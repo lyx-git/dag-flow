@@ -213,7 +213,7 @@ dsh plugin --profile web add github:lyx-git/dag-flow#6bab0245a5ab5655cb5d2d63f55
 | `switch` | 多路分支 | 多选一 | `value`, `cases` |
 | `merge` | 合流 | 并行分支汇合（≥2 上游） | `keys?` |
 | `subflow` | 子工作流 | 调用另一个已保存的工作流 | `workflowName`, `inputs?` |
-| `loop` | 循环 | 迭代计数 + 每轮调子工作流 | `count?` / `while?` / `over?`, `body?` |
+| `loop` | 循环 | 迭代计数 + 每轮调子工作流 | `count?` / `over?`, `body?`, `roundIf?` |
 | `manual` | 手动确认 | 暂停等人工点确认 | `prompt` |
 
 ### 脚本 / IO / AI / 多模态 / 数据
@@ -350,7 +350,41 @@ A：插件已强制 `PYTHONIOENCODING=utf-8`。若你在**插件之外**单独�
 
 ### 循环怎么用
 
-`loop` 节点本身只产出迭代序列（`count` / `items`）；**真正的"循环执行一段流程"靠循环体**：在 `loop` 的参数里选一个**子工作流**作为循环体，每轮把 `{{vars.loopItem}}` / `{{vars.loopIndex}}` 注入进去，子工作流的输出会依次收集到 `loop.out.items`。
+`loop` 节点**只产出迭代序列**（`out.count` / `out.items`）—— 它自己不会重复执行下游节点。真正"循环跑一段流程"要配**循环体**（一个已保存的子工作流）。
+
+**第 1 步：定"跑几次"**（二选一，优先级 `over` > `count`）
+
+| 边界 | 填什么 | 典型场景 |
+|---|---|---|
+| 遍历数组 `over` | 一个**数组**，通常是引用上游输出：`{{search1.out.results}}`（整串必须是纯引用，不要拼接） | 抓到 N 条结果，逐条处理 |
+| 固定次数 `count` | 一个整数框，填几次就跑几次（如 `3`）—— count 模式没有第二个"上限"框，这个数就是上限 | 重试 3 次、固定轮数 |
+
+> **条件循环（`while`）已在 2026-10-19 移除**：要「满足某个条件就整体结束」，请在**循环体（子工作流）里用条件节点判断**，满足就让 `end` 输出 `break: true`（见下面的打断说明）。老工作流里只配了 while 的循环节点会显示成「（当前值：旧版条件循环，已移除）」，运行时报 `LOOP_NO_BOUND`，改成 `count` / `over` 即可。
+
+**第 2 步：给循环体传参**（`🔁 循环体（可选）` → 选子工作流）
+
+映射的**左边**＝子工作流自己的「工作流参数」名字（选中后右侧面板会列出来）；**右边**＝每轮传什么：
+
+| 右边可以写 | 含义 |
+|---|---|
+| `{{vars.loopItem}}` | 当轮的项（`over` 模式＝数组元素；`count` 模式＝轮次序号） |
+| `{{vars.loopItem.字段}}` | 当轮项是对象时取字段，如 `{{vars.loopItem.url}}` |
+| `{{vars.loopIndex}}` | 轮次序号（从 0 开始） |
+| `{{vars.lastOutput.字段}}` | 上一轮循环体 `end` 的输出（第一轮是空对象）—— 用来"接着上一轮往下干"：游标、累加、翻页 |
+| `{{节点id.out.x}}` | 上游节点的输出 |
+| 常量 | 如 `固定前缀` |
+
+例：子工作流参数叫 `topic` 与 `n` ⇒ 映射写成 `topic = {{vars.loopItem.title}}`、`n = {{vars.loopIndex}}`。
+
+**第 3 步：拿结果** 子工作流 `end` 节点的输出会**按轮次依次收进 `loop.out.items`**，下游直接写 `{{loop1.out.items}}`（轮数在 `out.count`）。某轮失败时默认整节点失败、但**已完成轮次保留在 `out.items`**；想跳过失败轮，在循环体下方设「某轮失败 → 写占位并继续跑」。
+
+> **从循环体里提前结束**（打断）：让子工作流 `end` 的输出里带 `break: true`，这一轮跑完就停、剩余轮不再跑 —— 节点仍算成功，`out` 里多出 `broken: true` 与 `breakAt`（第几轮停的）。常用做法：子工作流里用 `if` 判断，满足就把 `break` 放进 `end` 的输出（如 `set_var` 写 `break=true`，`end` 会自动把 `vars` 带进输出）。不写 `break` 的循环行为完全不变。
+
+> **「每轮条件」（可选，自定义判断）**：填一段表达式，每轮开始前求值 —— **为真才执行本轮循环体，为假就跳过这一轮、进入下一轮**（跳过的轮不写进 `out.items`）。可引用 `lastOutput`（上一轮循环体 `end` 的输出）与 `loopIndex`（轮次序号），例：只处理偶数轮写 `loopIndex % 2 == 0`。配了它之后 `out` 里会多出 `rounds`（共经过几轮）与 `skipped`（跳过几轮）；没配循环体时不生效。
+
+> 没配循环体时，`loop` 只产出序列、不执行任何流程。（条件循环 `while` 已移除，要"跑到条件满足"用 count + 每轮条件 + 循环体里的 `break`。）
+
+> **「最大迭代次数」填与不填**（只出现在 `over` 下；`count` 模式只有一个「跑几次」框）：**不填＝不限** —— `over` 按数组实际长度执行（有几条跑几条），只受 100000 的硬保护。**填了就按填的值截断**：`over` 超过它只处理前 N 项、节点仍算成功 —— 此时 `out` 里带 `truncated: true`、`requested`（本来要处理多少）、`processed`（实际处理多少），据此判断有没有少跑。
 
 ### 自定义节点
 
@@ -622,7 +656,7 @@ The self-check validates structure, **references-without-edges**, unreachable no
 | `switch` | Multi-way branch | `value`, `cases` |
 | `merge` | Join parallel branches (≥2 upstreams) | `keys?` |
 | `subflow` | Call another saved workflow | `workflowName`, `inputs?` |
-| `loop` | Iteration count + optional sub-workflow body | `count?` / `while?` / `over?`, `body?` |
+| `loop` | Iteration count + optional sub-workflow body | `count?` / `over?`, `body?`, `roundIf?` |
 | `manual` | Pause for human confirmation | `prompt` |
 | `python` | Run a Python 3.12 script | `code` or `codePath` |
 | `bash` | Run a Bash script | `code` or `codePath` |

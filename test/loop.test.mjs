@@ -3,7 +3,7 @@ import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 
 // test/loop.test.mjs — loop 节点语义专项验证
 //
 // 背景（2026-10-03 用户要求「验证 loop 功能」）：api-e2e 此前只覆盖了 loop.over 一条，
-// count / while / 无边界 / 上限守卫 / 边界优先级全部没有钉子。本文件把它们逐个钉死，
+// count / over / 无边界 / 上限守卫 / 边界优先级 / 每轮条件 / 打断全部有钉子。（while 条件循环 2026-10-19 已移除）
 // 并对演示工作流「全节点演示-技术简报」做**接线回归锁**（loop 节点 + switch 边自洽）。
 //
 // 手段：伪造 cordis ctx → 调 dist/index.js 的 apply(ctx) → 把捕获路由挂成本地服务
@@ -131,6 +131,73 @@ console.log('\n== C. maxIterations 截断 / 边界优先级 ==');
   t('截断取前 N 项', JSON.stringify(results.lp?.out?.items) === '["a","b"]', JSON.stringify(results.lp?.out?.items));
 }
 
+// ★ 2026-10-19（用户拍板 A：让「超上限」可见）：count / over 超 maxIterations 以前是**静默截断**
+//   （out.count 只显示 1000，看不出还有几千项没跑）⇒ 现在真截断时 out 里带 truncated / requested / processed；
+//   没截断时 out 形态与以前一字不差（既有下游引用零影响）。
+{
+  const { results } = await run({
+    name: 'loop-trunc-over', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', params: { items: ['a', 'b', 'c', 'd'] }, next: 'lp' },
+      { id: 'lp', type: 'loop', params: { over: '{{start.out.items}}', maxIterations: 2 }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  });
+  const o = results.lp?.out ?? {};
+  t('over 截断时 out 标 truncated:true', o.truncated === true, JSON.stringify(o));
+  t('over 截断时 requested=4 / processed=2', o.requested === 4 && o.processed === 2, JSON.stringify(o));
+}
+{
+  const { results } = await run({
+    name: 'loop-trunc-count', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'lp' },
+      { id: 'lp', type: 'loop', params: { count: 5, maxIterations: 2 }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  });
+  const o = results.lp?.out ?? {};
+  t('count 截断同样标出（requested=5 / processed=2）', o.truncated === true && o.requested === 5 && o.processed === 2, JSON.stringify(o));
+}
+{
+  const { results } = await run({
+    name: 'loop-nocap', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'lp' },
+      { id: 'lp', type: 'loop', params: { count: 2 }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  });
+  const o = results.lp?.out ?? {};
+  t('没截断时 out 只有 count / items（形态与改动前一致）', Object.keys(o).sort().join(',') === 'count,items', JSON.stringify(o));
+}
+
+// ★ 2026-10-19 第二轮（用户原话「不填应该是按照默认数组实际有多少数据执行的吧，填了才是按照数据截断」，
+//   拍板 A）：count / over **留空＝不限** —— 以前那个"不填＝1000"的隐形上限取消，按数据实际长度跑。
+{
+  const { results } = await run({
+    name: 'loop-blank-over', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', params: { items: Array.from({ length: 1200 }, (_, i) => i) }, next: 'lp' },
+      { id: 'lp', type: 'loop', params: { over: '{{start.out.items}}' }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  });
+  const o = results.lp?.out ?? {};
+  t('over 1200 项 + 不填上限 → 跑满 1200（不再截断到 1000）', o.count === 1200, JSON.stringify({ count: o.count, truncated: o.truncated }));
+  t('不填上限且没触及硬保护 → 不带 truncated', o.truncated === undefined, JSON.stringify(o.truncated));
+}
+{
+  const { results } = await run({
+    name: 'loop-blank-count', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'lp' },
+      { id: 'lp', type: 'loop', params: { count: 1200 }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  });
+  t('count 1200 + 不填上限 → 跑满 1200', results.lp?.out?.count === 1200, JSON.stringify(results.lp?.out?.count));
+}
 {
   const { results } = await run({
     name: 'loop-prio', version: 1,
@@ -143,69 +210,41 @@ console.log('\n== C. maxIterations 截断 / 边界优先级 ==');
   t('over 与 count 同时给 → over 优先（count 被忽略）', results.lp?.out?.count === 1, JSON.stringify(results.lp?.out));
 }
 
-console.log('\n== D. while 条件 ==');
+console.log('\n== C2. over 配了但解析出来不是数组（2026-10-19 用户拍板「改」）==');
+//  以前会一路落到 count / while ⇒ 最后报 LOOP_NO_BOUND「缺少循环边界」，把"没配"和"配了但取值失败"混成一句，
+//  用户看到只会以为自己没填。现在给专属码 + 实际类型 + 检查方向。
 {
   const { results } = await run({
-    name: 'loop-while-false', version: 1,
+    name: 'loop-over-not-array', version: 1,
     nodes: [
       { id: 'start', type: 'start', next: 'lp' },
-      { id: 'lp', type: 'loop', params: { while: 'false' }, next: 'end' },
+      { id: 'lp', type: 'loop', params: { over: 'not-an-array' }, next: 'end' },
       { id: 'end', type: 'end' },
     ],
   });
-  t('while=false → 0 次且 success', results.lp?.status === 'success' && results.lp?.out?.count === 0, JSON.stringify(results.lp?.out));
+  t('★ over 是字符串（不是数组）→ 专属码 LOOP_OVER_NOT_ARRAY',
+    results.lp?.error?.code === 'LOOP_OVER_NOT_ARRAY', JSON.stringify(results.lp?.error?.code));
+  const m = String(results.lp?.error?.message ?? '');
+  t('★ 消息给出实际类型 + 检查方向（"不是数组" / "string" / "out.items"）',
+    /不是数组/.test(m) && /string/.test(m) && /out\.items/.test(m), m.slice(0, 220));
+}
+{
+  // 空串（面板刚切到 over、还没填值）**不算配了** ⇒ 仍按"没有边界"处理，不能被新判据抢走
+  const { results } = await run({
+    name: 'loop-over-empty', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'lp' },
+      { id: 'lp', type: 'loop', params: { over: '' }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  });
+  t('over 空串仍报 LOOP_NO_BOUND（不误判成"配了但类型错"）',
+    results.lp?.error?.code === 'LOOP_NO_BOUND', JSON.stringify(results.lp?.error?.code));
 }
 
-{
-  const { results } = await run({
-    name: 'loop-while-cap', version: 1,
-    nodes: [
-      { id: 'start', type: 'start', next: 'lp' },
-      { id: 'lp', type: 'loop', params: { while: 'true', maxIterations: 3 }, next: 'end' },
-      { id: 'end', type: 'end' },
-    ],
-  });
-  t('while=true 达上限且未授权 → failed', results.lp?.status === 'failed', results.lp?.status);
-  t('错误码 LOOP_MAX_ITER', results.lp?.error?.code === 'LOOP_MAX_ITER', JSON.stringify(results.lp?.error));
-  t('错误消息含 maxIterations 与 dangerouslyAllowInfinite', /dangerouslyAllowInfinite/.test(String(results.lp?.error?.message)), String(results.lp?.error?.message));
-}
-
-{
-  const { results } = await run({
-    name: 'loop-while-inf', version: 1,
-    nodes: [
-      { id: 'start', type: 'start', next: 'lp' },
-      { id: 'lp', type: 'loop', params: { while: 'true', maxIterations: 3, dangerouslyAllowInfinite: true }, next: 'end' },
-      { id: 'end', type: 'end' },
-    ],
-  });
-  t('while=true + dangerouslyAllowInfinite → 跑满 3 次 success', results.lp?.status === 'success' && results.lp?.out?.count === 3, JSON.stringify(results.lp?.out));
-}
-
-{
-  // 自引用条件（loop 自己的 out 在运行中不存在）→ 文档化的能力边界
-  const { results } = await run({
-    name: 'loop-while-self', version: 1,
-    nodes: [
-      { id: 'start', type: 'start', next: 'lp' },
-      { id: 'lp', type: 'loop', params: { while: 'lp.out.count < 3', maxIterations: 10 }, next: 'end' },
-      { id: 'end', type: 'end' },
-    ],
-  });
-  // ★ 实测（2026-10-03）：自引用 while 不是静默 0 次，而是以 UNCAUGHT 收场，
-  //   消息 "表达式求值失败: undefined variable: lp" 且夹带完整 stack。
-  //   ★ 2026-10-11 已修（用户要求 ②）：换成专属码 LOOP_COND_ERROR + 人话 + 出路（count / over）。
-  info('while 自引用实测：' + JSON.stringify({ status: results.lp?.status, code: results.lp?.error?.code }));
-  t('while 引用自身 out → failed（能力边界已锁定）', results.lp?.status === 'failed', JSON.stringify(results.lp?.out));
-  t('★ while 条件求值失败 → 专属码 LOOP_COND_ERROR（不再是无信息量的 UNCAUGHT）', results.lp?.error?.code === 'LOOP_COND_ERROR', JSON.stringify(results.lp?.error?.code));
-  t('错误消息仍带出原始原因（undefined variable）', /undefined variable/.test(String(results.lp?.error?.message)), String(results.lp?.error?.message));
-  {
-    const m = String(results.lp?.error?.message ?? '');
-    t('★ 消息给出出路：count（固定次数）/ over（遍历数组）', /count/.test(m) && /over/.test(m), m.slice(0, 160));
-    t('★ 消息不含 Markdown 星号（纯文本会被原样渲染）', !/\*\*/.test(m));
-  }
-  info('while 只能看运行前已完成的节点；循环体内部状态无法反映到条件里（v0.1 限制）');
-}
+// ★ 2026-10-19（用户拍板：while 条件循环整条移除）：原 D 段「while 条件」的全部用例已删除
+//   （while=false / while 达上限 LOOP_MAX_ITER / dangerouslyAllowInfinite / 自引用求值失败都随之退役）。
+//   "跑到满足条件为止"改用循环体里的条件节点 + end 输出 break: true（见 C6）。
 
 console.log('\n== E. 无边界守卫 ==');
 {
@@ -217,7 +256,7 @@ console.log('\n== E. 无边界守卫 ==');
       { id: 'end', type: 'end' },
     ],
   });
-  t('count/while/over 全缺 → failed', results.lp?.status === 'failed', results.lp?.status);
+  t('count/over 全缺 → failed', results.lp?.status === 'failed', results.lp?.status);
   t('错误码 LOOP_NO_BOUND', results.lp?.error?.code === 'LOOP_NO_BOUND', JSON.stringify(results.lp?.error));
 }
 
@@ -324,6 +363,179 @@ console.log('\n== G. 循环体 = 子工作流（方案 A，2026-10-03 用户拍�
   t('G7. continue：失败轮写占位并继续跑完', r5.results.lp?.status === 'success' && r5.results.lp?.out?.count === 2 && r5.results.lp?.out?.items?.[0]?.error?.code === 'SUBFLOW_FAILED', JSON.stringify(r5.results.lp?.out)?.slice(0, 240));
 }
 
+// ★ 2026-10-19（用户拍板：while 条件循环整条移除）：原 C3 段「while 引用上一轮输出 / 轮次序号」的 ①~④ 已删除。
+//   其中"条件表达式求值器"那条能力仍然有效，用 if 条件继续钉住 ↓
+console.log('\n== C3. 表达式求值器（while 已移除，用 if 条件继续钉）==');
+{
+  const r6 = await run({
+    name: 'expr-orop', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'br' },
+      { id: 'br', type: 'if', params: { condition: 'false || true' }, next: { true: 't', false: 'f' } },
+      { id: 't', type: 'log', params: { message: 'T' }, next: 'end' },
+      { id: 'f', type: 'log', params: { message: 'F' }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  });
+  t('★ 表达式 `||` 不再静默失效（false || true ⇒ 走 true 分支）',
+    r6.results.t?.status === 'success', `t=${JSON.stringify(r6.results.t?.status)} f=${JSON.stringify(r6.results.f?.status)}`);
+}
+
+console.log('\n== C4. 循环体传参拿上一轮输出（2026-10-19 用户选 A：{{vars.lastOutput}}）==');
+{
+  // 专用子工作流：把收到的 text 原样从 end 回显（声明了工作流参数 text）。
+  const echoChild = {
+    name: 'loop-echo-child', version: 1,
+    inputs: { text: '' },
+    nodes: [
+      { id: 'start', type: 'start', next: 'end' },
+      { id: 'end', type: 'end', params: { outputs: { text: '{{inputs.text}}' } } },
+    ],
+  };
+  await post('/workflows/save', { name: 'loop-echo-child', def: echoChild });
+  // 每轮把"上一轮回显的 text"再接一个 x ⇒ 长度必须逐轮 +1（只依赖长度，对首轮 undefined 的具体形态不敏感）
+  const r = await run({
+    name: 'loop-lastoutput-input', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'lp' },
+      { id: 'lp', type: 'loop', params: {
+        count: 3,
+        body: { workflowName: 'loop-echo-child', inputs: { text: '{{vars.lastOutput.text}}x' } },
+      }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  });
+  const it = r.results.lp?.out?.items ?? [];
+  const len = (i) => String(it[i]?.text ?? '').length;
+  t('★ 循环体传参可引用上一轮输出（{{vars.lastOutput.text}}：每轮回显长度 +1）',
+    it.length === 3 && len(1) === len(0) + 1 && len(2) === len(1) + 1,
+    JSON.stringify(it)?.slice(0, 240));
+}
+
+// ★ 2026-10-19（用户拍板：while + whileMode 整条移除）：原 C5 段「while 两种模式（真/假继续）」3 条用例已删除。
+//   "跑到满足条件为止"改用 count + 每轮条件 + 循环体里的 break（见 C6 / C7）。
+
+console.log('\n== C6. 从循环体里打断循环（end 输出 break: true，2026-10-19 用户拍板 A）==');
+{
+  // ① 恒定打断：子工作流每轮都回 break: true ⇒ 第 1 轮跑完就停（count 5 也只用 1 轮）
+  const breakYes = {
+    name: 'loop-break-yes', version: 1, inputs: { n: 0 },
+    nodes: [
+      { id: 'start', type: 'start', next: 'end' },
+      { id: 'end', type: 'end', params: { outputs: { n: '{{inputs.n}}', break: true } } },
+    ],
+  };
+  await post('/workflows/save', { name: 'loop-break-yes', def: breakYes });
+  const r1 = await run({
+    name: 'loop-break-always', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'lp' },
+      { id: 'lp', type: 'loop', params: { count: 5, body: { workflowName: 'loop-break-yes', inputs: { n: '{{vars.loopIndex}}' } } }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  });
+  const o1 = r1.results.lp?.out ?? {};
+  t('★ end 输出 break:true ⇒ 本轮跑完就停（count=5 只跑 1 轮，节点仍 success）',
+    r1.results.lp?.status === 'success' && o1.count === 1 && o1.broken === true && o1.breakAt === 1,
+    JSON.stringify({ status: r1.results.lp?.status, out: o1 })?.slice(0, 200));
+
+  // ② 不写 break ⇒ 行为与改动前完全一致（不出现 broken 字段）
+  const breakNo = {
+    name: 'loop-break-no', version: 1, inputs: { n: 0 },
+    nodes: [
+      { id: 'start', type: 'start', next: 'end' },
+      { id: 'end', type: 'end', params: { outputs: { n: '{{inputs.n}}' } } },
+    ],
+  };
+  await post('/workflows/save', { name: 'loop-break-no', def: breakNo });
+  const r2 = await run({
+    name: 'loop-break-never', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'lp' },
+      { id: 'lp', type: 'loop', params: { count: 3, body: { workflowName: 'loop-break-no', inputs: { n: '{{vars.loopIndex}}' } } }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  });
+  const o2 = r2.results.lp?.out ?? {};
+  t('没有 break 信号 ⇒ 跑满 3 轮且不带 broken（纯加法，老循环一字不变）',
+    o2.count === 3 && !('broken' in o2) && !('breakAt' in o2), JSON.stringify(o2)?.slice(0, 160));
+
+  // ③ 推荐配方：子工作流里用 if + set_var 决定是否打断（end 会自动把 vars 带进输出）
+  const breakCond = {
+    name: 'loop-break-cond', version: 1, inputs: { n: 0 },
+    nodes: [
+      { id: 'start', type: 'start', next: 'br' },
+      { id: 'br', type: 'if', params: { condition: 'inputs.n == 1' }, next: { true: 'sv', false: 'end' } },
+      { id: 'sv', type: 'set_var', params: { vars: { break: true } }, next: 'end' },
+      { id: 'end', type: 'end', params: { outputs: { n: '{{inputs.n}}' } } },
+    ],
+  };
+  await post('/workflows/save', { name: 'loop-break-cond', def: breakCond });
+  const r3 = await run({
+    name: 'loop-break-cond-main', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'lp' },
+      { id: 'lp', type: 'loop', params: { count: 5, body: { workflowName: 'loop-break-cond', inputs: { n: '{{vars.loopIndex}}' } } }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  });
+  const o3 = r3.results.lp?.out ?? {};
+  t('★ 条件打断（if → set_var break=true）：count=5 在第 2 轮（n==1）后停 ⇒ count=2 / breakAt=2',
+    o3.count === 2 && o3.broken === true && o3.breakAt === 2, JSON.stringify(o3)?.slice(0, 200));
+}
+
+console.log('\n== C7. 每轮条件 roundIf：为真才执行本轮，为假跳过继续下一轮（2026-10-19 用户拍板 A）==');
+{
+  // 复用 C6 的 loop-break-no（把收到的 n 原样回显）当循环体
+  const r1 = await run({
+    name: 'loop-roundif-skip', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'lp' },
+      { id: 'lp', type: 'loop', params: {
+        count: 4, roundIf: 'loopIndex != 1',
+        body: { workflowName: 'loop-break-no', inputs: { n: '{{vars.loopIndex}}' } },
+      }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  });
+  const o1 = r1.results.lp?.out ?? {};
+  const ns = (o1.items ?? []).map((x) => x?.n).join(',');
+  t('★ roundIf 为假的轮被跳过（count=4、条件 loopIndex != 1 ⇒ 执行 0,2,3 三轮）',
+    r1.results.lp?.status === 'success' && o1.count === 3 && ns === '0,2,3',
+    JSON.stringify({ status: r1.results.lp?.status, count: o1.count, ns })?.slice(0, 200));
+  t('配了 roundIf ⇒ out 里带 rounds=4 / skipped=1',
+    o1.rounds === 4 && o1.skipped === 1, JSON.stringify({ rounds: o1.rounds, skipped: o1.skipped }));
+
+  // ② 每轮条件写错（引用不存在的变量）⇒ 专属失败，不许静默当 false 一路跳过
+  const r2 = await run({
+    name: 'loop-roundif-bad', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'lp' },
+      { id: 'lp', type: 'loop', params: {
+        count: 2, roundIf: 'nope.x == 1',
+        body: { workflowName: 'loop-break-no', inputs: { n: '{{vars.loopIndex}}' } },
+      }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  });
+  t('roundIf 求值失败 ⇒ LOOP_COND_ERROR 且文案指向「每轮条件」',
+    r2.results.lp?.error?.code === 'LOOP_COND_ERROR' && /每轮条件/.test(String(r2.results.lp?.error?.message ?? '')),
+    JSON.stringify(r2.results.lp?.error)?.slice(0, 200));
+
+  // ③ 没有循环体时不生效（loop 只产出迭代序列），out 形态也不带 rounds/skipped
+  const r3 = await run({
+    name: 'loop-roundif-nobody', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'lp' },
+      { id: 'lp', type: 'loop', params: { count: 3, roundIf: 'false' }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  });
+  const o3 = r3.results.lp?.out ?? {};
+  t('没配循环体 ⇒ roundIf 不生效（仍产出 3 项，且不带 rounds/skipped）',
+    o3.count === 3 && !('rounds' in o3) && !('skipped' in o3), JSON.stringify(o3));
+}
+
 console.log('\n== H. switch 多 case 共用一个目标节点（2026-10-03 log_mode 被误跳过回归锁）==');
 /** 被条件分支排除的节点：引擎会写一条 status='skipped' 的占位结果 */
 const isSkipped = (r) => r?.status === 'skipped';
@@ -385,8 +597,8 @@ if (!existsSync(DEMO)) {
   const lc = byId.get('loop_demo');
   // ★ 2026-10-03 改为**自洽断言**：这是用户随时在画布上编辑的验收文件，不能硬编码 count=3
   //   （真机就发生过：用户把 loop_demo 改成「循环体=子工作流」+ count 0，锁在旧值上会假红）。
-  //   这里只要求「是个能跑的 loop 配置」：count 是数字 / 有 over / 有 while / 有 body 至少其一。
-  const lcBound = typeof lc?.params?.count === 'number' || lc?.params?.over != null || lc?.params?.while != null || lc?.params?.body != null;
+  //   这里只要求「是个能跑的 loop 配置」：count 是数字 / 有 over / 有 body 至少其一（while 已移除，不再算）。
+  const lcBound = typeof lc?.params?.count === 'number' || lc?.params?.over != null || lc?.params?.body != null;
   t('loop_demo 存在且边界/循环体配置齐全（自洽，不锁具体次数）', lc?.type === 'loop' && lcBound, JSON.stringify(lc?.params));
 
   const lo = byId.get('loop_over');

@@ -328,7 +328,7 @@ export function selfcheck(defInput: unknown, deps: SelfcheckDeps = {}): Selfchec
     }
 
     // ================= 轮 3：loop 边界/循环体、merge 上游、subflow 依赖、存值模型 =================
-    // ---------- 轮 3 ①：loop 必须有循环边界（与引擎 LOOP_NO_BOUND 同一个判据：over / count / while 三选一）----------
+    // ---------- 轮 3 ①：loop 必须有循环边界（与引擎 LOOP_NO_BOUND 同一个判据：over / count 二选一；while 已移除）----------
     for (const n of def.nodes) {
       if (n.type !== 'loop') continue;
       const p = (n.params ?? {}) as Record<string, unknown>;
@@ -336,15 +336,24 @@ export function selfcheck(defInput: unknown, deps: SelfcheckDeps = {}): Selfchec
       //   运行时才被 resolveParams 解成数组/数字。只按 Array.isArray 判会**误报无边界**（2026-10-04 实测踩到）。
       const nonEmptyStr = (v: unknown): boolean => typeof v === 'string' && v.trim() !== '';
       const hasBound = Array.isArray(p.over) || nonEmptyStr(p.over)
-        || typeof p.count === 'number' || nonEmptyStr(p.count)
-        || nonEmptyStr(p.while);
-      if (!hasBound) {
+        || typeof p.count === 'number' || nonEmptyStr(p.count);
+      // ★ 2026-10-19（用户拍板：while 条件循环整条移除）：老节点只配了 while ⇒ 现在跑不起来，提前显形并给改法
+      const hasLegacyWhile = nonEmptyStr(p.while);
+      if (!hasBound && hasLegacyWhile) {
+        push({
+          level: 'error',
+          code: 'LOOP_NO_BOUND',
+          nodeId: n.id,
+          message: `节点「${labelOf(n.id)}」用的是已移除的「条件循环 while」——运行会失败（没配 count / over 边界）`,
+          fix: '改成 count 固定次数或 over 遍历上游数组；要"满足条件就停"，在循环体（子工作流）里用条件节点判断，满足就让 end 输出 break: true。',
+        });
+      } else if (!hasBound) {
         push({
           level: 'error',
           code: 'LOOP_NO_BOUND',
           nodeId: n.id,
           message: `节点「${labelOf(n.id)}」没有循环边界——运行到这个节点会直接失败（LOOP_NO_BOUND）`,
-          fix: '在右侧面板「🔁 循环设置」里三选一：count 固定次数 / while 表达式 / over 遍历上游数组。',
+          fix: '在右侧面板「🔁 循环设置」里二选一：count 固定次数 / over 遍历上游数组。',
         });
       }
       // 循环体（子工作流）必须真的存在：引擎每轮都要 readWorkflow，不存在就会整轮失败

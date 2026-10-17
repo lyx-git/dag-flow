@@ -72,7 +72,7 @@ python/bash（code 纯空白）、http（url）、if（condition）、switch（v
 | web_search | `SEARCH_FAILED` | 所有搜索引擎均失败：bing: …；或 宿主 web_search 工具不可用（未安装 dsh-free-search 插件或调用失败） |
 | web_fetch | `FETCH_NO_URL` / `FETCH_TIMEOUT` / `FETCH_FAILED` | url 为空——…／网页抓取超时（Xms）／HTTP 404（…）等原始原因 |
 | if / switch | （表达式错误经 ExprError） | 表达式解析失败／表达式求值失败：… |
-| loop | `LOOP_NO_BOUND` / `LOOP_MAX_ITER` / `LOOP_COND_ERROR` / `LOOP_BODY_FAILED` | 缺少循环边界——count / while / over 至少配置一个／达到 maxIterations=1000 上限／while 条件求值失败（写错变量名、引用自身、引用循环体内部状态——条件里只能引用运行前已完成的节点，按次数用 count、遍历数组用 over）／第 N/M 轮循环体（子工作流）以 failed 结束（已完成轮次保留在 out.items；要跳过失败轮设 onIterationError: "continue"） |
+| loop | `LOOP_NO_BOUND` / `LOOP_OVER_NOT_ARRAY` / `LOOP_COND_ERROR` / `LOOP_BODY_FAILED` / `LOOP_MAX_ITER`（已退役） | 缺少循环边界——count / over 至少配置一个（**条件循环 while 已于 2026-10-19 移除**：老节点只配了 while 也走这条，文案会说明并给出"在循环体里判断 + `end` 输出 `break: true`"的出路）／**over 解析出来不是数组**（实际是 string / object / …）——按数组长度循环要求 over 是数组：检查 `{{…}}` 引用路径是否指到数组本身（如 `{{节点id.out.items}}`）、上游这一轮是否真的产出了数组／「每轮条件」`roundIf` 求值失败（写错变量名、引用自身；可引用「运行前已完成的节点」＋循环体注入的 `lastOutput`（上一轮输出）/ `loopIndex`（轮次序号））／第 N/M 轮循环体（子工作流）以 failed 结束（已完成轮次保留在 out.items；要跳过失败轮设 onIterationError: "continue"）／`LOOP_MAX_ITER` 是旧 while 专属码，**现已不再产生**（历史运行记录里仍可见） |
 | merge | `MERGE_NO_UPSTREAM` | merge 需要至少 2 条上游连线（当前 0 条）——把多个分支的输出连入 merge 节点 |
 | subflow | `SUBFLOW_DEPTH` / `WORKFLOW_NOT_FOUND` / `SUBFLOW_FAILED` | 嵌套超过 5 层／工作流不存在: xxx（先在面板保存）／子工作流以 failed 结束 |
 | image_generate | `IMAGE_NO_PROMPT` / `IMAGE_NO_BASEURL` / `IMAGE_NO_KEY` / `IMAGE_API_ERROR` / `IMAGE_EMPTY` / `IMAGE_SAVE_FAILED` / `IMAGE_TIMEOUT` | prompt 为空／baseURL 为空／缺少 API Key／HTTP 错误（附响应）／API 未返回图片／图片无法落盘／超时 |
@@ -131,7 +131,8 @@ python/bash（code 纯空白）、http（url）、if（condition）、switch（v
 | `SWITCH_CASE_NO_EDGE` | warn | 分支设置里有 case，但没有对应的出边（该取值时不会走任何分支） |
 | `SWITCH_EDGE_NOT_IN_CASES` | warn | 有分支键的出边，但分支设置里没有这个 case（画布端口挂不上、面板也看不到） |
 | `GOTO_BACKWARD` | warn | 失败后跳转的目标在源之前（或同层）已执行过——目标**不会再执行一次**，按 stop 生效 |
-| `LOOP_NO_BOUND` | error | 循环没有边界（count / while / over 至少一个）——与运行时同码 |
+| `LOOP_NO_BOUND` | error | 循环没有边界（count / over 至少一个；**只配了已移除的 while 也算**）——与运行时同码 |
+| `LOOP_MAX_ITER` | error | 已退役：旧 while 条件循环跑满上限时专用，2026-10-19 起不再产生（只看历史记录） |
 | `LOOP_BODY_MISSING` | error | 循环体指定的子工作流不存在——运行时每轮都会失败（`WORKFLOW_NOT_FOUND`） |
 | `MERGE_NO_UPSTREAM` | error | merge 上游连线不足 2 条——与运行时同码 |
 | `SUBFLOW_MISSING` | error | 子工作流节点要调的流程在工作区里不存在 |

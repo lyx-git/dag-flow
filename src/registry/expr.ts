@@ -26,9 +26,14 @@ export class ExprError extends Error {
 
 /** 求值一个表达式。可读 ctx（inputs + vars + results.<id>.out）。 */
 export function evaluateExpr(expr: string, scope: Record<string, unknown>): unknown {
+  // ★ 2026-10-19 实测（真机可撞的**静默**错误）：expr-eval 里 `||` / `&&` 的求值结果是错的 ——
+  //   `loopIndex < 1 || lastOutput.idx > 5` 在左侧为 true 时整体竟得 false，而关键字写法 `or` 正确。
+  //   ⇒ 统一把符号规范化成关键字，两种写法都能用；不这么做，用户写 `||` 会拿到静默 false
+  //   （本项目最忌讳的"看起来跑通了、其实条件永远不成立"）。
+  const normalized = expr.replace(/\|\|/g, ' or ').replace(/&&/g, ' and ');
   let parsed: Expression;
   try {
-    parsed = parser.parse(expr);
+    parsed = parser.parse(normalized);
   } catch (e) {
     throw new ExprError(`表达式解析失败: ${(e as Error).message} | 表达式: ${expr}`);
   }

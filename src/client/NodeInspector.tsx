@@ -173,7 +173,9 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
   const loopBound: string = Array.isArray(loopParam.over) || typeof loopParam.over === 'string'
     ? 'over'
     : typeof loopParam.count === 'number' ? 'count'
-      : typeof loopParam.while === 'string' ? 'while'
+      // ★ 2026-10-19（用户拍板：while 条件循环整条移除）：老 def 里还留着 while 键的，显示成「旧版条件循环，已移除」
+      //   兜底（不隐式改数据），并提示改成 count / over。
+      : typeof loopParam.while === 'string' ? 'legacy'
         : 'none';
   // ★ 循环体 = 子工作流（2026-10-03 用户拍板方案 A）：选一个已保存工作流当循环体，
   //   每轮把 {{vars.loopItem}} / {{vars.loopIndex}} 映射进它的 inputs；子工作流 end 输出依次进 out.items。
@@ -195,6 +197,25 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
     })();
     return () => { cancelled = true; };
   }, [node.type, wfLoaded]);
+  /** ★ 2026-10-19（用户：「怎么给子循环传参数也没说」）：选中循环体子工作流后，读它**自己的工作流参数**
+   *  （`def.inputs`，即「工作流参数」弹窗里那份）—— 传参就是按这些字段逐个赋值；面板据此给出名字指引，
+   *  用户不用去猜或翻子工作流。纯只读，不动任何 def。 */
+  const [bodyInputKeys, setBodyInputKeys] = useState<string[]>([]);
+  useEffect(() => {
+    const wf = loopBody.workflowName ?? '';
+    if (!wf) { setBodyInputKeys([]); return undefined; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/dag-flow/workflows/${encodeURIComponent(wf)}`, { credentials: 'include' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const def = (data?.def ?? data) as { inputs?: Record<string, unknown> };
+        if (!cancelled) setBodyInputKeys(Object.keys(def?.inputs ?? {}));
+      } catch { if (!cancelled) setBodyInputKeys([]); }
+    })();
+    return () => { cancelled = true; };
+  }, [loopBody.workflowName]);
   const writeLoopBody = (workflowName: string, rows: { k: string; v: string }[]): void => {
     setBodyRows(rows);
     if (!workflowName) { onParamsChange({ body: null }); return; }
@@ -204,9 +225,10 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
   };
   const setLoopBound = (next: string): void => {
     const cleared = { count: null, while: null, over: null };
-    if (next === 'count') onParamsChange({ ...cleared, count: 3 });
+    // ★ 2026-10-19（用户：「最大循环次数和填写的次数可以使用一个输入框」）：count 模式只留一个"次数"框
+    //   ⇒ 切过去时把可能遗留的 maxIterations 一并删掉（否则那个看不见的旧上限会偷偷截断轮数）。
+    if (next === 'count') onParamsChange({ ...cleared, count: 3, maxIterations: null });
     else if (next === 'over') onParamsChange({ ...cleared, over: '' });
-    else if (next === 'while') onParamsChange({ ...cleared, while: 'true' });
     else onParamsChange(cleared);
   };
   const loopConfigNodes = (): React.ReactNode => {
@@ -222,49 +244,89 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
         onParamsChange({ [key]: n });
       },
     });
+    /** ★ 2026-10-19：数字输入 + 右侧小问号（静态解释进气泡，placeholder 只留示例值） */
+    const numInputTip = (key: string, label: string, min: number, max: number | null, dflt: string, tip: string): React.ReactNode =>
+      createElement('div', { key: `${key}-row`, style: { display: 'flex', gap: 6, alignItems: 'center' } },
+        createElement('div', { style: { flex: 1 } }, numInput(key, label, min, max, dflt)),
+        createElement(InfoTip, { text: tip }));
     const out: React.ReactNode[] = [
       createElement('label', { className: 'dsh-wf-panel-label', key: 'loop-label' }, '🔁 循环设置',
-        createElement(InfoTip, { text: 'loop 只产出迭代序列（out.count / out.items），「不会重复执行下游节点」：它算出「跑几次 / 跑哪些项」，由下游节点自己逐项处理。三种边界同时只按一个生效，优先级 over > count > while。' })),
+        createElement(InfoTip, { text: 'loop 只产出迭代序列（out.count / out.items），「不会重复执行下游节点」：它算出「跑几次 / 跑哪些项」，由下游节点自己逐项处理。两种边界只按一个生效，优先级 over > count。\n★ 「每轮条件」（可选）在每轮开始前求值：为真才执行这一轮，为假就跳过这一轮、直接进入下一轮；可引用 lastOutput（上一轮循环体 end 的输出；第一轮是空对象 {}）与 loopIndex（轮次序号，从 0 开始）。\n★ 要「满足某个条件就整体结束」，不要在这里找开关 —— 在循环体（子工作流）里用条件节点判断，满足就让 end 输出 break: true。\n条件写法是「表达式」，不是 {{}} 模板：比较用 == / !=（不支持 ===），逻辑用 || / &&（或 or / and）。' })),
       createElement(SelectBox, {
         key: 'loop-bound', value: loopBound,
         onChange: setLoopBound,
         options: [
           { value: 'count', label: '固定次数 count' },
           { value: 'over', label: '遍历数组 over' },
-          { value: 'while', label: '条件为真 while' },
-          { value: 'none', label: '⚠ 不设边界', sub: '运行会失败' },
+          // ★ 2026-10-19（用户拍板：while 条件循环整条移除、不设边界也不该是可选入口）：正常选项只剩 count / over；
+          //   老数据（三键全空 / 还留着 while 键）用「当前值」兜底显示，避免下拉空白，也顺手告诉他该改成什么。
+          ...(loopBound === 'none'
+            ? [{ value: 'none', label: '（当前值：无循环边界）', sub: '运行会失败——请改成 count / over' }]
+            : []),
+          ...(loopBound === 'legacy'
+            ? [{ value: 'legacy', label: '（当前值：旧版条件循环，已移除）', sub: '请改成 count / over' }]
+            : []),
         ],
       }),
     ];
-    if (loopBound === 'count') out.push(numInput('count', '迭代次数，如 3', 0, null, '3'));
+    // ★ 2026-10-19（用户原话「循环节点的 count 形式里面有三个需要填写的框，最大循环次数和填写的次数
+    //   可以使用一个输入框，写清楚说明」）：count 模式只剩「跑几次」这一个框 —— 填几次就跑几次，
+    //   顺带删掉遗留的 maxIterations（那个"隐形上限"只在 over 下出现）。
+    if (loopBound === 'count') out.push(createElement('div', { key: 'loop-count-row', style: { display: 'flex', gap: 6, alignItems: 'center' } },
+      createElement('div', { style: { flex: 1 } }, createElement('input', {
+        className: 'dsh-wf-input', type: 'number', min: 0, placeholder: '跑几次，如 3',
+        value: typeof loopParam.count === 'number' ? String(loopParam.count) : '',
+        onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+          const v = e.target.value.trim();
+          if (v === '') { onParamsChange({ count: null, maxIterations: null }); return; }
+          let n = parseInt(v, 10);
+          if (!Number.isFinite(n)) return;
+          n = Math.max(0, Math.min(100_000, n));
+          onParamsChange({ count: n, maxIterations: null });
+        },
+      })),
+      createElement(InfoTip, { text: '这里填「跑几次」就实际跑几次 —— count 模式下没有第二个上限框：填 3 就跑 3 次（只受 100000 的硬保护）。「最大迭代次数」只在「遍历数组 over」下出现，用来限制最多遍历多少项（留空＝不限，有多少条跑多少条）。' })));
+    // 老工作流里可能还留着 count 模式时期的 maxIterations（现在没有输入框了）⇒ 明说 + 一键清掉，别让它偷偷截断
+    if (loopBound === 'count' && typeof loopParam.maxIterations === 'number') out.push(createElement('div', {
+      className: 'dsh-wf-panel-hint', key: 'loop-stale-cap', style: { display: 'flex', gap: 6, alignItems: 'center' },
+    },
+    createElement('span', { style: { flex: 1 } },
+      `⚠ 这个节点还带着旧的最大迭代次数 ${loopParam.maxIterations}（count 模式下已没有这个输入框，它会把轮数截断到 ${loopParam.maxIterations}）`),
+    createElement('button', {
+      className: 'dsh-wf-btn', title: '清掉旧的最大迭代次数',
+      onClick: () => onParamsChange({ maxIterations: null }),
+    }, '清除')));
     if (loopBound === 'over') out.push(createElement('input', {
-      className: 'dsh-wf-input', key: 'loop-over', placeholder: '{{上游节点id.out.数组字段}} 或直接写数组',
+      className: 'dsh-wf-input', key: 'loop-over', placeholder: '上游数组引用（整串），如 {{list1.out.items}}',
       value: typeof loopParam.over === 'string' ? loopParam.over : Array.isArray(loopParam.over) ? JSON.stringify(loopParam.over) : '',
       onChange: (e: React.ChangeEvent<HTMLInputElement>) => onParamsChange({ over: e.target.value }),
     }));
-    if (loopBound === 'while') out.push(createElement('input', {
-      className: 'dsh-wf-input', key: 'loop-while', placeholder: '表达式（不是 {{}} 模板），如 true',
-      value: typeof loopParam.while === 'string' ? loopParam.while : '',
-      onChange: (e: React.ChangeEvent<HTMLInputElement>) => onParamsChange({ while: e.target.value }),
-    }));
+    // ★ 2026-10-19（用户拍板：while 条件循环 + 每轮"为真/为假"两种模式整条移除）——老节点兜底提示 + 出路
+    if (loopBound === 'legacy') out.push(createElement('div', { className: 'dsh-wf-panel-hint', key: 'loop-legacy-while' },
+      '⚠ 旧的「条件真就继续」循环已移除（引擎不再支持）——请改成固定次数 count 或遍历数组 over；要"跑到满足条件为止"，在循环体里用条件节点判断，满足就让 end 输出 break: true。'));
     if (loopBound === 'none') out.push(createElement('div', { className: 'dsh-wf-panel-hint', key: 'loop-nobound' }, '⚠ 没有边界时运行会立即失败（LOOP_NO_BOUND），画布问题面板也会报错。'));
     // 选了边界类型但值还空着 → 引擎视作「没有边界」（会 LOOP_NO_BOUND 失败），面板明说
     const boundBlank = (loopBound === 'count' && typeof loopParam.count !== 'number')
-      || (loopBound === 'over' && !(Array.isArray(loopParam.over) ? loopParam.over.length > 0 : String(loopParam.over ?? '').trim() !== ''))
-      || (loopBound === 'while' && String(loopParam.while ?? '').trim() === '');
+      || (loopBound === 'over' && !(Array.isArray(loopParam.over) ? loopParam.over.length > 0 : String(loopParam.over ?? '').trim() !== ''));
     if (boundBlank) out.push(createElement('div', { className: 'dsh-wf-panel-hint', key: 'loop-blank' },
       '⚠ 边界值还是空的——引擎会当作没有边界，运行报 LOOP_NO_BOUND（卡片副标题也会显示「⚠ 无循环边界」）。'));
-    out.push(numInput('maxIterations', '最大迭代次数（默认 1000，上限 100000）', 1, 100000, '1000'));
-    if (loopBound === 'while') out.push(createElement('label', { className: 'dsh-wf-panel-hint', key: 'loop-inf', style: { display: 'flex', gap: 6, alignItems: 'center' } },
-      createElement('input', {
-        type: 'checkbox', checked: loopParam.dangerouslyAllowInfinite === true,
-        onChange: (e: React.ChangeEvent<HTMLInputElement>) => onParamsChange({ dangerouslyAllowInfinite: e.target.checked }),
-      }),
-      'while 到上限后继续（dangerouslyAllowInfinite，慎用）',
-    ));
+    // ★ 2026-10-19（用户拍板 A：新增「每轮条件」；并按"配置直觉"把它挪到边界之后、上限之前）——
+    //   用户自定义语句：为真才执行本轮循环体，为假就跳过这一轮、进入下一轮。
+    if (loopBound === 'count' || loopBound === 'over') out.push(createElement('div', {
+      key: 'loop-roundif-row', style: { display: 'flex', gap: 6, alignItems: 'center' },
+    },
+    createElement('div', { style: { flex: 1 } }, createElement('input', {
+      className: 'dsh-wf-input', placeholder: '每轮条件（可选），如 lastOutput.needMore == true',
+      value: typeof loopParam.roundIf === 'string' ? loopParam.roundIf : '',
+      onChange: (e: React.ChangeEvent<HTMLInputElement>) => onParamsChange({ roundIf: e.target.value || null }),
+    })),
+    createElement(InfoTip, { text: '可选。填了就变成「每轮先判断」：为真才执行本轮循环体；为假就跳过这一轮（不写 out.items），直接进入下一轮。可引用 lastOutput（上一轮循环体 end 的输出）与 loopIndex（轮次序号），例：只处理偶数轮写 loopIndex % 2 == 0。\n★ 它只决定「这一轮做不做」；要「满足某条件就整体结束」，在循环体里用条件节点判断并让 end 输出 break: true。\n配了它之后 out 里会多出 rounds（共经过几轮）与 skipped（跳过几轮）。没配循环体时不生效（那时 loop 只产出迭代序列）。' })));
+    // 「最大迭代次数」只在 over 下出现（count 模式已并入上面那个"跑几次"框）
+    if (loopBound === 'over') out.push(numInputTip('maxIterations', '不填＝不限', 1, 100000, '1000',
+      '不填＝不限：over 按数组实际长度执行 —— 有几条跑几条，只受 100000 的硬保护。填了就按填的值截断：超过只处理前 N 项，节点仍算成功，此时 out 里带 truncated: true、requested（本来要处理多少）、processed（实际处理多少）。'));
     // —— 循环体：子工作流（方案 A）——
     out.push(createElement('label', { className: 'dsh-wf-panel-label', key: 'loop-body-label' }, '🔁 循环体（可选）',
-      createElement(InfoTip, { text: '每轮调用该子工作流：值里可用 {{vars.loopItem}}（当轮的项或轮次序号）与 {{vars.loopIndex}}（序号），也可引用上游 {{节点id.out.x}}；子工作流 end 节点的输出会依次收进本节点的 out.items，下游写法不变。' })));
+      createElement(InfoTip, { text: '每轮调用该子工作流。传参怎么对应：左侧「输入名」要写子工作流自己的「工作流参数」名字（选中后下方会列出它声明了哪些）；右侧「值」写每轮传什么，可用 {{vars.loopItem}}（当轮的项：over 模式＝数组元素，count 模式＝轮次序号）、{{vars.loopItem.字段}}（当轮项是对象时取字段）、{{vars.loopIndex}}（轮次序号，从 0 开始）、{{vars.lastOutput.字段}}（上一轮循环体 end 的输出；第一轮是空对象，可用于游标 / 累加 / 翻页这类"接着上一轮往下干"）、上游 {{节点id.out.x}}，或直接写常量。\n例：子工作流参数叫 topic 与 n ⇒ 映射写成 topic = {{vars.loopItem.title}}、n = {{vars.loopIndex}}。\n子工作流 end 节点的输出会依次收进本节点的 out.items，下游写法不变。\n★ 想中途停：让子工作流 end 的输出里带 break: true（常用做法是在子工作流里用 if 判断，满足就 set_var 一个 break=true，end 会自动把 vars 带进输出）⇒ 本轮跑完就停、剩余轮不再跑；节点仍算成功，out 里会多出 broken: true 与 breakAt（第几轮停的）。' })));
     out.push(createElement(SelectBox, {
       key: 'loop-body-sel', value: loopBody.workflowName ?? '',
       onChange: (v: string) => writeLoopBody(v, bodyRows),
@@ -276,6 +338,12 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
       ],
     }));
     if (loopBody.workflowName) {
+      // ★ 2026-10-19（用户：「怎么给子循环传参数也没说」）：把子工作流**声明的参数名**直接列出来 ——
+      //   这就是"左侧输入名该填什么"的答案（读它的 def.inputs，只读、不改任何 def）。
+      out.push(createElement('div', { className: 'dsh-wf-panel-hint', key: 'loop-body-keys' },
+        bodyInputKeys.length
+          ? `该子工作流声明的参数：${bodyInputKeys.join('、')}（左侧「输入名」按这些名字填；也可以再加别的）`
+          : '该子工作流还没声明工作流参数（可在子工作流里点「工作流参数」添加）；下面也可以手动填任意输入名。'));
       bodyRows.forEach((row, i) => out.push(createElement('div', { key: 'loop-body-row-' + i, style: { display: 'flex', gap: 6, marginBottom: 6 } },
         createElement('input', {
           className: 'dsh-wf-input', placeholder: '输入名（子工作流 inputs.x）', value: row.k, style: { flex: '0 0 42%' },
@@ -292,7 +360,12 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
       )));
       out.push(createElement('button', {
         className: 'dsh-wf-inputs-add', key: 'loop-body-add', title: '添加输入映射',
-        onClick: () => setBodyRows((rs) => [...rs, { k: '', v: '' }]),
+        // ★ 2026-10-19：预填一个"子工作流声明了、但还没映射"的参数名，值默认传当轮项（最常见用法）
+        onClick: () => setBodyRows((rs) => {
+          const used = new Set(rs.map((r) => r.k.trim()));
+          const next = bodyInputKeys.find((k) => !used.has(k)) ?? '';
+          return [...rs, { k: next, v: '{{vars.loopItem}}' }];
+        }),
       }, '+'));
       out.push(createElement(SelectBox, {
         key: 'loop-iter-err', value: String(loopParam.onIterationError ?? 'stop'),

@@ -15,14 +15,15 @@ import { tipModel, infoTipModel, tipFullText, type TipModel } from '../resultTip
 import { copyText } from '../util/copy-text';
 
 /** loop 卡片副标题（P1，2026-10-03 用户拍板）：按**实际生效的边界**显示。
- *  引擎优先级 over > count > while——旧实现只认 count，配了 over/while 的循环卡片显示 `count=?`（错信息）。 */
+ *  引擎优先级 over > count（2026-10-19 用户拍板移除 while 条件循环）——旧实现只认 count，配了 over 的卡片显示 `count=?`。 */
 function loopSubtitle(data: Record<string, unknown>): string {
   const cap = typeof data.maxIterations === 'number' ? ` · 上限 ${data.maxIterations}` : '';
   const over = data.over;
   if (Array.isArray(over)) return `遍历 ${over.length} 项${cap}`;
   if (typeof over === 'string' && over.trim()) return (`遍历 ${over.trim()}`).slice(0, 48) + cap;
   if (typeof data.count === 'number') return `循环 ${data.count} 次${cap}`;
-  if (typeof data.while === 'string' && data.while.trim()) return (`while: ${data.while.trim()}`).slice(0, 48) + cap;
+  // ★ 2026-10-19：while 条件循环已移除 —— 老节点如实显示"已移除"，别再显示成 while: xxx（看着像还能跑）
+  if (typeof data.while === 'string' && data.while.trim()) return '⚠ 条件循环已移除（改 count / over）';
   return '⚠ 无循环边界';
 }
 

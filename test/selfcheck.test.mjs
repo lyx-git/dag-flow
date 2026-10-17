@@ -191,11 +191,15 @@ console.log('== K. 轮 3：loop 循环边界（与引擎 LOOP_NO_BOUND 同判据
   ok(!codes(r).includes('LOOP_NO_BOUND'), 'K4. 有 count → 不报（不误伤）');
 }
 {
+  // ★ 2026-10-19（用户拍板移除 while 条件循环）：只有 while 的节点现在跑不起来 ⇒ 必须报 LOOP_NO_BOUND，且文案说清"已移除"
   const r = selfcheck(mk(
     [{ id: 'start', type: 'start' }, { id: 'lp', type: 'loop', params: { while: 'true' } }, { id: 'end', type: 'end' }],
     [{ from: 'start', to: 'lp' }, { from: 'lp', to: 'end' }],
   ));
-  ok(!codes(r).includes('LOOP_NO_BOUND'), 'K5. 有 while 字符串 → 不报');
+  const it = codes(r).includes('LOOP_NO_BOUND') ? r.items.find((i) => i.code === 'LOOP_NO_BOUND') : null;
+  ok(!!it, 'K5. 只配 while（已移除）→ 报 LOOP_NO_BOUND');
+  ok(String(it?.message ?? '').includes('已移除') && String(it?.fix ?? '').includes('break: true'),
+    'K5b. 文案说明 while 已移除并给出 break 出路');
 }
 {
   // ★ 回归锁（2026-10-04 踩到的误报）：over/count 在自检阶段还是**模板字符串**，运行时才解析

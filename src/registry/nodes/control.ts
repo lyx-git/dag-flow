@@ -92,8 +92,10 @@ export const switchDef: NodeDefinition<SwitchParams> = {
 /** 循环体规格（2026-10-03 用户拍板方案 A：子工作流当循环体） */
 interface LoopBodySpec { workflowName?: string; inputs?: Record<string, JsonValue> }
 interface LoopParams {
-  count?: number; while?: string; over?: JsonValue[]; maxIterations?: number;
-  dangerouslyAllowInfinite?: boolean; dangerouslyAllowDestructive?: boolean;
+  count?: number; over?: JsonValue[]; maxIterations?: number;
+  /** ★ 2026-10-19（用户拍板 A）：「每轮条件」—— 每轮开始前求值，为真才执行本轮循环体，
+   *  为假就跳过这一轮（不写 out.items）继续下一轮。要"满足条件就整体结束"请用循环体里的 break。 */
+  roundIf?: string;
   body?: LoopBodySpec;
   /** 某轮循环体失败时的策略：stop（默认，整节点失败但保留已完成轮次）/ continue（该轮写占位继续跑） */
   onIterationError?: 'stop' | 'continue';
@@ -101,45 +103,65 @@ interface LoopParams {
 // 防无限嵌套：loop 节点内部不再"递归调用自身 run"（旧实现 def.run 会无限递归爆炸）。
 // ★ 2026-10-03：支持 body=子工作流当循环体——只扩本节点 run、复用 subflow 的调用机制，
 //   不动 topoSort/DAG、不需要画布回边。每轮结果依次进 out.items，下游写法与无 body 时完全一致。
+/** ★ 2026-10-19（用户拍板 A「子工作流怎么配置，打断循环节点执行」）：约定的**控制信号** ——
+ *  子工作流 end 的输出里带 `break: true` 就表示「本轮跑完别再跑下一轮」。只认这一个键，
+ *  end 的其它输出照旧原样进 out.items；不写这个键的老循环一字不变（纯加法）。 */
+function isBreakOutput(v: JsonValue): boolean {
+  return !!v && typeof v === 'object' && !Array.isArray(v) && (v as Record<string, JsonValue>)['break'] === true;
+}
 async function runLoop(p: LoopParams, ctx: Context): Promise<NodeResult> {
   const { startedAt, t0 } = startedEnded();
-  const maxIter = Math.min(p.maxIterations ?? 1_000, 100_000);
+  /** schema 里的硬保护上限：任何模式都不会超过它（count / over 留空时唯一的限制） */
+  const HARD_CAP = 100_000;
+  /** 用户**显式填了** maxIterations（夹到硬保护内）；没填＝null */
+  const explicitCap = typeof p.maxIterations === 'number' ? Math.min(p.maxIterations, HARD_CAP) : null;
+  /** ★ 2026-10-19（用户拍板 A：「不填应该是按照数组实际有多少数据执行的」）：
+   *  count / over **留空＝不设上限**，按数据实际长度 / count 实际值执行，只受 HARD_CAP 保护（被它截断时照旧标 truncated）；
+   *  填了才按填的值截断。（while 已移除，那段"留空＝1000 保险丝"的特例随之消失。） */
+  const countOverCap = explicitCap ?? HARD_CAP;
   const iterations: JsonValue[] = [];
+  /** ★ 2026-10-19（用户拍板 A：让「超上限」可见）：count / over 的轮数超过上限时，
+   *  以前只处理前 N 个、**不报错也不提示**（out.count 只显示上限数，看不出还有几千项没跑）。
+   *  现在把这次截断记下来，落进 out（truncated / requested / processed）——只在**真发生截断**时出现，
+   *  没截断时 out 形态与以前一字不差，既有下游引用零影响。 */
+  let truncation: { requested: number; processed: number } | null = null;
+  /** ★ 2026-10-19（用户拍板 A：每轮条件）：配置了才生效，out 里补 rounds（共经过几轮）/ skipped（跳过几轮）——
+   *  没配时不出现这两个字段，既有循环的 out 形态与以前一字不差。 */
+  const gateOn = typeof p.roundIf === 'string' && p.roundIf.trim() !== '';
+  const gateInfo = gateOn ? { rounds: 0, skipped: 0 } : null;
+  /** out 的公共形态：count / items（既有形态）；**只在真发生截断时**追加 truncated / requested / processed */
+  const loopOut = (count: number, items: JsonValue[], withGate = true): Record<string, JsonValue> => ({
+    ...(truncation
+      ? { count, items, truncated: true, requested: truncation.requested, processed: truncation.processed }
+      : { count, items }),
+    ...(gateInfo && withGate ? { rounds: gateInfo.rounds, skipped: gateInfo.skipped } : {}),
+  });
 
   if (Array.isArray(p.over)) {
     // 数组迭代（A6-lite）：over 经 {{u.out.items}} 引用上游数组，逐项收集
-    const n = Math.min(p.over.length, maxIter);
+    const n = Math.min(p.over.length, countOverCap);
+    if (p.over.length > n) truncation = { requested: p.over.length, processed: n };
     for (let i = 0; i < n; i++) iterations.push(p.over[i]);
+  } else if (p.over !== undefined && p.over !== null && String(p.over).trim() !== '') {
+    // ★ 2026-10-19（用户拍板「改」）：over 配了、但**解析后不是数组** —— 以前会一路落到 count / while /
+    //   LOOP_NO_BOUND，最后报「缺少循环边界——count / while / over 至少配置一个」，把"没配"和"配了但取值失败"
+    //   混成一句话，用户看到只会以为自己没填。给专属码 + 实际拿到的类型 + 检查方向。
+    //   判据细节：空串/空白（面板刚切到 over、还没填值）**不算配了** ⇒ 仍走下面的 LOOP_NO_BOUND。
+    return { ...makeResult('failed', { error: { code: 'LOOP_OVER_NOT_ARRAY', message: `over 解析出来不是数组（实际是 ${typeof p.over}）——按数组长度循环要求 over 是一个数组：请检查 {{…}} 引用路径是否指到数组本身（如 {{节点id.out.items}}），以及上游这一轮是否真的产出了数组。` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
   } else if (typeof p.count === 'number') {
-    const n = Math.max(0, Math.min(Math.floor(p.count), maxIter));
+    const want = Math.max(0, Math.floor(p.count));
+    const n = Math.min(want, countOverCap);
+    if (want > n) truncation = { requested: want, processed: n };
     for (let i = 0; i < n; i++) iterations.push(i);
-  } else if (typeof p.while === 'string') {
-    let i = 0;
-    // ★ 2026-10-11（用户要求修 ②）：while 条件求值抛错（写错变量名 / 引用自身 / 引用循环体内部状态）
-    //   以前会冒到 safeNodeRun 被兜成 `UNCAUGHT`——错误码没有信息量，用户只看到"undefined variable"。
-    //   这里就地接住，给专属码 + 人话 + 出路。
-    //   ★ 仍然保持**失败**（不学 if 的"静默 false"）：while 静默变 false 就等于「0 轮 + 整轮成功」，
-    //     那正是本项目最忌讳的静默成功；而 if 的静默 false 是用户拍板过的既有语义（另有笔误告警）。
-    try {
-      while (i < maxIter) {
-        const keepGoing = evaluateBool(p.while, ctxToScope(ctx));
-        if (!keepGoing) break;
-        iterations.push(i);
-        i++;
-        if (i >= maxIter && !p.dangerouslyAllowInfinite) {
-          return { ...makeResult('failed', { error: { code: 'LOOP_MAX_ITER', message: `达到最大迭代次数 ${maxIter}——如确认要继续，设置 dangerouslyAllowInfinite: true` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
-        }
-      }
-    } catch (e) {
-      return { ...makeResult('failed', { error: { code: 'LOOP_COND_ERROR', message: `循环条件求值失败——${(e as Error).message}。条件里只能引用「运行前已完成」的节点；循环体内部的状态进不了条件——按固定次数循环请改用 count，遍历上游数组请改用 over。` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
-    }
   } else {
-    return { ...makeResult('failed', { error: { code: 'LOOP_NO_BOUND', message: '缺少循环边界——count / while / over 至少配置一个' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
+    // ★ 2026-10-19（用户拍板：**while 条件循环整条移除**，循环只保留 count / over；"跑到满足条件为止"改用
+    //   循环体里判断 + `break: true`）。老数据里残留的 while 键由 schema 宽容（引擎不再读取），这里只报"没有边界"。
+    return { ...makeResult('failed', { error: { code: 'LOOP_NO_BOUND', message: '缺少循环边界——count / over 至少配置一个（条件循环已移除：要"满足条件就停"，请在循环体里用条件节点判断，并让 end 输出 break: true）' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
   }
 
   const body = p.body;
-  // 无循环体：保持原语义——只产出迭代序列 {count, items}
-  if (!body?.workflowName) return finish(t0, startedAt, { out: { count: iterations.length, items: iterations } });
+  // 无循环体：保持原语义——只产出迭代序列 {count, items}（每轮条件没有"轮"可判断 ⇒ 不生效，也不带 rounds/skipped）
+  if (!body?.workflowName) return finish(t0, startedAt, { out: loopOut(iterations.length, iterations, false) });
 
   // —— 循环体：逐轮调用子工作流（方案 A）——
   const depth = (ctx as Context & { _depth?: number })._depth ?? 0;
@@ -155,30 +177,65 @@ async function runLoop(p: LoopParams, ctx: Context): Promise<NodeResult> {
   }
   const myId = String((ctx as Context & { currentNodeId?: string }).currentNodeId ?? 'loop');
   const outputs: JsonValue[] = [];
-  for (let i = 0; i < iterations.length; i++) {
+  /** 每轮条件的作用域：在 ctxToScope 之上注入 lastOutput（上一轮 end 输出）与轮次序号（while 已移除，这里是它唯一消费者） */
+  const roundScope = (i: number, last: JsonValue): Record<string, unknown> => ({
+    ...ctxToScope(ctx),
+    lastOutput: last,
+    // 顶层也给一份（表达式里 `loopIndex` 与 `vars.loopIndex` 两种写法都行，跟模板注入保持一致）
+    loopItem: i,
+    loopIndex: i,
+    vars: { ...(ctx.vars ?? {}), loopItem: i, loopIndex: i },
+  });
+  /** ★ 初始值是**空对象**而不是 null：表达式引擎里 `null` / `undefined` 会被当变量名（实测 `undefined variable: null`），
+   *  空对象则属性访问安全（`lastOutput.x` 得 undefined）⇒ 条件写错也不会把整轮炸掉。要判断"第一轮"用 `loopIndex == 0`。 */
+  let lastOutput: JsonValue = {} as JsonValue;
+  // 轮数＝已算好的迭代序列长度（while 已移除，不再有"边跑边判"的动态轮数）
+  const totalRounds = iterations.length;
+  for (let i = 0; i < totalRounds; i++) {
     if (ctx.signal?.aborted) {
-      return { ...makeResult('failed', { error: { code: 'RUN_CANCELLED', message: '运行已由用户取消' } }), out: { count: outputs.length, items: outputs }, durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() } as NodeResult;
+      return { ...makeResult('failed', { error: { code: 'RUN_CANCELLED', message: '运行已由用户取消' } }), out: loopOut(outputs.length, outputs), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() } as NodeResult;
+    }
+    // ★ 2026-10-19（用户拍板 A：每轮条件）：「自定义判断」—— 每轮开始前求值，为真才执行本轮循环体；
+    //   为假就**跳过这一轮**（不写 out.items），直接进入下一轮；跳过不影响 lastOutput（仍是上一轮真跑出来的输出）。
+    if (gateInfo) {
+      gateInfo.rounds = i + 1;
+      let runThis = false;
+      try {
+        runThis = evaluateBool(p.roundIf as string, roundScope(i, lastOutput));
+      } catch (e) {
+        return { ...makeResult('failed', { error: { code: 'LOOP_COND_ERROR', message: `第 ${i + 1} 轮前求值「每轮条件」失败——${(e as Error).message}。可引用：运行前已完成的节点、lastOutput（上一轮循环体 end 的输出）、loopIndex（轮次序号）。` } }), out: loopOut(outputs.length, outputs), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() } as NodeResult;
+      }
+      if (!runThis) { gateInfo.skipped += 1; continue; }
     }
     // 当轮上下文：注入 {{vars.loopItem}} / {{vars.loopIndex}}，供 body.inputs 引用（也可引用上游 {{节点id.out.x}}）
-    const iterCtx = { ...ctx, vars: { ...(ctx.vars ?? {}), loopItem: iterations[i] as JsonValue, loopIndex: i } } as Context;
+    // ★ 2026-10-19（用户选 A：把上一轮输出注入循环体传参）：再加 {{vars.lastOutput}}（上一轮循环体 end 的输出；
+    //   第一轮是空对象 {}）⇒ 循环体传参能"接着上一轮往下干"（游标 / 累加 / 翻页），不必只靠 out.items 事后汇总。
+    const iterCtx = { ...ctx, vars: { ...(ctx.vars ?? {}), loopItem: iterations[i] as JsonValue, loopIndex: i, lastOutput } } as Context;
     let inputs: Record<string, JsonValue>;
     try {
       inputs = resolveParams((body.inputs ?? {}) as Record<string, JsonValue>, iterCtx, myId);
     } catch (e) {
-      return { ...makeResult('failed', { error: { code: 'DATAFLOW_REF', message: `循环体第 ${i + 1} 轮输入解析失败: ${(e as Error).message}` } }), out: { count: outputs.length, items: outputs }, durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() } as NodeResult;
+      return { ...makeResult('failed', { error: { code: 'DATAFLOW_REF', message: `循环体第 ${i + 1} 轮输入解析失败: ${(e as Error).message}` } }), out: loopOut(outputs.length, outputs), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() } as NodeResult;
     }
     const { summary } = await runWorkflow(sub, { logger: createLogger(), cwd: process.cwd(), inputs, _depth: depth + 1, signal: ctx.signal });
     const endIds = sub.nodes.filter((n) => n.type === 'end').map((n) => n.id);
     const endOut = (endIds.map((id) => summary.results[id]?.out).find((v) => v != null) ?? null) as JsonValue;
     if (summary.status !== 'success' && p.onIterationError !== 'continue') {
       // 默认 stop：整节点失败，但把已完成轮次留在 out.items 里便于排查
-      return { ...makeResult('failed', { error: { code: 'LOOP_BODY_FAILED', message: `第 ${i + 1}/${iterations.length} 轮循环体「${sub.name}」以 ${summary.status} 结束——已完成 ${outputs.length} 轮，结果保留在 out.items 里（要跳过失败轮请设 onIterationError: "continue"）` } }), out: { count: outputs.length, items: outputs }, durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() } as NodeResult;
+      return { ...makeResult('failed', { error: { code: 'LOOP_BODY_FAILED', message: `第 ${i + 1}/${iterations.length} 轮循环体「${sub.name}」以 ${summary.status} 结束——已完成 ${outputs.length} 轮，结果保留在 out.items 里（要跳过失败轮请设 onIterationError: "continue"）` } }), out: loopOut(outputs.length, outputs), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() } as NodeResult;
     }
     outputs.push(summary.status === 'success'
       ? endOut
       : ({ error: { code: 'SUBFLOW_FAILED', message: `第 ${i + 1} 轮失败` }, output: endOut } as JsonValue));
+    lastOutput = outputs[outputs.length - 1];   // 下一轮的 {{vars.lastOutput}} / 每轮条件看的就是它
+    // ★ 2026-10-19（用户拍板 A）：子工作流 end 输出里带 `break: true` ⇒ **本轮跑完就停**，剩余轮不再跑。
+    //   节点仍算 success（这是正常收敛，不是失败）；out 里补 broken / breakAt（第几轮停的），
+    //   已完成轮次照旧在 out.items 里（那一轮的 end 输出也含 break 键，便于排查）。
+    if (isBreakOutput(lastOutput)) {
+      return finish(t0, startedAt, { out: { ...loopOut(outputs.length, outputs), broken: true, breakAt: i + 1 } });
+    }
   }
-  return finish(t0, startedAt, { out: { count: outputs.length, items: outputs } });
+  return finish(t0, startedAt, { out: loopOut(outputs.length, outputs) });
 }
 export const loopDef: NodeDefinition<LoopParams> = {
   type: 'loop',
@@ -186,10 +243,15 @@ export const loopDef: NodeDefinition<LoopParams> = {
     type: 'object', additionalProperties: false,
     properties: {
       count: { type: 'integer', minimum: 0 },
+      // ★ 2026-10-19（用户拍板：while 条件循环整条移除）：下面三个**只为兼容老数据**保留在 schema 里，
+      //   引擎已不再读取（直接删键会让老 def 因 additionalProperties:false 校验失败 ⇒ 违反"不影响现有功能"）。
       while: { type: 'string' },
+      whileMode: { type: 'string', enum: ['true', 'false'] },
+      dangerouslyAllowInfinite: { type: 'boolean' },
+      // ★ 2026-10-19：每轮条件（门禁）——为真才执行本轮循环体，为假跳过该轮继续下一轮
+      roundIf: { type: 'string' },
       over: { type: 'array' },
       maxIterations: { type: 'integer', minimum: 1, maximum: 100_000 },
-      dangerouslyAllowInfinite: { type: 'boolean' },
       // ★ 循环体（方案 A）：每轮调用该子工作流；inputs 里用 {{vars.loopItem}} / {{vars.loopIndex}}
       body: {
         type: 'object', additionalProperties: false,
@@ -198,7 +260,8 @@ export const loopDef: NodeDefinition<LoopParams> = {
       },
       onIterationError: { enum: ['stop', 'continue'] },
     },
-    anyOf: [{ required: ['count'] }, { required: ['while'] }, { required: ['over'] }],
+    // 老 def 里只有 while 的节点也放行（结构校验不炸），运行时会给 LOOP_NO_BOUND 的明确提示 —— 见 runLoop。
+    anyOf: [{ required: ['count'] }, { required: ['over'] }, { required: ['while'] }],
   },
   run: async (ctx, p) => safeNodeRun(() => runLoop(p as never, ctx)),
   describe: () => ({ label: '循环', category: 'control' }),

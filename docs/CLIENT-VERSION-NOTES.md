@@ -7,6 +7,153 @@
 
 ---
 
+// v20261019-nowhile：**while 条件循环整条移除（引擎 + 面板），循环只保留 count / over**（2026-10-19 用户拍板：
+//   「那就删掉 while 循环逻辑，引擎逻辑也删掉，历史工作流也同步处理掉」；同时「每轮条件保留，输入框位置按循环逻辑调整」）。
+//   · 宿主 `control.ts`：删掉 while 分支、`whileMode`、`dynamicWhile`、`whileCap`、`condWanted/keepOn`、两处
+//     `LOOP_MAX_ITER` 路径、以及"动态 while 必须配循环体"的报错；轮数＝已算好的迭代序列长度（不再有边跑边判）。
+//     `LOOP_NO_BOUND` 文案改为「count / over 至少配置一个（条件循环已移除：要满足条件就停，请在循环体里用条件节点判断，
+//     并让 end 输出 break: true）」。
+//     ★schema 里**仍保留** `while` / `whileMode` / `dangerouslyAllowInfinite` 三个键（标"兼容老数据"），
+//     并把 while 留在 anyOf 里 —— 否则老 def 会因 `additionalProperties:false` 直接结构校验失败（违反红线）。
+//   · 面板：边界下拉只剩 count / over；老 while 节点显示「（当前值：旧版条件循环，已移除）」+ 一句改法提示；
+//     删掉 while 输入框、真/假继续下拉、`dangerouslyAllowInfinite` 勾选框；`maxIterations` 只在 over 下出现。
+//   · ★**「每轮条件」位置按配置直觉调整**：挪到「边界值」之后、「最大迭代次数」之前 —— 顺序变成
+//     跑几次 → 每轮做不做 → 上限 → 循环体，跟他描述的"按循环的逻辑"一致。
+//   · 客户端：卡片副标题不再显示 `while: xxx`，老节点改成「⚠ 条件循环已移除（改 count / over）」；问题面板对
+//     "只配了 while"的节点报 error 并给 break 出路。
+//   · 文档：README 边界表删 while 行 + 「最大迭代次数」段与两处节点参数表同步；`ERROR_REFERENCE` 把 `LOOP_MAX_ITER`
+//     标"已退役"，`LOOP_NO_BOUND` 说明同时覆盖"只配了 while"的老节点。
+//   · 测试：`loop` 专项删掉 while 全部用例（原 D 段 8 条、C3 的 ①~④、C5 的 3 条），保留 count/over、截断、
+//     循环体传参、break 打断、每轮条件、表达式求值器（后者改用 if 条件钉）；CDP `loop-visible` 的 while 副标题断言
+//     改成"老节点如实提示已移除"；`verify-live-restart` 的 ② 改成"while 退役检查"。
+//   · ★**宿主也改了 ⇒ 需要重启 `dsh web`**（标记 host / client 均 `v20261019-nowhile`）。
+
+// v20261019-roundif：**新增「每轮条件」+ 删掉「不设边界」入口**（2026-10-19 用户原话：「循环节点里面的 while 和
+//   不设边界感觉都没必要，可以设置一个自定义判断，用户自定义语句，如果语句为真，就执行，如果语句不为真，就进入下一轮」；
+//   我把两种语义的差别摆清后，他从 A/B/C/D 里拍板 **A：保留 while，删不设边界，新增「每轮条件」**）。
+//   · 语义澄清（关键）：`while` 决定「**还有没有下一轮**」（为假就整个循环结束）；「每轮条件」只决定
+//     「**这一轮做不做**」（为假就跳过本轮、继续下一轮）。两者正交，可同时用，删掉 while 会丢掉「提前结束」的声明式
+//     表达（只能全靠 `break`），所以保留。
+//   · 宿主 `control.ts`：新参数 `roundIf`（表达式）；**只在配了循环体时生效**（没循环体时 loop 只产出序列）；
+//     每轮在 while 判断之后、执行循环体之前求值：为真照跑，为假 `skipped++` 后 `continue`（不写 out.items）；
+//     求值抛错 ⇒ `LOOP_COND_ERROR`（文案指明是「每轮条件」，不静默当 false 一路跳过）；
+//     配了它 out 里补 `rounds`（共经过几轮）/ `skipped`（跳过几轮）—— 没配时这两个字段不出现。
+//   · 面板：边界下拉**删掉「⚠ 不设边界」**（它唯一用途是让运行必失败）；仅当节点本来就是三键全空时，
+//     把它作为「（当前值：无循环边界）」显示，避免下拉显示空白（老数据兼容，不隐式改数据）。
+//     边界下方新增「每轮条件（可选）」输入框 + 问号（讲清与 while 的区别、例子 `loopIndex % 2 == 0`、out 字段）。
+//   · 文档：README「循环怎么用」补一段；`ERROR_REFERENCE` 的 `LOOP_COND_ERROR` 说明加上 `roundIf`。
+//   · 测试：`loop` 专项新增 3 条 —— ①count=4 + `loopIndex != 1` ⇒ 执行 0,2,3（count 3 / rounds 4 / skipped 1）；
+//     ②`roundIf` 写错变量 ⇒ `LOOP_COND_ERROR` 且文案含「每轮条件」；③没配循环体时 `roundIf` 不生效（不带 rounds/skipped）。
+//   · ★**宿主也改了 ⇒ 需要重启 `dsh web`**（标记 host / client 均 `v20261019-roundif`）。
+
+// v20261019-loopbreak：**子工作流可以打断循环**（2026-10-19 用户问「子工作流怎么配置，打断循环节点执行」，
+//   从三个方案里拍板 A：约定 end 输出带 `break: true` 就中断）。
+//   · 背景：此前循环只有三种停法 —— while 条件不满足「继续」、某轮失败（整节点失败）、跑满上限。
+//     循环体内部**没有**"别再跑下一轮"的通道，想提前收工只能把判断反写进 while 条件（要求每轮把信号从
+//     上一轮输出里带出来），很绕。
+//   · 改法（宿主 `control.ts`，纯加法）：每轮循环体跑完后看它的 end 输出 —— 带 `break: true` 就**立刻结束**，
+//     剩余轮不再跑；节点仍算 `success`（这是正常收敛，不是失败）；`out` 里补 `broken: true` 与 `breakAt`
+//     （第几轮停的），已完成轮次照旧在 `out.items`，那一轮的 end 输出也含 `break` 键便于排查。
+//     判据 `isBreakOutput()`：只认对象上的 `break === true`（为了不误伤既有数据，不做任何字符串/数字宽松匹配）。
+//   · 不写 `break` 的老循环**一字不变**（不出现 broken / breakAt 字段）。
+//   · 推荐配方（也写进面板气泡与 README）：子工作流里用 `if` 判断，满足就 `set_var` 写 `break=true`，
+//     `end` 会自动把 `vars` 带进输出 ⇒ 循环看到就停。
+//   · 验证：tsc 0 / markers **138/138** / 离线链 exit 0（`loop` 专项 **72 passed**，新增 3：
+//     恒打断（count=5 只跑 1 轮）/ 不写 break 不变 / if+set_var 条件打断在第 2 轮停）/ CDP `loop-visible` 1/1。
+//   · ★**宿主也改了 ⇒ 需要重启 `dsh web`**（标记 host / client 均 `v20261019-loopbreak`）。
+
+// v20261019-whilefalse：**while 多了一种模式：条件为「假」时继续**（2026-10-19 用户原话：
+//   「循环的 while 模式，不能只有为 true 才执行，也要可以配置成为 false 时执行」）。
+//   · 新参数 `whileMode: 'true' | 'false'`：`'true'`（默认，**老行为一字不变**）＝条件为真时继续；
+//     `'false'` ＝条件为假时继续 ⇒ 等价于「一直跑到条件变真」（until 语义，例如「生成到 `lastOutput.ok == true` 为止」）。
+//   · 宿主 `control.ts`：`condWanted` + `keepOn(v)` 统一映射（wanted=true ⇒ keep=v；wanted=false ⇒ keep=!v），
+//     静态预生成路径与动态逐轮路径**共用**同一映射；`LOOP_MAX_ITER` 文案跟着模式说「条件仍为真 / 条件仍为假」
+//     （以前固定写"仍为真"，在 until 模式下会误导）；schema 加 `whileMode` 枚举（`additionalProperties:false` ⇒ 必须登记）。
+//   · 面板：while 模式下表达式框下面多一个两选下拉「条件为真时继续（默认）/ 条件为假时继续（一直跑到条件变真）」；
+//     「🔁 循环设置」问号补一句"两种模式共用同一个上限/保险丝"；`maxIterations` 气泡措辞改为「仍满足继续」。
+//   · 文档：README 的 while 行补「跑到成功为止」的用法示例；`ERROR_REFERENCE` 的 `LOOP_MAX_ITER` 说明跟着模式走。
+//   · 测试：`loop` 专项新增 3 条 —— ①`whileMode:'false'` + 条件 `lastOutput.n == 2` ⇒ 3 轮（序号 0,1,2）；
+//     ②同一条件用默认模式 ⇒ 0 轮（A/B 对照，证明模式真生效）；③`while:'false'` + 模式 false ⇒ 撞保险丝且文案含「为假」。
+//   · ★**宿主也改了 ⇒ 需要重启 `dsh web`**（标记 host / client 均 `v20261019-whilefalse`）。
+
+// v20261019-countone：**count 模式把「次数」与「最大迭代次数」合并成一个输入框**（2026-10-19 用户原话：
+//   「循环节点的 count 形式里面有三个需要填写的框，最大循环次数和填写的次数可以使用一个输入框，写清楚说明」）。
+//   · 面板（`NodeInspector.loopConfigNodes`）：`count` 模式只剩「跑几次，如 3」一个数字框，右侧问号说清
+//     「填几次就跑几次，count 模式没有第二个上限框（只受 100000 硬保护）；最大迭代次数只在 over / while 下出现」。
+//     该框的 onChange 写 `count` 的同时把 `maxIterations` 置 null（删键）—— 避免留下一个**看不见的**旧上限偷偷截断。
+//     `setLoopBound('count')` 同样顺带清 `maxIterations`。
+//   · 老工作流（def 里已有 count + maxIterations）进面板时：明说「还带着旧的最大迭代次数 N（会把轮数截断到 N）」
+//     并给「清除」按钮（`onParamsChange({ maxIterations: null })`）—— 不做隐式改数据，但也不让它隐形。
+//   · 引擎（`control.ts`）**一行未改**：语义仍是「填了就截断、count/over 留空＝不限、while 留空＝1000 保险丝」，
+//     本轮纯客户端 + 文档 ⇒ **硬刷新即可**（宿主标记仍是 `v20261019-maxiterblank`，那份要重启 `dsh web`）。
+//   · 文档：README 边界表 count 行改写 + 「填与不填」段落注明该框只在 over / while 出现。
+//   · 测试：CDP `loop-visible` 改为断「count 模式只有 1 个数字框」+「旧 maxIterations 被明说」+「点清除后 def 里键被删」；
+//     maxIterations 问号的断言移到 over 模式（那里才有这个框）。
+//   · 验证：tsc 0 / markers **133/133**（新增"单框""旧上限可清除"两条）/ 离线链 exit 0 / CDP `loop-visible` 1/1；
+//     探针 `probe-maxiter-row.mjs` 量到 count 行：输入框与问号同一行、输入框占行宽 91.6%、气泡在视口内。
+
+// v20261019-maxiterblank：**「最大迭代次数」留空的语义改成「不限」**（2026-10-19 用户原话：
+//   「不填应该是按照默认数组实际有多少数据执行的吧，填了才是按照数据截断」——他拍板 A：count/over 留空＝无上限）。
+//   · 背景：上一版 `maxiters` 只是把现状讲清（不填＝1000），但用户对"留空也有隐形上限"明确不认可 ⇒ 这版改语义。
+//   · 宿主 `control.ts`：`explicitCap = 填了就 min(值, 100000) / 没填 null`；`countOverCap = explicitCap ?? 100000`
+//     （count / over 留空 ⇒ 按数据实际长度执行，只受 schema 硬保护 100000，被它截断时照旧标 truncated）；
+//     `whileCap = explicitCap ?? 1000`（**while 例外**：留空仍是 1000 轮保险丝 —— 条件永不转假时要有自然停点，
+//     只能手动取消很难受）；`LOOP_MAX_ITER` 文案在"没填"时补一句「while 留空时默认 1000 的保险丝；要跑更多请显式填」。
+//   · 面板：maxIterations 的 placeholder 改「不填＝不限（while 为 1000）」，问号气泡改写成同一口径；
+//     README「填与不填」段与 `ERROR_REFERENCE` 的 `LOOP_MAX_ITER` 说明同步。
+//   · ★**行为变更（单列）**：`count` / `over` 不填上限、且数据量 > 1000 时，以前只处理前 1000 个（静默），
+//     现在会跑满实际数量 —— 这正是用户要的；`while` 不填时的 1000 保险丝**保持不变**。
+//   · 测试：`loop` 专项新增 4 条（over 1200 项不填 ⇒ 跑满 1200 且不标 truncated；count 1200 不填 ⇒ 1200；
+//     while 不填 ⇒ 仍 LOOP_MAX_ITER 且文案含 1000）。
+//   · 验证：tsc 0 / markers **131/131**（新增"while 留空＝1000 保险丝"文案锚点）/ 离线链 exit 0
+//     （`loop` 专项 **66 passed**）/ CDP `loop-visible` 1/1（问号气泡改断"按数据实际长度执行"）。
+//   · 标记 host / client 同为 `v20261019-maxiterblank` ⇒ **需重启 `dsh web` + 硬刷新**。
+
+// v20261019-maxiters：**把「最大迭代次数填与不填」讲清，并让「超上限截断」可见**（2026-10-19 用户原话：
+//   「循环里面的最大迭代次数，填与不填的区别」——面板上只有一句 placeholder，没说什么情况下会影响结果）。
+//   注：本条里"不填＝1000"的语义已被上一条 `maxiterblank` 改掉（count/over 留空＝不限），这里保留历史记录。
+//   · 核实到的现状（三类边界三种命运）：`maxIter = min(maxIterations ?? 1000, 100000)`；
+//     `over` / `count` 超过它 ⇒ 只处理前 N 个、**静默截断**（不报错、out.count 显示 1000，看不出少跑）；
+//     `while`（含动态条件）跑满它而条件仍真 ⇒ `LOOP_MAX_ITER` 失败；勾 `dangerouslyAllowInfinite` 只是
+//     **"到上限不报错"**，`while (i < maxIter)` 仍是硬上限 —— 旧文案「到上限后继续」名不副实。
+//   · 改法（用户从 A/B/C/D 里拍板 A）：①宿主 `control.ts` 记下截断并落进 out —— `truncated: true` +
+//     `requested`（本来要做多少）+ `processed`（实际做多少），**只在真截断时出现**，未截断时 out 形态一字不差
+//     （既有下游引用零影响）；②面板 maxIterations 改为「输入 + 右侧问号」，气泡讲清三种边界下的不同作用；
+//     ③checkbox 文案改为「跑满上限后不报错（仍只跑到 maxIterations，不会真无限）」。
+//   · 文档：README「循环怎么用」补一段「填与不填」+ `ERROR_REFERENCE` 的 `LOOP_MAX_ITER` 说明订正
+//     （明确 count/over 超上限**不报错**、只在 out 里标出来）。
+//   · 验证：tsc 0 / markers 130/130 / 离线 `loop` 专项 62 passed（新增 4：over 截断标出、count 截断标出、
+//     未截断时 out 仍是 `count,items` 两项）/ CDP `loop-visible`（新增"maxIterations 问号讲清差别"断言）。
+//   · ★**宿主也改了 ⇒ 需要重启 `dsh web`**（标记 `v20261019-maxiters`，客户端同样）。
+
+// v20261019-loopstate：**循环体传参也能引用「上一轮输出」**（2026-10-19 用户在问完"循环里能不能定义只在本次运行有效的
+//   临时参数"后，从三个选项里拍板「A｜补：把上一轮输出注入循环体传参」）。
+//   · 背景：`ctx.vars` 每次运行都是新的（`vars: {}`），临时参数**天然只活一次运行**，`set_var` 写、模板与 `end` 都能读；
+//     但**轮与轮之间**原来没有任何传递通道 —— 上一轮的 `end` 输出只落在 `loop.out.items` 里，循环体的 `body.inputs`
+//     拿不到。这一轮把 `lastOutput` 补进迭代上下文（宿主 `control.ts` 的 `iterCtx`），于是：
+//     `body.inputs` 的值里可以写 `{{vars.lastOutput.字段}}`，while 条件里同样可用（上一版 `loopwhile` 只接了条件侧）。
+//   · 首轮 `lastOutput` 是空对象 `{}`（不能用 `null`：表达式引擎里 `null` 不是字面量，会报 `undefined variable: null`），
+//     判"第一轮"用 `loopIndex == 0`；比较用 `==`，逻辑用 `||`/`&&`（内部会被归一成 `or`/`and`）。
+//   · 文档：面板「循环体参数映射」的问号补一行 + README「右侧能写什么」表新增 `{{vars.lastOutput.字段}}`。
+//   · 验证：tsc 0 / 离线 `loop` 专项 58 passed（含「循环体传参可引用上一轮输出：每轮回显长度 +1」）。
+//   · ★**宿主也改了 ⇒ 需要重启 `dsh web`**（标记升到 `v20261019-loopstate`）。
+
+// v20261019-loopdoc：**把「循环怎么用 / 怎么给循环体传参」说清**（2026-10-19 用户原话：「循环节点的循环设置不知道
+//   怎么设置，感觉和现实使用的方式不一致；而且怎么给子循环传参数也没说」）。
+//   · 面板（`NodeInspector.tsx` 的 `loopConfigNodes`）：
+//     ①选中循环体子工作流后，读它自己的 `def.inputs`（即「工作流参数」），在循环体下方**平铺列出**「该子工作流声明的
+//       参数：a、b…」—— 这就是"左侧输入名该填什么"的答案（纯只读，不动任何 def）；
+//     ②`+` 添加映射时**预填**一个"已声明但还没映射"的参数名，值默认 `{{vars.loopItem}}`（最常见用法）；
+//     ③循环体的问号补「传参怎么对应」：左边＝子工作流参数名；右边可用 `{{vars.loopItem}}` / `{{vars.loopItem.字段}}` /
+//       `{{vars.loopIndex}}` / `{{节点id.out.x}}` / 常量，并给 `topic = {{vars.loopItem.title}}`、`n = {{vars.loopIndex}}` 的例子；
+//     ④「🔁 循环设置」的问号补 while 的真实语义（每轮开始前求值；引用 lastOutput/loopIndex 才随轮次变化；表达式语法边界）；
+//     ⑤`over` 的 placeholder 去掉误导的「或直接写数组」⇒ 改为「上游数组引用（整串），如 {{list1.out.items}}」。
+//   · 文档：README「循环怎么用」从一句话扩成「三步 + 两张表（边界怎么填 / 右侧能写什么）+ 示例 + 两条注意事项」。
+//   · ★ 闸门抓到我两处错并已修：README 表格里写 `\|\|` 转义（表格解析器不认，报"列数 5 ≠ 表头 3"）、
+//     面板气泡里用了 Markdown `**`（用户可见文案禁用；CDP `loop-visible` 的"问号气泡无星号残留"断言当场抓红）。
+//   · 验证：tsc 0 / markers 126/126 / 离线链 exit 0 / CDP `loop-visible` + `node-result-tip` 2/2。
+//   · **纯客户端 + 文档改动 ⇒ 硬刷新即可**（宿主标记 `v20261019-loopwhile` 那份需要重启 dsh web）。
+
 // v20261019-seltip：**下拉的悬停提示改成自绘深色浮层**（2026-10-19 用户原话：「下拉选鼠标悬停展示的框也比较丑，
 //   可以优化下」—— 他指的是原生 `title` 的浏览器提示框：白底 / 系统字体 / 方角，CSS 完全改不了）。
 //   · 做法：`SelectBox` 去掉列表项与闭合态控件上的 `title` 属性，改 `showTip(anchor, text, force)`：

@@ -34,14 +34,17 @@ export function computeProblems(nodes: any[], edges: any[]): FlowProblem[] {
     if (n.type === 'set_var' && (!d.vars || typeof d.vars !== 'object' || Array.isArray(d.vars) || Object.keys(d.vars).length === 0)) problems.push({ level: 'error', nodeId: n.id, msg: `${n.id} 变量表（vars）为空——没有要写入的变量` });
     if (n.type === 'subflow' && !String(d.workflowName ?? '').trim()) problems.push({ level: 'error', nodeId: n.id, msg: `${n.id} 子工作流名（workflowName）为空` });
     if (n.type === 'session_input' && !String(d.sessionId ?? '').trim()) problems.push({ level: 'warn', nodeId: n.id, msg: `${n.id} 未选择会话——运行时会报「session not found」` });
-    // ★ loop 循环边界（P1，2026-10-03）：count/while/over 全缺 → 运行必然 LOOP_NO_BOUND 失败，
-    //   提前在问题面板显形（引擎优先级 over > count > while，卡片副标题同口径）
+    // ★ loop 循环边界（P1，2026-10-03）：count/over 全缺 → 运行必然 LOOP_NO_BOUND 失败，
+    //   提前在问题面板显形（引擎优先级 over > count；2026-10-19 while 条件循环已移除）
     if (n.type === 'loop') {
       const hasOver = Array.isArray(d.over) || (typeof d.over === 'string' && d.over.trim() !== '');
       const hasCount = typeof d.count === 'number';
       const hasWhile = typeof d.while === 'string' && d.while.trim() !== '';
       if (!hasOver && !hasCount && !hasWhile) {
-        problems.push({ level: 'error', nodeId: n.id, msg: `${n.id} 循环边界缺失（count / while / over 至少配置一个）——运行时会报 LOOP_NO_BOUND` });
+        problems.push({ level: 'error', nodeId: n.id, msg: `${n.id} 循环边界缺失（count / over 至少配置一个）——运行时会报 LOOP_NO_BOUND` });
+      } else if (!hasOver && !hasCount && hasWhile) {
+        // ★ 2026-10-19：只有老 while 的节点现在跑不起来 —— 明确告警并给出改法（不然用户以为它还能跑）
+        problems.push({ level: 'error', nodeId: n.id, msg: `${n.id} 用的是已移除的「条件循环 while」——请改成 count / over；要"满足条件就停"，在循环体里用条件节点判断并让 end 输出 break: true` });
       }
     }
   }
