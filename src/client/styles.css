@@ -535,9 +535,20 @@
 .dsh-wf-sel:focus-visible { border-color: var(--wf-accent, #6f8fff); box-shadow: 0 0 0 3px var(--wf-focus, rgba(111,143,255,.18)); }
 .dsh-wf-sel.on { border-color: var(--wf-accent, #6f8fff); box-shadow: 0 0 0 3px var(--wf-focus, rgba(111,143,255,.18)); }
 .dsh-wf-sel.is-disabled { opacity: .55; cursor: not-allowed; }
+/* ★ 2026-10-19（用户报「搜索栏显示也不对」）：下拉是 Portal 到 <body> 的，**不在 `.dsh-wf-root` 里**，
+   拿不到最上面那条 `box-sizing: border-box` ⇒ 搜索框 `width:100%` 加上 padding/border 会溢出列表
+   （实测：输入框右缘 1339 > 列表右缘 1328，溢出 11px）⇒ 兜底规则写在 `.dsh-wf-sel-q` 自己身上。
+   · 列表 `.dsh-wf-sel-list`：现在也改成 border-box（用户要求浮层宽度严格等于控件宽）⇒ 传进来的
+     width / maxHeight 语义都是**总宽 / 总高**，必须与 select-box.tsx 的 maxH 估算保持一致（那里按总高算）。
+   ★ 仍**不要**写成 `.dsh-wf-sel-list * { box-sizing: border-box }`：那会把项内部 padding 也算进固定尺寸，
+   带小字的项会被裁（上一轮实测：CDP ② 当场变红）。 */
 /* 展开列表：Portal 到 body + position:fixed（面板的 backdrop-filter 会给 fixed 造包含块，挂在面板里会被困住）；
    只做 opacity 淡入（有几何依赖的浮层不用位移/缩放动画）。 */
 .dsh-wf-sel-list {
+  /* ★ 2026-10-19：浮层列表**自己**用 border-box —— 这样调用方传的 width 就是**总宽**（严格等于控件宽），
+     maxHeight 就是**总高**（select-box.tsx 的高度估算按总高算）。
+     注意：**不要**写成 `.dsh-wf-sel-list *`（上一轮踩过：把项内部 padding 也算进固定尺寸 ⇒ 带小字的项被裁）。 */
+  box-sizing: border-box;
   position: fixed; z-index: 90; display: flex; flex-direction: column; gap: 2px;
   padding: 6px; overflow: hidden; opacity: 0;
   background: var(--wf-panel3, #162135); border: 1px solid var(--wf-border3, #365173);
@@ -548,6 +559,8 @@
 @media (prefers-reduced-motion: reduce) { .dsh-wf-sel-list { animation: none; opacity: 1; } }
 .dsh-wf-sel-search { flex: none; padding: 2px 2px 6px; }
 .dsh-wf-sel-q {
+  /* ★ 浮层不在 `.dsh-wf-root` 里 ⇒ 搜索框必须自带 border-box，否则 width:100% + padding/border 会溢出列表 11px */
+  box-sizing: border-box;
   width: 100%; min-height: 30px; padding: 5px 9px; font-size: 12px; border-radius: 7px;
   background: var(--wf-bg, #08101e); border: 1px solid var(--wf-border2, #29405f);
   color: var(--wf-text2, #f6f9ff); font-family: inherit;
@@ -559,11 +572,28 @@
 .dsh-wf-sel-opt.is-on { background: color-mix(in srgb, var(--wf-accent, #6f8fff) 24%, transparent); color: #dbe7ff; }
 .dsh-wf-sel-opt.is-disabled { opacity: .5; cursor: default; }
 .dsh-wf-sel-tick { flex: none; width: 12px; color: #7fe3a4; }
-.dsh-wf-sel-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-/* 展开列表里允许换行 —— 这是自研相对系统菜单的关键收益：长选项能看全 */
-.dsh-wf-sel-label { line-height: 1.45; white-space: normal; }
-.dsh-wf-sel-sub { font-size: 10.5px; color: var(--wf-muted, #91a4bf); line-height: 1.5; white-space: normal; }
+/* ★ 2026-10-19（用户要求「下拉选浮窗的长度要保持和下拉选一致，不要超出；如果里面内容比较长、
+   超出了浮窗的长度，就…显示，鼠标放上去显示全名」）：列表项文案改成**单行省略号**，全名走 `title` 悬停
+   （上一版"展开列表可换行看全"按用户要求收掉）。`.dsh-wf-sel-body` 必须 overflow:hidden，
+   否则内部 span 的 text-overflow 不生效。 */
+.dsh-wf-sel-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow: hidden; }
+.dsh-wf-sel-label { line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dsh-wf-sel-sub { font-size: 10.5px; color: var(--wf-muted, #91a4bf); line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dsh-wf-sel-empty { padding: 8px 9px; font-size: 12px; color: var(--wf-muted2, #647895); }
+/* ★ 2026-10-19（用户：「下拉选鼠标悬停展示的框也比较丑，可以优化下」）：悬停提示改**自绘** ——
+   原生 `title` 的提示框是浏览器 UI（白底 / 系统字体 / 方角），CSS 完全改不了。这里做成项目主题的深色浮层：
+   与列表同色系、圆角 8、`pointer-events: none`（绝不挡点击、也不会触发"点外部关闭列表"）。
+   同样要 `box-sizing: border-box` —— 它也是 Portal 到 body 的，不在 `.dsh-wf-root` 里。 */
+.dsh-wf-sel-tip {
+  box-sizing: border-box;
+  position: fixed; z-index: 91; max-width: 340px; padding: 6px 10px;
+  background: var(--wf-panel3, #162135); border: 1px solid var(--wf-border3, #365173);
+  border-radius: 8px; box-shadow: 0 10px 24px rgba(0, 0, 0, .45);
+  color: var(--wf-text, #e6edf7); font-size: 12px; line-height: 1.5;
+  white-space: normal; overflow-wrap: anywhere;
+  pointer-events: none; opacity: 0;
+  animation: dsh-wf-sel-in 100ms ease forwards;
+}
 
 /* ── 不可编辑输入框置灰 + 必填红星（2026-10-02 用户需求：不能编辑的置灰、必填的加标识）── */
 .dsh-wf-input[readonly],
