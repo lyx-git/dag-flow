@@ -279,7 +279,9 @@
   position: fixed;
   z-index: 9999;
   width: 420px;
-  max-height: 320px;
+  /* ★ 2026-10-19：320px 是上限，但不能超过视口——否则小窗口里浮窗比可视区还高，
+     贴哪一侧都会溢出（配合 nodes.tsx 的 ResultTipBox 按真实高度定位）。 */
+  max-height: min(320px, calc(100vh - 16px));
   overflow: auto;
   padding: 9px 11px 10px;
   border-radius: 10px;

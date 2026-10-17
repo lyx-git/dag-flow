@@ -21,7 +21,7 @@ const hasH = (s) => hTxt.includes(s);
 
 const rows = [
   // ===== A. 版本标记（产物闸门第一道）=====
-  ['client 含标记 v20261019-noflicker（切换工作流淡入遮罩 + 初始视图一步落位）', cTxt.includes('v20261019-noflicker')],
+  ['client 含标记 v20261019-tippos（节点结果浮窗按真实高度贴边定位）', cTxt.includes('v20261019-tippos')],
   ['host   含标记 v20261019-runsperf（运行记录枚举零 stat + prune 只扫本工作流）', hasH('v20261019-runsperf')],
 
   // ===== B. 空名三禁（2026-10-19 用户：没名字禁止运行/保存/自动建）=====

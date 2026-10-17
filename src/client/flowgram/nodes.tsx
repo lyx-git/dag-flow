@@ -4,7 +4,7 @@
 // 端口：start 只有 output，end 只有 input，if 双输出（true/false），其余 左入右出。
 
 import { createElement } from 'react';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { DataEvent, Field, FlowNodeRegistry, useNodeRender } from '@flowgram.ai/free-layout-editor';
 import { findMeta } from '../types';
@@ -135,12 +135,33 @@ function SwitchChip(props: { text: string; title: string; cls: string; onPick: (
  *    （与节点卡同理：画布层会 stopPropagation 掉委托事件）。 */
 function ResultTipBox({ model, at, onEnter, onLeave }: {
   model: TipModel;
-  at: { left: number; top: number };
+  at: { left: number; below: number; above: number };
   onEnter?: () => void;
   onLeave?: () => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [copied, setCopied] = useState<'ok' | 'bad' | null>(null);
+  /* ★ 2026-10-19 修「明明底部还有空间，浮窗却显示到离鼠标很远的上面去」：
+     旧实现在 showTip 里用 `const H = 320`（那其实是 CSS 的 **max-height**）当作"浮窗实际高度"来判断
+     下方放不放得下 ⇒ 节点离窗口底不足 330px 就翻到上方；翻上去时又按 320 让位
+     ⇒ 而浮窗真实高度常常只有 100~150px，于是它跑到节点上方三百多像素处（离鼠标很远）。
+     现在：先落在节点下方锚点，useLayoutEffect 量**真实高度**，确实放不下才翻到节点上方，
+     并且按真实高度让位（紧贴节点上沿）。useLayoutEffect 在浏览器绘制**之前**同步跑完，
+     用户看不到"先错后对"的中间态。 */
+  const [top, setTop] = useState(at.below);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const h = el.getBoundingClientRect().height;
+    const vh = window.innerHeight;
+    const EDGE = 8;
+    let next = at.below;
+    if (next + h > vh - EDGE) {
+      const up = at.above - h;                                  // 贴着节点上沿往上放
+      next = up >= EDGE ? up : Math.max(EDGE, vh - h - EDGE);    // 连上方都放不下 ⇒ 夹进视口
+    }
+    setTop(next);   // 与当前值相同则 React 跳过重渲染，不会来回抖
+  }, [at.below, at.above, model]);
   const enterRef = useRef(onEnter);
   enterRef.current = onEnter;
   const leaveRef = useRef(onLeave);
@@ -168,7 +189,7 @@ function ResultTipBox({ model, at, onEnter, onLeave }: {
   };
   return createElement(
     'div',
-    { ref, className: `dsh-wf-fg-tip is-${model.badgeKind}`, style: { left: `${at.left}px`, top: `${at.top}px` } },
+    { ref, className: `dsh-wf-fg-tip is-${model.badgeKind}`, style: { left: `${at.left}px`, top: `${top}px` } },
     createElement('div', { className: 'dsh-wf-fg-tip-head' },
       createElement('span', { className: 'dsh-wf-fg-tip-title' }, model.title),
       createElement('span', { className: `dsh-wf-fg-tip-badge is-${model.badgeKind}` }, model.badge),
@@ -204,7 +225,7 @@ function NodeCardBody({ type }: { type: string }) {
   //   （onClick/mousedown，以及由 mouseover 合成的 onMouseEnter）在卡内收不到；
   //   与下方 SwitchChip 是同一个坑位、同一套解法（元素级 addEventListener）。
   const cardRef = useRef<HTMLDivElement | null>(null);
-  const [tipAt, setTipAt] = useState<{ left: number; top: number } | null>(null);
+  const [tipAt, setTipAt] = useState<{ left: number; below: number; above: number } | null>(null);
   const tipValue = rs ? tipModel(rs, { label: (values.label as string) ?? node.id, id: node.id }) : null;
   const showTip = (): void => {
     cancelHide(); // 重新移入卡片时取消"待隐藏"
@@ -215,10 +236,11 @@ function NodeCardBody({ type }: { type: string }) {
     const el = cardRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const W = 420, H = 320, gap = 10;
+    const W = 420, gap = 10;
     const left = Math.max(8, Math.min(r.left, window.innerWidth - W - 8));
-    const top = r.bottom + gap + H > window.innerHeight ? Math.max(8, r.top - gap - H) : r.bottom + gap;
-    setTipAt({ left, top });
+    // ★ 2026-10-19：**不再在这里用写死的 320 判断下方够不够**（那个 bug 的说明见 ResultTipBox 头注释）。
+    //   这里只交出两个锚点（节点下沿 / 节点上沿），由浮窗按**真实高度**决定落哪一侧。
+    setTipAt({ left, below: r.bottom + gap, above: r.top - gap });
   };
   // ★ 用户反馈「无法把鼠标移到浮窗上复制错误」：卡片 mouseleave **不立刻**收起，留 260ms 让鼠标移进浮窗；
   //   浮窗自身 mouseenter 会 cancelHide（见 ResultTipBox 的 onEnter），这样就能选中文本 / 点复制。
