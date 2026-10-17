@@ -20,7 +20,7 @@
 // 依赖：只用 node 内置（插件 R3 零依赖约定）；路径走防腐层 `dsh-gate/paths.ts`。
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { dagFlowImagesDir, dshHome } from '../dsh-gate/paths.js';
+import { dagFlowScopedPath, dshHome } from '../dsh-gate/paths.js';
 
 /** 宿主附件服务的真机限制（2026-10-16 启动日志实测 maxImagesPerMessage / maxImageBytes） */
 export const IMAGE_MAX_COUNT = 20;
@@ -35,9 +35,12 @@ const MEDIA_TYPES: Record<string, string> = {
   gif: 'image/gif',
 };
 
-/** 统一图片目录（`<DSH_HOME>/.dag-flow/images/`）；相对路径的唯一基准，doc_parse 出图也写这里 */
-export function imageDir(): string {
-  return dagFlowImagesDir();
+/** 图片目录：**按工作流分** `<DSH_HOME>/.dag-flow/images/<工作流名>/`
+ *  ★ 2026-10-19 用户要求「每个工作流产生的文件都要以 .dag-flow/**\/工作流名称/文件 的方式存放」，
+ *   并明确「全部严格按照要求做，不做兼容」⇒ 图片按工作流隔离，**不再读 `images/` 根目录**。
+ *   无工作流上下文（如手工/工具调用）时退回 `images/` 根。 */
+export function imageDir(wfName?: string): string {
+  return dagFlowScopedPath('images', wfName);
 }
 
 /** images 相关失败的统一错误（`code` 直接进 NodeResult.error.code；文案一律中文） */
@@ -94,17 +97,19 @@ export function parseImageList(value: unknown): ImageSpec[] {
   });
 }
 
-/** 本地路径 → 绝对路径。★ 相对路径锚定**统一图片目录** `<DSH_HOME>/.dag-flow/images/`
- *  （写 `chart.png` 即可；子目录如 `年报/chart.png` 也在这个目录下找）；绝对路径原样使用。 */
-export function resolveImagePath(p: string): string {
-  return path.isAbsolute(p) ? p : path.resolve(imageDir(), p);
+/** 本地路径 → 绝对路径。★ 相对路径锚定**本工作流的图片目录** `images/<工作流名>/`
+ *  （写 `chart.png` 即可）；绝对路径原样使用。 */
+export function resolveImagePath(p: string, wfName?: string): string {
+  return path.isAbsolute(p) ? p : path.resolve(imageDir(wfName), p);
 }
 
-/** ★ 相对路径的**候选探测顺序**（2026-10-17 修）：① 绝对路径 = 唯一候选；② 统一图片目录（官方基准，写裸名）；
- *  ③ `<DSH_HOME>` 基准（兼容 `.dag-flow/images/x.png` 这类**上游产物**写法）。去重后按序探测。 */
-export function imagePathCandidates(p: string): string[] {
+/** ★ 相对路径的**候选探测顺序**：① 绝对路径 = 唯一候选；② 本工作流的图片目录（官方基准，写裸名）；
+ *  ③ `<DSH_HOME>` 基准——**这条只用来接住上游节点自己产出的相对路径**
+ *  （如 image_generate 写出的 `.dag-flow/images/<名>/x.png`），不是"兼容旧图"。
+ *  ★ 2026-10-19 用户口径「全部严格按照要求做，不做兼容」⇒ **已去掉 `images/` 根目录兜底**。 */
+export function imagePathCandidates(p: string, wfName?: string): string[] {
   if (path.isAbsolute(p)) return [p];
-  return [...new Set([path.resolve(imageDir(), p), path.resolve(dshHome(), p)])];
+  return [...new Set([path.resolve(imageDir(wfName), p), path.resolve(dshHome(), p)])];
 }
 
 /** 展示名（basename；URL 取 pathname 且去掉 query/hash） */
@@ -114,21 +119,21 @@ function displayName(spec: ImageSpec): string {
 }
 
 /** 载入一张图的字节（本地读 / URL 下载）＋大小校验；返回宿主 `saveImage` 的入参形状 */
-export async function loadImageInput(spec: ImageSpec): Promise<{ data: Uint8Array; mediaType: string; name: string }> {
+export async function loadImageInput(spec: ImageSpec, wfName?: string): Promise<{ data: Uint8Array; mediaType: string; name: string }> {
   const mediaType = mediaTypeOf(spec.value);
   if (!mediaType) throw new ImageInputError('IMAGE_UNSUPPORTED_TYPE', `不支持的图片格式：${spec.value}`);
   const name = displayName(spec);
 
   if (spec.kind === 'path') {
-    // ★ 多候选探测（2026-10-17）：裸文件名按统一图片目录找；带 `.dag-flow/` 前缀的按 <DSH_HOME> 相对路径找
-    const cands = imagePathCandidates(spec.value);
+    // ★ 多候选探测：裸文件名按**本工作流的图片目录**找；带 `.dag-flow/` 前缀的按 <DSH_HOME> 相对路径找
+    const cands = imagePathCandidates(spec.value, wfName);
     let abs = cands[0]!;
     let stat: { isFile(): boolean; size: number } | null = null;
     for (const c of cands) {
       try { stat = await fs.stat(c); abs = c; break; } catch { /* 试下一个候选 */ }
     }
     if (!stat) {
-      throw new ImageInputError('IMAGE_NOT_FOUND', `图片文件不存在或不可读，已尝试：${cands.join(' 与 ')}（相对路径以统一图片目录 <DSH_HOME>/.dag-flow/images/ 为基准、写文件名即可；也兼容 .dag-flow/images/x.png 这类相对 <DSH_HOME> 的写法）`);
+      throw new ImageInputError('IMAGE_NOT_FOUND', `图片文件不存在或不可读，已尝试：${cands.join(' 与 ')}（相对路径以**当前工作流的图片目录** <DSH_HOME>/.dag-flow/images/${wfName || '<工作流名>'}/ 为基准、写文件名即可；也兼容 .dag-flow/images/… 这类相对 <DSH_HOME> 的写法）`);
     }
     if (!stat.isFile()) throw new ImageInputError('IMAGE_NOT_FOUND', `不是文件：${abs}`);
     if (stat.size > IMAGE_MAX_BYTES) {
@@ -154,9 +159,9 @@ export async function loadImageInput(spec: ImageSpec): Promise<{ data: Uint8Arra
 }
 
 /** 批量载入（保序；任一张失败即抛错——不静默丢图） */
-export async function loadImageInputs(specs: ImageSpec[]): Promise<{ data: Uint8Array; mediaType: string; name: string }[]> {
+export async function loadImageInputs(specs: ImageSpec[], wfName?: string): Promise<{ data: Uint8Array; mediaType: string; name: string }[]> {
   const out: { data: Uint8Array; mediaType: string; name: string }[] = [];
-  for (const s of specs) out.push(await loadImageInput(s));
+  for (const s of specs) out.push(await loadImageInput(s, wfName));
   return out;
 }
 
@@ -177,10 +182,11 @@ export interface ImageFileInfo {
 /** 列目录用到的结构化类型（省去 import Dirent：只需 name/isFile 两个成员） */
 type DirEntry = { name: string; isFile(): boolean };
 
-/** 列出统一图片目录里的图片（**只读**）：只根目录、跳过子目录与隐藏文件、只认白名单扩展名、按修改时间倒序。
- *  ★ 2026-10-16 用户需求「多张图片一个一个复制名称有点麻烦」⇒ 「🖼 选图」弹窗从这里取清单让用户勾选。 */
-export async function listImageFiles(): Promise<ImageFileInfo[]> {
-  const dir = imageDir();
+/** 列出**本工作流**图片目录里的图片（**只读**）：只该目录、跳过隐藏文件、只认白名单扩展名、按修改时间倒序。
+ *  ★ 2026-10-16 用户需求「多张图片一个一个复制名称有点麻烦」⇒ 「🖼 选图」弹窗从这里取清单让用户勾选。
+ *  ★ 2026-10-19 按工作流分目录后，清单跟着当前工作流走（用户口径：不做兼容，不列别的工作流的图）。 */
+export async function listImageFiles(wfName?: string): Promise<ImageFileInfo[]> {
+  const dir = imageDir(wfName);
   let entries: DirEntry[];
   try {
     entries = (await fs.readdir(dir, { withFileTypes: true })) as unknown as DirEntry[];

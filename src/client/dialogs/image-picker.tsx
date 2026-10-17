@@ -27,9 +27,11 @@ function humanTime(ms: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-export function ImagePickerDialog({ current, onClose, onConfirm }: {
+export function ImagePickerDialog({ current, workflowName = '', onClose, onConfirm }: {
   /** 当前 images 行里已有的条目（用于预勾选；只按文件名匹配，路径/URL 类条目自然勾不上） */
   current: string[];
+  /** ★ 2026-10-19：图片已按工作流分目录（`images/<工作流名>/`）——清单只列当前工作流自己的图 */
+  workflowName?: string;
   onClose: () => void;
   /** names = 勾选的文件名（按列表顺序）；replace=true 表示调用方先清空原内容再写 */
   onConfirm: (names: string[], replace: boolean) => void;
@@ -48,7 +50,9 @@ export function ImagePickerDialog({ current, onClose, onConfirm }: {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/dag-flow/images', { credentials: 'include' });
+      // ★ 2026-10-19：带上工作流名 ⇒ 只列该工作流 `images/<工作流名>/` 下的图
+      const qs = workflowName ? `?workflow=${encodeURIComponent(workflowName)}` : '';
+      const res = await fetch(`/api/dag-flow/images${qs}`, { credentials: 'include' });
       if (!res.ok) {
         // ★ 2026-10-16 实测：宿主还是旧版本（没有这条清单路由）时返回 401/空 body，
         //   `res.json()` 会抛 "Unexpected end of JSON input" 这种看不懂的错误 ⇒ 先判 ok，再给可执行的下一步。
@@ -63,7 +67,7 @@ export function ImagePickerDialog({ current, onClose, onConfirm }: {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [workflowName]);
   useEffect(() => { void load(); }, [load]);
 
   const q = query.trim().toLowerCase();
@@ -75,12 +79,13 @@ export function ImagePickerDialog({ current, onClose, onConfirm }: {
       return next;
     });
   }, []);
-  /** 用系统文件管理器打开统一图片目录（复用既有路由，sub='images'）——方便往里丢新图 */
+  /** 用系统文件管理器打开**本工作流的**图片目录（复用既有路由，sub='images/<工作流名>'）——方便往里丢新图 */
   const openFolder = (): void => {
     void fetch('/api/dag-flow/open-folder', {
       method: 'POST', credentials: 'include',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sub: 'images' }),
+      // ★ 2026-10-19：图片按工作流分目录 ⇒ 打开的就是 images/<当前工作流>/
+      body: JSON.stringify({ sub: workflowName ? `images/${workflowName}` : 'images' }),
     }).catch(() => { /* 打开失败不影响选图 */ });
   };
 
@@ -89,7 +94,7 @@ export function ImagePickerDialog({ current, onClose, onConfirm }: {
     : error
       ? `读取失败：${error}`
       : images.length === 0
-        ? '统一图片目录里还没有图片——点右边「📁 打开图片目录」把图片放进去，回来后重新打开本弹窗即可。'
+        ? '本工作流的图片目录里还没有图片——点右边「📁 打开图片目录」把图片放进去，回来后重新打开本弹窗即可。'
         : `目录：${dir}（共 ${images.length} 张，按最近修改排序；点一行即勾选）`;
 
   return createElement('div', {

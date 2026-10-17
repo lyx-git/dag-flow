@@ -930,6 +930,8 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
     paramsOpen && createPortal(createElement(ParamsEditor, {
       nodeId: node.id,
       nodeLabel: meta?.label,
+      // ★ 2026-10-19：图片按工作流分目录 ⇒ 把工作流名带进弹窗（「🖼 选图」只列本工作流的图）
+      workflowName,
       params: (node.params ?? {}) as Record<string, unknown>,
       varGroups: varPickGroups,
       // ★ 2026-10-11（用户拍板）：「删掉画布右侧编辑画板里面的变量引用」→ 变量只在抽屉里出现，
@@ -952,7 +954,7 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
         //   在 fieldHints 里登记 ⇒ 参数弹窗会自动补出这一行（多行框），留空则不写进 def。
         : node.type === 'subagent'
           ? {
-              images: '图片输入：每行一个本地路径或 http(s) 图片 URL；只写文件名＝到统一图片目录 <DSH_HOME>/.dag-flow/images/ 里找（文档解析节点抽出的图片也放这里）。只支持 png / jpg / jpeg / webp / gif，最多 20 张、单张不超 20MB。★只有走 dsh 宿主模型（下拉里带「· 📷 图片」的）才会真把图片发给模型；留空＝纯文本调用。',
+              images: '图片输入：每行一个本地路径或 http(s) 图片 URL；只写文件名＝到本工作流的图片目录 .dag-flow/images/<工作流名>/ 里找（文档解析节点抽出的图片也落这里，各工作流互不干扰）。只支持 png / jpg / jpeg / webp / gif，最多 20 张、单张不超 20MB。★只有走 dsh 宿主模型（下拉里带「· 📷 图片」的）才会真把图片发给模型；留空＝纯文本调用。',
             }
           : undefined,
       // ★ 2026-10-16（用户问「多张图片、多个路径或 URL 要怎么区分」）：images 行的**示例占位**——

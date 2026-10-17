@@ -104,7 +104,9 @@ console.log('== G. 触发点：writeRunRecord 落盘后自动清理 ==');
   }
   // 201 条旧的 + 刚写入的 1 条 = 202 → 淘汰最旧 2 条 ⇒ 旧记录剩 199，加新记录正好 200
   assert(n === 199, `自动清理把该工作流压回 200 条（旧记录剩 ${n} + 新写入 1 条）——清理是"写入后顺手做"`);
-  assert(existsSync(join(runsDir, `${id}.json`)), '刚写入的这条一定还在（不会把自己清掉）');
+  // ★ 2026-10-19：运行记录按工作流分目录后，新写入的落在 runs/<工作流名>/ 下；
+  //   而上面 put() 造的"历史平铺"记录仍在 runs/ 根 —— 清理必须能同时看到两级，且不误删新记录。
+  assert(existsSync(join(runsDir, 'hook', `${id}.json`)), '★刚写入的这条落在 runs/<工作流名>/ 下且一定还在（不会把自己清掉）');
 }
 
 console.log(`\n=== 运行记录保留策略：${pass} passed, ${fail} failed ===`);

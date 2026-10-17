@@ -28,11 +28,11 @@ export const subagentDef: NodeDefinition<SubagentParams> = {
       //   留空 = 纯文本调用（与加这个参数之前的行为完全一致）。真正发出图片需要走宿主模型路由。
       images: {
         type: 'string',
-        description: '图片输入：每行一个本地路径或 http(s) URL（png/jpeg/webp/gif，最多 20 张、单张不超 20MB）。相对路径以统一图片目录 <DSH_HOME>/.dag-flow/images/ 为基准（写文件名即可），也兼容 .dag-flow/images/x.png 这类相对 <DSH_HOME> 的写法（上游 image_generate 的 out.images[].path 就是这个形态）；留空则按纯文本调用',
+        description: '图片输入：每行一个本地路径或 http(s) URL（png/jpeg/webp/gif，最多 20 张、单张不超 20MB）。相对路径以**本工作流的图片目录** <DSH_HOME>/.dag-flow/images/<工作流名>/ 为基准（写文件名即可），也兼容 .dag-flow/images/<工作流名>/x.png 这类相对 <DSH_HOME> 的写法（上游 image_generate 的 out.images[].path 就是这个形态）；留空则按纯文本调用',
       },
     },
   },
-  run: async (_ctx, p) => safeNodeRun(async () => {
+  run: async (ctx, p) => safeNodeRun(async () => {
     // 模型必选：未选执行模型 → 不调 LLM，明确失败（上层 UI 已拦截，此处为执行层兜底）
     if (!String(p.model ?? '').trim()) {
       const { startedAt, t0 } = startedEnded();
@@ -44,7 +44,7 @@ export const subagentDef: NodeDefinition<SubagentParams> = {
       const { startedAt, t0 } = startedEnded();
       return { ...makeResult('failed', { error: { code: 'SUBAGENT_EMPTY_PROMPT', message: 'prompt 为空——AI 节点未执行，流程已在此中断。检查上游输出是否为空，或填入提示词后重试' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
     }
-    return runSubagentNode(p);
+    return runSubagentNode(p, ctx.workflowName);
   }),
   describe: () => ({ label: 'AI 子代理', category: 'ai' }),
 };

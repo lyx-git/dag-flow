@@ -185,6 +185,21 @@ export function openDockedCanvas(): void {
   gateSelectPanel(hostCtx, 'dag-flow');
 }
 /**
+ * ★ 2026-10-19：删除工作流之后画布该长什么样 —— **空白模板但没有名字**。
+ *   为什么必须"没有名字"（用户原话：「工作流删除的时候，立刻就自动创建了一个 my-flow 工作流不合理，
+ *   不能保持空的状态吗」）：
+ *   ① `FlowPanel.handleRename` 里有 `name || 'my-workflow'` 的回退，名字框永远不可能真的空着；
+ *   ② 画布上的 def 一改就进自动保存队列 ⇒ 这份"默认模板"被 POST /save 写到磁盘，
+ *      于是凭空多出 `my-workflow.json` —— 用户看到的就是"删了又自己建了一个"。
+ *   ⇒ 空状态用 `name: ''` 表达，配合 FlowPanel 的「未落盘不自动保存」守卫，才真的"什么都不产生"。
+ */
+function blankDef(): WorkflowDef {
+  const d = JSON.parse(JSON.stringify(DEFAULT_WORKFLOW)) as WorkflowDef;
+  d.name = '';
+  return d;
+}
+
+/**
  * ★ 2026-10-19（**第二轮**修「删了还能看到删掉的工作流」）：启动时校验缓存里的工作流是否还存在。
  *   上一轮的修法（picker 删除成功后 `onDeleted` → 清缓存 + 重置画布）只在**删除的那一刻**生效，
  *   对"在装上新版本之前就已经删掉"的历史缓存**完全无效** —— 删除事件早过去了，清理代码一行都没机会跑，
@@ -210,8 +225,9 @@ export async function pruneStaleCachedDef(): Promise<boolean> {
     const names = (data.workflows ?? []).map((w) => String(w.name ?? ''));
     if (names.includes(name)) return false;
     try { localStorage.removeItem(WF_CACHE_KEY); } catch { /* 忽略 */ }
-    dockDef = null;
-    // 面板若已挂载 → 触发重挂载，从而回落到 DEFAULT_WORKFLOW（空白工作流）
+    // 回落成"未命名的空白画布"，而不是默认模板（后者带 my-workflow 名字，见 blankDef 注释）
+    dockDef = blankDef();
+    // 面板若已挂载 → 触发重挂载，换成这份空白
     dockVersion++;
     dockListeners.forEach((l) => l());
     return true;
@@ -230,7 +246,8 @@ export function wireDockOpenRequest(): void {
     //      `readCacheDef()` **不校验磁盘存在性**就恢复 ⇒ 重新打开画布，已删的工作流原地复活；
     //      更糟的是此时改一下就会自动保存、把它**重新写回磁盘**（真复活）。
     //   ② 画布当前内容：若正显示的正是被删的这个，继续在上面编辑没有任何意义（保存即复活），
-    //      直接重置成空白工作流（与「首次打开」的默认内容一致）。
+    //      直接重置成**未命名的空白画布**（不是默认模板 —— 那会带 my-workflow 名字被自动保存落盘，
+    //      正是用户下一轮报的「删了就自动创建了一个 my-flow 工作流」，见 blankDef 注释）。
     let cachedName = '';
     try {
       const raw = localStorage.getItem(WF_CACHE_KEY);
@@ -241,9 +258,8 @@ export function wireDockOpenRequest(): void {
     }
     // dockDef 已挂载过就以它为准；还没挂载过则看缓存里的名字
     if ((dockDef?.name ?? cachedName) === deletedName) {
-      dockDef = null;
-      // 深拷贝：DEFAULT_WORKFLOW 是模块级常量，直接塞进画布会被编辑改脏
-      setDockDef(JSON.parse(JSON.stringify(DEFAULT_WORKFLOW)) as WorkflowDef, true);
+      dockDef = blankDef();
+      setDockDef(dockDef, true);
     }
   });
 }

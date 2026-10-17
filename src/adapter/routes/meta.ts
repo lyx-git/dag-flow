@@ -48,15 +48,19 @@ export function registerMetaRoutes({ route, sendJson, readJsonBody }: ApiRouteDe
     },
   });
 
-  // 6.4 统一图片目录清单（2026-10-16 用户需求「多张图片一个一个复制名称有点麻烦」→ 拍板方案 A）：
+  // 6.4 图片清单（2026-10-16 用户需求「多张图片一个一个复制名称有点麻烦」→ 拍板方案 A）：
   //     AI 节点 `images` 参数旁「🖼 选图」弹窗的数据源。**只读**、只列白名单扩展名、按修改时间倒序。
   //     目录不存在 ⇒ 空清单（不是错误，前端显示空态 + 「打开图片目录」按钮）。
+  //     ★ 2026-10-19 图片按工作流分目录后：`?workflow=<名>` 指定看哪个工作流的图（用户口径"不做兼容"，
+  //       所以不再列全库；不带参数时退回 images/ 根）。
   route({
     kind: 'exact',
     path: '/api/dag-flow/images',
-    handler: async (_req: any, res: any) => {
+    handler: async (req: any, res: any) => {
       try {
-        sendJson(res, 200, { dir: imageDir(), images: await listImageFiles() });
+        const url = new URL(req.url ?? '', 'http://localhost');
+        const wf = url.searchParams.get('workflow') ?? '';
+        sendJson(res, 200, { dir: imageDir(wf), images: await listImageFiles(wf), workflow: wf });
       } catch (e) {
         sendJson(res, 500, { error: (e as Error).message });
       }

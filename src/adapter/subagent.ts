@@ -448,21 +448,24 @@ export async function callSubagentStream(
 
 /** ★ 2026-10-16 P1（多模态传图）：images 参数 → 宿主附件服务里的图片引用。
  *  空值 ⇒ 空数组（纯文本路径零变化）；非法项**抛 ImageInputError**（明确失败，不静默丢图）。 */
-async function prepareImageRefs(images: unknown): Promise<{ imageRefs: HostImageRef[]; imageNames: string[] }> {
+async function prepareImageRefs(images: unknown, wfName?: string): Promise<{ imageRefs: HostImageRef[]; imageNames: string[] }> {
   const specs = parseImageList(images);          // 纯函数：格式/数量校验
   if (specs.length === 0) return { imageRefs: [], imageNames: [] };
   const svc = hostAttachments();
   if (!svc || typeof svc.saveImages !== 'function') {
     throw new ImageInputError('IMAGE_ATTACH_UNAVAILABLE', '宿主附件服务不可用，无法传图——请重启 dsh web（插件启动日志里应有「attachments ok」那一行），或清空 images 后重试');
   }
-  const inputs = await loadImageInputs(specs);   // 本地读 / URL 下载 + 大小校验
+  // ★ 2026-10-19：相对路径只按**本工作流的**图片目录解析（图片已按工作流分目录）
+  const inputs = await loadImageInputs(specs, wfName);   // 本地读 / URL 下载 + 大小校验
   const refs = await svc.saveImages(inputs);     // 宿主内容寻址入库（同图自动去重）
   return { imageRefs: [...refs], imageNames: inputs.map((i) => i.name) };
 }
 
-/** 包装成 NodeResult（节点用）。 */
+/** 包装成 NodeResult（节点用）。
+ *  @param wfName 当前工作流名（★ 2026-10-19：images 相对路径按 `images/<工作流名>/` 解析） */
 export async function runSubagentNode(
   params: { prompt: string; model?: string; isolated?: boolean; agentPreset?: string; timeoutMs?: number; system?: string; images?: unknown },
+  wfName?: string,
 ): Promise<NodeResult> {
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
@@ -494,7 +497,7 @@ export async function runSubagentNode(
       };
     }
     // ★ 2026-10-16 P1：真传图——images 解析 → 读字节/下载 → 落盘宿主附件服务 → 引用随本次调用发出
-    const { imageRefs, imageNames } = await prepareImageRefs(params.images);
+    const { imageRefs, imageNames } = await prepareImageRefs(params.images, wfName);
     const r = await callSubagent({ ...params, imageRefs, imageNames });
     // ★ 空输出兜底（2026-10-03）：任何调用路径拿到空文本都不许报成功——否则下游静默拿到空数据
     //   （演示工作流落盘简报的「AI 简报正文」段就是全空）。code=SUBAGENT_EMPTY_OUTPUT。

@@ -256,7 +256,7 @@ export function WebFields({ node, onParamsChange }: {
         value: p.extractImages === 'off' ? 'off' : 'auto',
         onChange: (v: string) => onParamsChange({ extractImages: v }),
         options: [
-          { value: 'auto', label: '自动（默认）', sub: '抽到就存进统一图片目录，并在文本相应位置标注文件名' },
+          { value: 'auto', label: '自动（默认）', sub: '抽到就存进本工作流的图片目录，并在文本相应位置标注文件名' },
           { value: 'off', label: '关', sub: '只解析文本，不抽取图片' },
         ],
       }), '抽出的图片存到 <DSH_HOME>/.dag-flow/images/（与 AI 节点 images 参数同一个目录，可直接被 AI 节点引用）；文档文本里会在图片原来的位置插入「[图片：文件名]」。Word / PPT 能定位到段落、页；Excel 的浮动图统一标在文末。反复解析同一份文档不会堆副本（同名同内容不重写）。'),

@@ -100,6 +100,17 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
     window.setTimeout(() => setNavMsg((cur) => (cur === msg ? '' : cur)), 4000);
   };
   const [dirty, setDirty] = useState(false);
+  // ★ 2026-10-19 用户拍板 A：**改名撞名绝不允许覆盖**（与「创建」那条路径同一把尺子）。
+  //   这里存"当前名字已被别的工作流占用"，用于：状态栏红字提示 + 禁用保存 + 停掉自动保存。
+  //   （服务端 storage.writeWorkflow 也会硬拦一层，这里只是让用户早点看到、别把改动丢掉。）
+  const [nameTaken, setNameTaken] = useState(false);
+  // ★ 2026-10-19（用户原话：「自动保存改为如果有工作流名称才自动创建，没有工作流名称，就不创建」）：
+  //   **自动保存的判据＝有没有名字**（不再看磁盘存在性）：
+  //   · 有名字 ⇒ 照常自动保存（含首次创建，用户输入名字即视为要保存）；
+  //   · 没名字 ⇒ 只改内存，绝不写盘 ⇒ 删除工作流后回落的"未命名空画布"
+  //     不会凭空在磁盘上建出任何文件（旧行为正是在这里写出 `my-workflow.json`）。
+  //   空名也是一种正常状态：名字框为空（显示 placeholder「工作流名称」），画布可随便编，
+  //   用户填了名字之后才开始自动保存。
   // ★ 自动保存状态机（2026-10-01 夜，用户需求实时/定时保存）：idle | pending（将自动保存）| saving | error
   const [autoSave, setAutoSave] = useState<'idle' | 'pending' | 'saving' | 'error'>('idle');
   // ★ 右侧编辑面板最小化（2026-10-01 夜）：单击选中节点时强制展开（见 handleSelectNode）
@@ -367,6 +378,13 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
   const { selfcheckBlock, setSelfcheckBlock, selfcheckState, setSelfcheckState } = selfcheckDlg;
   const handleRun = useCallback(async (runOpts?: { confirmed?: boolean }) => {
     if (dirty) handleSave();
+    // ★ 2026-10-19：未命名的画布不能运行（/run 以 name 定位工作流，空名必然被后端拒）——
+    //   给一句人话，而不是把 400 抛到用户脸上。
+    if (!String(def.name ?? '').trim()) {
+      setRunResult({ status: 'error', error: '工作流还没有名字——先在上方名称框里起个名字（有名字才会自动保存并创建）' });
+      setRunDlgOpen(true);
+      return;
+    }
     // AI 节点必须选模型：未选 → 不执行，给出引导
     const noModel = (def.nodes ?? []).filter((n) => n.type === 'subagent' && !String(n.params?.model ?? '').trim());
     if (noModel.length > 0) {
@@ -605,11 +623,20 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
   // ★ 手动保存生成版本快照（服务端把本次保存的内容存档到 versions/，可回载回退）
   // （自动保存跳过此校验——自动保存永不阻塞，模型缺失由运行时校验兜底）
   const handleSaveToDisk = useCallback(async (): Promise<string> => {
+    // ★ 2026-10-19：没名字就没法落盘（后端 safeName 会拒），先给一句人话而不是把 400 抛给用户
+    if (!String(def.name ?? '').trim()) {
+      throw new Error('工作流还没有名字——先在顶部名称框里起个名字再保存');
+    }
+    // ★ 2026-10-19 用户拍板 A：改名撞名绝不覆盖（服务端也拦，这里给更快的反馈）
+    if (nameTaken) {
+      throw new Error(`名称「${def.name}」已被其它工作流占用——换一个名字才能保存`);
+    }
     const noModel = (def.nodes ?? []).filter((n) => n.type === 'subagent' && !String(n.params?.model ?? '').trim());
     if (noModel.length > 0) {
       throw new Error(`以下 AI 节点未选择执行模型：${noModel.map((n) => n.id).join('、')}。请在节点配置的「选择模型」中选择后重试。`);
     }
-    return saveDefToDisk(def, true);
+    const saved = await saveDefToDisk(def, true);
+    return saved;
   }, [def, saveDefToDisk]);
 
   // ★ 自动保存（防抖）：def 变更后 2s 无新变更即写盘；拖拽等高频变更期间不断重置不刷盘。
@@ -617,6 +644,11 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
   const autoSaveTimer = useRef<number | null>(null);
   useEffect(() => {
     if (!dirty) return;
+    // ★ 2026-10-19（用户：「自动保存改为如果有工作流名称才自动创建，没有工作流名称，就不创建」）：
+    //   名字为空 ⇒ 只改内存、绝不写盘。删除工作流后回落的"未命名空画布"因此不会凭空建出文件。
+    if (!String(def.name ?? '').trim()) return;
+    // ★ 改名撞名（用户拍板 A：绝不覆盖）：名字已被占用时连自动保存都不发，等服务端拦下那份改动留在内存里。
+    if (nameTaken) return;
     setAutoSave('pending');
     if (autoSaveTimer.current) window.clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = window.setTimeout(() => {
@@ -628,7 +660,7 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
         .catch(() => { setAutoSave('error'); });
     }, 2000);
     return () => { if (autoSaveTimer.current) { window.clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; } };
-  }, [def, dirty, saveDefToDisk]);
+  }, [def, dirty, nameTaken, saveDefToDisk]);
 
   // 2026-10-01 深夜：管理视图随「📋 管理」tab 移除——列表/打开/复制/删除/重命名统一收进打开/新建选择器
   const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string; onClick?: () => void } | null>(null);
@@ -658,12 +690,20 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
   //   renameFromRef 记录本次会话内**最初**的旧名（每键 onChange 都会进来，不覆盖已记录值），
   //   保存时随 body 带给 host——storage 层删旧 json + versions/scripts 子目录搬移。
   const renameFromRef = useRef<string | null>(null);
+  /** 改名撞名探测的防抖计时器（见 handleRename 末尾） */
+  const takenTimer = useRef<number | null>(null);
   // 名称修改
   const handleRename = useCallback((name: string) => {
     setDef((prev) => {
-      const newName = name || 'my-workflow';
+      // ★ 2026-10-19 用户：「自动保存改为如果有工作流名称才自动创建，没有工作流名称，就不创建」
+      //   ⇒ 名字框**允许为空**（空 = 未命名画布，不自动保存）；不再回退成 my-workflow。
+      //   旧回退（`name || 'my-workflow'`）会把"空画布"变成名叫 my-workflow 的工作流，
+      //   再被自动保存写盘 —— 正是用户报的「删了又自动创建了一个 my-flow 工作流」。
+      const newName = name;
       const oldName = prev.name;
       if (oldName !== newName && !renameFromRef.current) renameFromRef.current = oldName;
+      // def 内引用同步只在"新名字非空"时做（空名没有 scripts/ 前缀可言，替换会把路径改坏）
+      if (!newName) return { ...prev, name: newName };
       // def 内引用同步：a) python/bash 的 codePath 前缀 scripts/<旧名>/ → scripts/<新名>/
       //                  b) subflow 的 workflowName === 旧名 → 新名
       const oldPrefix = `scripts/${oldName}/`;
@@ -683,6 +723,20 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
       return { ...prev, name: newName, nodes };
     });
     setDirty(true);
+    // ★ 2026-10-19 用户拍板 A：改完名字先探一次「这名字是不是已经有人在用」。
+    //   · 只在**真改名**时探（renameFromRef 有值且新名不等于它），否则编辑一个已存在的工作流会立刻误报；
+    //   · 防抖 400ms：边打字边探会打一串请求；
+    //   · 结果只用于**前端提示 + 禁用保存**，真正的拦截在 storage.writeWorkflow（不可绕过）。
+    const want = String(name ?? '').trim();
+    const from = renameFromRef.current;
+    if (takenTimer.current) { window.clearTimeout(takenTimer.current); takenTimer.current = null; }
+    if (!want || !from || want === from) { setNameTaken(false); return; }
+    takenTimer.current = window.setTimeout(() => {
+      takenTimer.current = null;
+      fetch(`/api/dag-flow/workflows/${encodeURIComponent(want)}`, { credentials: 'include' })
+        .then((r) => setNameTaken(r.ok))
+        .catch(() => setNameTaken(false));       // 探测失败按"没占用"处理，交给服务端兜底
+    }, 400);
   }, []);
 
   // A2 文件导出/导入（工作流 JSON 文件）
@@ -976,12 +1030,25 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
     className: 'dsh-wf-name-input',
     value: def.name,
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => handleRename(e.target.value),
-    placeholder: '工作流名称',
+    // ★ 2026-10-19 用户：「删除工作流的时候…工作流名称那里改为未命名，名称是空的」
+    //   ⇒ 空名不再显示「工作流名称」这种"待填字段"的提示，直接显示未命名状态。
+    placeholder: '未命名',
     title: '自定义工作流名称（保存后用于识别）',
   });
+  // ★ 2026-10-19 用户：「工作流如果没名称，禁止运行和自动保存、手动保存」
+  //   ⇒ 三个入口共用这一个判据：自动保存守卫、运行按钮/保存按钮的 disabled、以及两个 handler 的兜底提示。
+  const hasName = !!String(def.name ?? '').trim();
+  /** 可保存 = 有名字 且 没撞名（撞名时服务端也会拒，这里提前禁掉按钮） */
+  const canSave = hasName && !nameTaken;
   // 2026-10-01 深夜：移除「N 节点」计数（用户反馈没啥用）；title-sub 仅剩保存状态
   const brandStatus = createElement('span', { className: 'dsh-wf-title-sub', key: 'save' },
-    !dirty ? '✓ 已保存'
+    // ★ 2026-10-19 用户拍板 A：改名撞名时最优先显示（否则用户会以为"改了但没保存"是 bug）
+    nameTaken ? '⚠ 名称已存在，换个名字才能保存'
+    // ★ 2026-10-19 用户：「删除工作流的时候，状态改为未保存」。
+    //   空名状态**优先**于 dirty 判断：刚重置的画布 dirty=false，若按老顺序会显示「✓ 已保存」——
+    //   那等于告诉用户"这份空白画布存过盘了"，既是假话也正好撞上他要的相反语义。
+    : !hasName ? '● 未保存'
+    : !dirty ? '✓ 已保存'
     : autoSave === 'saving' ? '⏳ 自动保存中…'
     : autoSave === 'error' ? '⚠ 自动保存失败（请手动保存）'
     : '● 未保存（将自动保存）');
@@ -1078,8 +1145,11 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
         {
           className: `dsh-wf-btn is-icolike dsh-wf-btn-success${running ? ' is-running' : ''}${selfcheckState?.phase === 'checking' ? ' is-checking' : ''}`,
           onClick: () => void handleRun(),
-          disabled: running || selfcheckState?.phase === 'checking',
-          title: running
+          // ★ 2026-10-19：没名字不许运行（空名无法定位工作流，/run 必然被后端拒）
+          disabled: running || selfcheckState?.phase === 'checking' || !hasName,
+          title: !hasName
+            ? '工作流还没有名字——先在上方名称框里起个名字才能运行'
+            : running
             ? '工作流正在运行（点右侧「⏹ 取消」可中止）'
             : selfcheckState?.phase === 'checking'
               ? '正在做运行前自检…'
@@ -1113,7 +1183,13 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
         'button',
         {
           className: 'dsh-wf-btn',
-          title: '保存工作流到磁盘（<DSH_HOME>/.dag-flow/workflow/）',
+          // ★ 2026-10-19：没名字禁止手动保存 / 撞名也不许存（服务端会拒，提前禁掉）
+          disabled: !canSave,
+          title: !hasName
+            ? '工作流还没有名字——先在上方名称框里起个名字才能保存'
+            : nameTaken
+              ? `名称「${def.name}」已被其它工作流占用——换一个名字才能保存`
+              : '保存工作流到磁盘（<DSH_HOME>/.dag-flow/workflow/）',
           onClick: async () => {
             try {
               await handleSaveToDisk();

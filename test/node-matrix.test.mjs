@@ -317,9 +317,13 @@ const target = (r) => r.body?.summary?.results?.target;
   const rImg = await runNode('doc_parse', { path: docxPath });
   const oImg = target(rImg)?.out;
   t('21g2. ★ doc_parse 抽图：文本里就地标注真实文件名', target(rImg)?.status === 'success' && /\[图片：matrix-with-image-1\.png\]/.test(String(oImg?.text)), JSON.stringify(oImg?.text)?.slice(0, 200));
-  const imgDir = join(ISOLATED_HOME, '.dag-flow', 'images');
+  // ★ 2026-10-19 图片按工作流分目录（用户拍板「全部严格按照要求做，不做兼容」）：
+  //   `/run-node` 里临时定义的名固定为 `node-testrun` ⇒ 抽出的图必须落在 `.dag-flow/images/node-testrun/`，
+  //   而**不再**落在根 `.dag-flow/images/`。imgRoot 单独留着，用来锁"根目录不该再出现文件"。
+  const imgRoot = join(ISOLATED_HOME, '.dag-flow', 'images');
+  const imgDir = join(imgRoot, 'node-testrun');
   const landed = existsSync(join(imgDir, 'matrix-with-image-1.png'));
-  t('21g3. ★ 抽出的图真的落进统一图片目录（.dag-flow/images/）', landed && Number(oImg?.meta?.imageCount) === 1, `landed=${landed} meta=${JSON.stringify(oImg?.meta)?.slice(0, 160)}`);
+  t('21g3. ★ 抽出的图落进本工作流的图片目录（.dag-flow/images/node-testrun/）', landed && !existsSync(join(imgRoot, 'matrix-with-image-1.png')) && Number(oImg?.meta?.imageCount) === 1, `landed=${landed} meta=${JSON.stringify(oImg?.meta)?.slice(0, 160)}`);
   t('21g4. out.images 结构（name/mediaType/bytes/source）', oImg?.images?.[0]?.name === 'matrix-with-image-1.png' && oImg?.images?.[0]?.mediaType === 'image/png' && oImg?.images?.[0]?.source === 'word/media/pic.png' && Number(oImg?.images?.[0]?.bytes) === 11, JSON.stringify(oImg?.images)?.slice(0, 200));
   const rOff = await runNode('doc_parse', { path: docxPath, extractImages: 'off' });
   const oOff = target(rOff)?.out;
@@ -355,7 +359,7 @@ const target = (r) => r.body?.summary?.results?.target;
   const oPdf = target(rPdf)?.out;
   t('21g7. ★ PDF 抽图：文本里就地标注真实文件名（且在该页文本之后）', target(rPdf)?.status === 'success' && /PDF figure\n\[图片：matrix-with-image-1\.jpg\]/.test(String(oPdf?.text)), JSON.stringify(oPdf?.text)?.slice(0, 200));
   const pdfLanded = existsSync(join(imgDir, 'matrix-with-image-1.jpg'));
-  t('21g8. ★ PDF 抽出的图落进统一图片目录（.dag-flow/images/）', pdfLanded && Number(oPdf?.meta?.imageCount) === 1, `landed=${pdfLanded} meta=${JSON.stringify(oPdf?.meta)?.slice(0, 160)}`);
+  t('21g8. ★ PDF 抽出的图落进本工作流的图片目录（.dag-flow/images/node-testrun/）', pdfLanded && Number(oPdf?.meta?.imageCount) === 1, `landed=${pdfLanded} meta=${JSON.stringify(oPdf?.meta)?.slice(0, 160)}`);
   t('21g9. PDF out.images：JPEG 原样落盘（字节数一致）+ source 注明页码', oPdf?.images?.[0]?.mediaType === 'image/jpeg' && Number(oPdf?.images?.[0]?.bytes) === pdfWithImage.jpeg.length && /第 1 页/.test(String(oPdf?.images?.[0]?.source)), JSON.stringify(oPdf?.images)?.slice(0, 200));
   const rPdfAgain = await runNode('doc_parse', { path: pdfPath });
   t('21g10. PDF 重复解析幂等（reused=true）', target(rPdfAgain)?.status === 'success' && target(rPdfAgain)?.out?.images?.[0]?.reused === true, JSON.stringify(target(rPdfAgain)?.out?.images)?.slice(0, 160));
@@ -385,7 +389,7 @@ const target = (r) => r.body?.summary?.results?.target;
   const rOnly = await runNode('doc_parse', { path: scanImgPath, ocr: 'off' });
   const oOnly = target(rOnly)?.out;
   t('21g11. ★ 纯图 PDF（无文本层）+ OCR 显式关 ⇒ 成功返回、文本给出图片地址', target(rOnly)?.status === 'success' && /\[图片：matrix-scan-img-1\.jpg\]/.test(String(oOnly?.text)) && oOnly?.meta?.imagesOnly === true, JSON.stringify(oOnly?.text)?.slice(0, 200) + ' / ' + String(target(rOnly)?.error?.code));
-  t('21g12. 纯图 PDF 抽出的图落进统一图片目录（且字节原样）', existsSync(join(imgDir, 'matrix-scan-img-1.jpg')) && Number(oOnly?.meta?.imageCount) === 1 && Number(oOnly?.images?.[0]?.bytes) === scanImgPdf.jpeg.length, JSON.stringify(oOnly?.meta) + ' ' + JSON.stringify(oOnly?.images)?.slice(0, 160));
+  t('21g12. 纯图 PDF 抽出的图落进本工作流的图片目录（且字节原样）', existsSync(join(imgDir, 'matrix-scan-img-1.jpg')) && !existsSync(join(imgRoot, 'matrix-scan-img-1.jpg')) && Number(oOnly?.meta?.imageCount) === 1 && Number(oOnly?.images?.[0]?.bytes) === scanImgPdf.jpeg.length, JSON.stringify(oOnly?.meta) + ' ' + JSON.stringify(oOnly?.images)?.slice(0, 160));
   const rOnlyOff = await runNode('doc_parse', { path: scanImgPath, extractImages: 'off', ocr: 'off' });
   t('21g13. 纯图 PDF + extractImages:off ⇒ 保持原报错（契约不变）', target(rOnlyOff)?.error?.code === 'DOC_NO_TEXT_LAYER', String(target(rOnlyOff)?.error?.code));
 

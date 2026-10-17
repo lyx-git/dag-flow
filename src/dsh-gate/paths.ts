@@ -10,6 +10,7 @@
 
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { isValidWorkflowName } from '../name-rule.js';
 
 /** DSH 主目录（settings.yaml / .credentials.yaml / profiles / sessions / runtime 的根）。
  *  DSH_HOME 环境变量优先（便携/自定义安装），默认 ~/.dsh。每次调用时求值。 */
@@ -46,9 +47,24 @@ export function dagFlowHome(): string {
 /** ★ 统一图片目录 `<DSH_HOME>/.dag-flow/images/`（2026-10-16 用户拍板原话：「读取图片的位置，
  *  放在统一的位置，方便后续文档解析节点解析出来的图片，也放到同一个位置使用」）。
  *  ＝ AI 节点 `images` 参数里相对路径的唯一基准（写文件名即可），也是 doc_parse 将来抽图的落点。
- *  别在别处再拼 'images'——要改布局只改本函数。 */
+ *  别在别处再拼 'images'——要改布局只改本函数。
+ *  ★ 2026-10-19 用户新要求：**每个工作流产生的文件按工作流名分目录** ⇒ 新写入走
+ *    `dagFlowScopedPath('images', 工作流名)`；本函数保留为**根目录**（历史平铺图片的读取兜底）。 */
 export function dagFlowImagesDir(): string {
   return path.join(dagFlowHome(), 'images');
+}
+
+/** ★ 2026-10-19 用户原话：「dag-flow插件每个工作流产生的文件都要以 .dag-flow/**\/工作流名称/文件
+ *  的方式存放，如果文件夹不存在，dag-flow需要自动创建」。
+ *  某工作流的专属子目录：`<数据根>/<kind>/<工作流名>`。
+ *  · name 非法/为空 ⇒ 退回 `<数据根>/<kind>`（兼容历史平铺文件、以及没有工作流上下文的调用）；
+ *  · 只算路径**不建目录**——建目录由调用方按需 `fs.mkdir(..., {recursive:true})`。
+ *  · kind 的取值与数据根下的目录一一对应：images / tmp / runs / scripts。 */
+export function dagFlowScopedPath(kind: 'images' | 'tmp' | 'runs' | 'scripts', wfName?: string): string {
+  const base = path.join(dagFlowHome(), kind);
+  const name = String(wfName ?? '').trim();
+  if (!name || !isValidWorkflowName(name)) return base;
+  return path.join(base, name);
 }
 
 /** profile 目录根（0.2.0 的配置持久层 profiles/<name>/cordis.patch.yml） */

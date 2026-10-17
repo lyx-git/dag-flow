@@ -65,7 +65,7 @@ const PARAMS_TIPS = [
 // ★ 2026-10-17：`toText` / `rowsFromParams` / `singleLinePlaceholder` / `looksJsonLike` / `valueOfText` /
 //   `paramsFromRows` / `diffPatch` 与 `Row` 类型已抽到 ./params-value（纯函数层，可离线单测）。
 
-export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHint, inputDefaults = {}, canTest = true, testRunning = false, testResult = null, codeLang, fieldHints, fieldPlaceholders, imagePickKeys, paramMeta, extraFields, handledKeys, onRunTest, onParamsChange, onClose }: {
+export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHint, inputDefaults = {}, canTest = true, testRunning = false, testResult = null, codeLang, fieldHints, fieldPlaceholders, imagePickKeys, paramMeta, extraFields, handledKeys, workflowName = '', onRunTest, onParamsChange, onClose }: {
   nodeId: string;
   nodeLabel?: string;
   params: Record<string, unknown>;
@@ -99,6 +99,8 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
   /** ★ 2026-10-19（用户拍板 A）：参数的**中文名/释义/示例占位**（唯一源＝./param-meta.ts）。
    *  登记了的参数会在参数名左侧显示中文名、右侧显示问号释义；未登记的节点/参数保持原样（只有参数名）。 */
   paramMeta?: Record<string, ParamMeta>;
+  /** ★ 2026-10-19：当前工作流名（图片已按工作流分目录 ⇒「🖼 选图」只列本工作流的图） */
+  workflowName?: string;
   /** 点「▶ 试跑本节点」时把解析好的 inputs 交给上层（参数数据取当前节点 params，由上层负责发请求） */
   onRunTest?: (inputs: Record<string, unknown>) => void;
   onParamsChange: (patch: Record<string, unknown>) => void;
@@ -563,6 +565,8 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
     ? createPortal(createElement(ImagePickerDialog, {
         // 预勾选：把该行里已经写着的文件名勾上（路径/URL 类条目匹配不上，自然不勾）
         current: (rows.find((r) => r.k === pickKey)?.text ?? '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
+        // ★ 2026-10-19：图片按工作流分目录 ⇒ 选图弹窗只列**当前工作流**的图
+        workflowName,
         onClose: () => setPickKey(null),
         onConfirm: (names: string[], replace: boolean) => {
           const key = pickKey;

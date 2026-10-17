@@ -12,7 +12,7 @@ import { ocrImages, ocrPdf, normalizeOcrMode, OcrError } from '../../adapter/ocr
 import { dagFlowTmpDir } from '../../adapter/workspace.js';
 // ★ 2026-10-16 用户需求「doc_parse 抽图落统一目录 + 文本相应位置注明图片位置」：写入侧（读取侧在 image-inputs）
 import { saveImagesToLibrary, libraryNameFor } from '../../adapter/image-library.js';
-import { dagFlowImagesDir } from '../../dsh-gate/paths.js';
+import { dagFlowScopedPath } from '../../dsh-gate/paths.js';
 import { humanizeFetchError } from '../../adapter/fetch-errors.js';
 import { startedEnded, finish, resolveCodePath } from './shared.js';
 
@@ -84,7 +84,9 @@ async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeRes
   // OCR 引擎只吃**磁盘上的文件**：本地路径直接用；url 下载来的先落临时文件，用完删掉
   const localPathForOcr = async (suffix: string): Promise<string> => {
     if (!url) return await resolveCodePath(rel);
-    const tmpDir = await dagFlowTmpDir();
+    // ★ 2026-10-19：临时文件落到**当前工作流自己的** tmp 子目录（用户要求"每个工作流产生的文件
+    //   按工作流名分目录"）；没有工作流上下文时退回公共 tmp。
+    const tmpDir = await dagFlowTmpDir(ctx.workflowName);
     tmpPath = join(tmpDir, `ocr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${suffix}`);
     await writeFile(tmpPath, buf);
     return tmpPath;
@@ -170,10 +172,10 @@ async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeRes
         const meta0 = wantImages ? r.meta : { ...r.meta, images: undefined };
         return finish(t0, startedAt, { out: { ...r, text, chars: text.length, images: [], meta: meta0 } as never });
       }
-      const landed = await landImages(name, r.text, r.images);
+      const landed = await landImages(name, r.text, r.images, ctx.workflowName);
       const meta = {
         ...r.meta,
-        ...(landed.images.length ? { imageCount: landed.images.length, imageDir: dagFlowImagesDir() } : {}),
+        ...(landed.images.length ? { imageCount: landed.images.length, imageDir: dagFlowScopedPath('images', ctx.workflowName) } : {}),
         ...(landed.imageError ? { imageError: landed.imageError } : {}),
       };
       return finish(t0, startedAt, {
@@ -197,7 +199,7 @@ async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeRes
               source: im.page > 0 ? `第 ${im.page} 页 (对象 ${im.objNum})` : `未引用对象 ${im.objNum}`,
             }));
             const outline = `（本 PDF 没有文字层，整页内容都是图片；下面是抽出的图片）\n${refs.map((r) => `[图片 #${r.index}]`).join('\n')}`;
-            const landed = await landImages(name, outline, refs);
+            const landed = await landImages(name, outline, refs, ctx.workflowName);
             // ★ 2026-10-17 修：这条通路的**全部价值**就是那份"图片地址清单"（用户原话：「只有图没有文字的，
             //   text 里面说明抽出来的图片地址就行」）⇒ 落盘全失败时清单是空的，不能算成功（否则用户拿到一堆
             //   指向不存在文件的 `[图片 #N]`）。
@@ -206,7 +208,7 @@ async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeRes
             }
             const meta: Record<string, string | number | boolean> = {
               file: name.replace(/^.*[\\/]/, ''), bytes: buf.length, imagesOnly: true,
-              ...(landed.images.length ? { imageCount: landed.images.length, imageDir: dagFlowImagesDir() } : {}),
+              ...(landed.images.length ? { imageCount: landed.images.length, imageDir: dagFlowScopedPath('images', ctx.workflowName) } : {}),
               ...(only.skipped > 0 ? { skippedImages: only.skipped } : {}),
               ...(landed.imageError ? { imageError: landed.imageError } : {}),
             };
@@ -248,6 +250,7 @@ async function landImages(
   docName: string,
   text: string,
   refs: readonly { index: number; bytes: Buffer; mediaType: string; source: string }[],
+  wfName?: string,
 ): Promise<LandedImages> {
   let outText = text;
   let saved: Awaited<ReturnType<typeof saveImagesToLibrary>> = [];
@@ -255,7 +258,7 @@ async function landImages(
   try {
     saved = await saveImagesToLibrary(refs.map((im) => ({
       name: libraryNameFor(docName, im.index, im.mediaType), bytes: im.bytes, mediaType: im.mediaType,
-    })));
+    })), wfName);
     for (let i = 0; i < saved.length; i++) {
       const ref = refs[i];
       if (!ref) continue;
@@ -282,7 +285,7 @@ export const docParseDef: NodeDefinition<DocParseParams> = {
       ocr: { type: 'string', enum: ['off', 'auto', 'force'], description: '图片 OCR：auto 自动（默认）—— 图片与扫描版 PDF 自动识别 / off 关 / force 强制（连有文本层的 PDF 也重识别）' },
       ocrMaxPages: { type: 'integer', minimum: 1, maximum: 200 },
       ocrTimeoutMs: { type: 'integer', minimum: 1000, maximum: 1_800_000 },
-      extractImages: { type: 'string', enum: ['auto', 'off'], description: '抽取文档内嵌图片：auto 自动（抽到就存进统一图片目录 .dag-flow/images/，并在文本相应位置标注文件名）/ off 只解析文本' },
+      extractImages: { type: 'string', enum: ['auto', 'off'], description: '抽取文档内嵌图片：auto 自动（抽到就存进本工作流的图片目录 .dag-flow/images/<工作流名>/，并在文本相应位置标注文件名）/ off 只解析文本' },
     },
   },
   run: async (ctx, p) => safeNodeRun(() => runDocParseNode(p as never, ctx)),

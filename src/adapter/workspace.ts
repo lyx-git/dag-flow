@@ -11,6 +11,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { resolveStorageRoot } from './storage.js';
+import { dagFlowScopedPath } from '../dsh-gate/paths.js';
 
 let cachedRoot: string | null = null;
 
@@ -67,10 +68,14 @@ export async function dagFlowScriptsDir(): Promise<string> {
   return path.join(await dagFlowDir(), 'scripts');
 }
 
-/** 临时文件目录：<DSH_HOME>/.dag-flow/tmp */
-export async function dagFlowTmpDir(): Promise<string> {
+/** 临时文件目录：`<DSH_HOME>/.dag-flow/tmp/[<工作流名>/]`
+ *  ★ 2026-10-19 用户要求"每个工作流产生的文件按工作流名分目录"⇒ 给了工作流名就落 `<tmp>/<名>/`
+ *  （不存在自动创建）；不给就是公共 tmp（下载缓存等跨工作流的东西）。 */
+export async function dagFlowTmpDir(wfName?: string): Promise<string> {
   await ensureDagFlowDirs();
-  return path.join(await dagFlowDir(), 'tmp');
+  const dir = dagFlowScopedPath('tmp', wfName);
+  try { await fs.mkdir(dir, { recursive: true }); } catch { /* 建不出来就退回根（调用方会再报错） */ }
+  return dir;
 }
 
 /** 日志目录：<DSH_HOME>/.dag-flow/logs */

@@ -7,6 +7,109 @@
 
 ---
 
+// v20261019-wfscoped（**宿主侧**，需重启 dsh web；客户端保持 `v20261019-noautocreate`）：按工作流名分目录
+//   ＋ 删除工作流时级联清理。用户原话：「dag-flow插件每个工作流产生的文件都要以 .dag-flow/**/工作流名称/文件
+//   的方式存放，如果文件夹不存在，dag-flow需要自动创建；然后删除工作流的时候，也要以这种方式，
+//   清理对应工作流的所有文件和文件夹」。
+//   · 盘点后的现状（改前）：`workflow/<名>.json`、`workflow/versions/<名>/`、`scripts/<名>/` **已经**按工作流分；
+//     而 `runs/run-*.json`、`images/`、`tmp/` 全是平铺；`deleteWorkflow` 只删「定义 json + versions」——
+//     `scripts/`、`runs/`、`images/` 一律残留（真机：删完工作流，磁盘上还留着它的代码、运行记录、抽出的图）。
+//   · 本轮改法：
+//     ① `paths.ts` 新增 `dagFlowScopedPath(kind, wfName)` —— `<数据根>/<kind>/<工作流名>` 的**唯一出处**
+//        （名字不合法/为空 ⇒ 退回 `<数据根>/<kind>`，兼容历史平铺文件与无工作流上下文的调用；只算路径不建目录）；
+//     ② `Context.workflowName`（`src/types.ts`）由 `executor/run.ts` 注入 `def.name` ⇒ 节点能定位自己的子目录；
+//     ③ `runsDir(wfName?)` + `writeRunRecord` 按记录的 `workflowName` 落 `runs/<名>/`；
+//        `pruneRunRecords` 改扫「根 + 各子目录」两级；`listRunRecords`/`readRunRecord` 同时兼容两级
+//        （历史平铺记录仍读得到）；
+//     ④ `dagFlowTmpDir(wfName?)`：doc_parse 的 OCR 临时文件落 `tmp/<当前工作流>/`（下载缓存等跨工作流的仍走根）；
+//     ⑤ **删除级联**：`deleteWorkflow` 现在清 6 处 —— `<名>.json`、`versions/<名>/`、`scripts/<名>/`、
+//        `runs/<名>/`、`images/<名>/`、`tmp/<名>/`（逐个删、单个失败不阻塞其它）；
+//     ⑥ 历史数据：`migrateRunRecords()` 把平铺的 `runs/run-*.json` 按记录里的 `workflowName` 归进子目录
+//        （**幂等、无需标记**：归完根目录就没这类文件了；读不出名字的原地不动，不猜也不删）。
+//   · **images 也按工作流分（同日追加，用户拍板「全部严格按照要求做，不做兼容」+「只读当前工作流自己的图」）**：
+//     ① `imageDir(wfName?)` → `images/<工作流名>/`；`saveImagesToLibrary(items, wfName)` 落子目录；
+//     ② `imagePathCandidates(p, wfName?)` **去掉了 `images/` 根目录兜底**（只认本工作流目录 + 上游产物的
+//        `<DSH_HOME>` 相对写法）；`loadImageInput(s)` 透传 wfName；
+//     ③ 调用链打通：`Context.workflowName` → `ai.ts`（`runSubagentNode(p, ctx.workflowName)`）→ `prepareImageRefs`
+//        → `loadImageInputs(specs, wfName)`；doc_parse 抽图走 `landImages(..., ctx.workflowName)` + `meta.imageDir`；
+//     ④ `GET /images?workflow=<名>` 只列该工作流的图；「🖼 选图」弹窗带 `workflowName`，「📁 打开图片目录」
+//        打开 `images/<工作流名>/`；
+//     ⑤ 用户可见文案同步（param-meta 的 images / extractImages、面板下拉、doc_parse schema 描述、选图空态）。
+//     ★注意：`resolveImagePath` 的 dshHome 候选**保留**——它接的是"上游节点写出的相对 <DSH_HOME> 路径"，
+//       不是旧图兼容；旧图（平铺在 images/ 根）按用户口径**不读**。
+//   · **同日再追加两条（用户：「工作流如果没名称，禁止运行和自动保存、手动保存；如果工作流名称发生变动，
+//     涉及工作流名称的路径也要同步变更」）**：
+//     ① **空名三禁**收敛到一个判据 `hasName`（`FlowPanel`）：自动保存守卫（已有）+ **运行按钮 disabled**
+//        + **手动保存按钮 disabled**，两个按钮的 title 各自说明原因（「先在上方名称框里起个名字才能运行/保存」）；
+//        两个 handler 里的兜底提示保留（防键盘/程序化路径绕过 disabled）。
+//        ★为什么不只靠"点了报错"：用户要的是**禁止**，按钮禁用才符合语义，也免得多点一次才知道。
+//     ② **改名搬移扩到 5 个目录**：`writeWorkflow` 的 `renameFrom` 分支此前只搬 `versions/` + `scripts/`，
+//        按工作流分目录后新增的 `runs/`、`images/`、`tmp/` **全漏了**（改名后运行记录/抽图/临时文件留在旧名下，
+//        等于丢失归属、还会被当成别的"工作流"）。现在 5 个一起搬；**目标已存在时先合并再删旧**
+//        （改名时新名字可能已有目录——先跑过又改回来，两边文件都该留住），否则直接 rename。
+//   · **同日再追加：改名撞名绝不覆盖（用户拍板 A）**。
+//     起因是用户问「工作流改名，如果改完的名称已存在，现在是怎么处理的」——查下来是**静默覆盖**：
+//     ①`handleRename` 只改 name、无任何存在性校验；②`writeWorkflow` 直接 `writeFile` 覆盖目标 json；
+//     ③再叠加"改名搬 5 个目录"，撞名时对方定义被吃掉、两边 runs/images 混在一起，全程无提示。
+//     对比：**创建**路径早已修过同一个坑（`workflow-picker.ts:220`「已存在 → 直接打开它，绝不覆盖」），
+//     改名这条漏了 —— 所以按同一把尺子补齐，而不是新立规矩。
+//     · 服务端（不可绕过）：`writeWorkflow` 在**写文件之前**判断——带 `renameFrom` 的改名保存，若目标
+//       `<新名>.json` 已存在 ⇒ 直接抛「工作流「X」已存在——改名会覆盖它，已拒绝」。普通保存不查（写自己那份）。
+//     · 前端（更快的反馈）：`handleRename` 里防抖 400ms 探 `GET /workflows/<新名>`（只在**真改名**时探，
+//       否则编辑一个已存在的工作流会立刻误报）⇒ 撞名时状态栏显示「⚠ 名称已存在，换个名字才能保存」、
+//       手动保存按钮禁用、**自动保存也停发**（改动留在内存里，等服务端同意才写）。
+//   · 验证（本轮终）：typecheck 0 / `storage-json` **[8a][8b][8c][9a][9b][10a][10b][10c]**（新增撞名三条：
+//     被拒 / 对方 version 仍是 7 且节点完好 / 改名方仍在原位）/ `run-retention` **16 passed** /
+//     `storage-workspace` 28 passed / 离线链 exit 0 / markers **183/183** /
+//     全量 CDP **58/58**（`no-autosave-untitled` 含 10 条断言 A1~A8b）。
+// v20261019-migrations（**宿主侧**，需重启 dsh web；客户端保持 `v20261019-noautocreate`）：
+//   迁移状态标记从 `workflow/` 搬到 `<DSH_HOME>/.dag-flow/.migrations/`（2026-10-19 用户拍板 A 方案）。
+//   · 起因（用户原话）：「.migrated-from-workspace，.fallback-migrated，这两个文件是否必须，如果非必须，则删除」
+//     → 答：**必须保留**（它们是防"删了又复活"的护栏）→ 用户追问「这两个文件适合放在哪里，给我建议，先不改」
+//     → 给 A/C/B 三选项，他选 **A｜收到 .dag-flow/.migrations/**。
+//   · 为什么搬：标记是**插件元数据**，不该混在 `workflow/`（那是用户的工作流数据）。旧位置能"不被当成
+//     工作流列出"靠的是 `listJsonNames` 的「点号开头 + 非 .json 结尾」双重排除——搬走后不再依赖这个巧合。
+//   · 新布局：`.migrations/workspace.json`（原 `.migrated-from-workspace`）、`.migrations/fallback.json`
+//     （原 `.fallback-migrated`），与 `workflow/`、`runs/`、`logs/` 同级。
+//   · ★关键：**旧标记兼容** `adoptLegacyMarker()` —— 新位置没有、旧位置有时，视为"已迁过"并把旧标记搬过去。
+//     少了这一步，新位置读不到标记 ⇒ 判定"从未迁移" ⇒ 重跑补缺复制 ⇒ 把已删工作流补回来
+//     （10-04 那条 bug 的另一条通道，搬目录最容易踩这脚）。搬失败也返回"已迁过"，绝不放行重跑。
+//   · 回归锁：`test/storage-workspace.test.mjs` 新增场景 ⑥（3 条断言）——模拟"老机器上标记还在旧位置"：
+//     断言标记被搬到新位置、旧位置不再残留、**且兜底目录里的文件一个都没被复制**。
+//   · 验证：typecheck 0 / storage-workspace **28 passed**（+3）/ markers **178/178**（+3：`.migrations`
+//     与两个旧标记名都在产物里）/ 全量 CDP 待跑。
+//   · 真机首次重启会把现有两个标记**自动搬过去**（`workflow/` 变干净，只剩工作流 json）。
+// v20261019-noautocreate（**纯客户端**，硬刷新即可；宿主仍 `v20261019-engtimeout`）：自动保存的判据改成
+//   **「有没有名字」**（2026-10-19 用户原话：「自动保存改为如果有工作流名称才自动创建，没有工作流名称，就不创建」）。
+//   · 前情：`stalecache` 那版把"删除后的画布"重置成 `DEFAULT_WORKFLOW`（名字 **my-workflow**），
+//     而 def 一改就进自动保存队列 ⇒ 磁盘上凭空出现 `my-workflow.json`。用户随即报：
+//     「工作流删除的时候，立刻就自动创建了一个 my-flow 工作流不合理，不能保持空的状态吗」。
+//   · 本版规则（用户定，比"是否已落盘"更简单也更符合直觉）：
+//     ① 名字非空 ⇒ 自动保存照常（含首次创建）——用户输入名字即视为"要这份工作流"；
+//     ② 名字为空 ⇒ 只改内存、**绝不写盘**；画布是"未命名"的正常状态。
+//   · 三处配套改动：
+//     ① 自动保存 effect 的守卫：`if (!String(def.name ?? '').trim()) return;`
+//        （曾短暂实现过一版"挂载时 GET /workflows/<name> 探测是否已落盘"的方案，已按用户新规则**整体移除**）；
+//     ② `handleRename` 去掉 `name || 'my-workflow'` 的回退 —— 否则"空画布"一碰名字框就变 my-workflow 再被写盘；
+//        同时空名时跳过 `scripts/` 前缀与 subflow 名字的联动替换（空名没有前缀可言，替换会改坏路径）；
+//     ③ `handleRun` / `handleSaveToDisk` 在空名时给一句人话（"先起个名字"），不把后端 400 抛给用户。
+//   · ★同日追加（用户原话：「删除工作流的时候，状态改为未保存，工作流名称那里改为未命名，名称是空的」）：
+//     ① 名称框 placeholder `工作流名称` → **`未命名`**（空名不再像"等你填的字段"，而是明确的状态）；
+//     ② 状态栏把**空名判断提到 `!dirty` 之前** ⇒ 空名恒显示 `● 未保存`。
+//        这条顺序很关键：刚重置的画布 `dirty=false`，按老顺序会走 `✓ 已保存` ——
+//        等于告诉用户"这份空白画布存过盘了"，正好是要的反面。
+//     ③ CDP `no-autosave-untitled` 的 A 段补了两条断言：状态栏含「未保存」且**不含**「已保存」、
+//        名称框 `value === ''` 且 `placeholder === '未命名'`。
+//   · 删除后的"空状态"：`dock.tsx` 的 `blankDef()` = 空白模板 + **name:'']（不是 DEFAULT_WORKFLOW），
+//     `onDeleted` 与 `pruneStaleCachedDef` 都走它。
+//   · 新用例 `no-autosave-untitled`（CDP，**双向**，靠夹具新增的 `/__saves` 记录真实保存请求）：
+//     A 段＝`?name=`（空名）拖节点后等 3.6s ⇒ **0 次保存**；B 段＝填上名字后再等 3s ⇒ 保存发生（snapshot=false）。
+//     ★ A/B 反证（`tmp-test/ab-autosave-guard.mjs revert|restore`）：把守卫换成注释后重建，
+//       A2 精确变红（实测 1 次保存），恢复后转绿。
+//   · 夹具配套：`picker-server.mjs` 新增 `GET /__saves` 与 `POST /__saves-reset`（记录保存请求），
+//     并给 `GET /workflows/<用例名>-<ts>` 加"已存在"兜底（`deleted` 集合保证删过的不复活）；
+//     否则既有依赖自动保存写回的用例（drag-writeback / json-handled / label-rename…）会全部假红。
+//   · 验证：typecheck 0 / markers **175/175** / `no-autosave-untitled` 双向 + A/B 反证 / 全量 CDP 待跑。
 // v20261019-stalecache（**纯客户端**，硬刷新即可；宿主仍 `v20261019-engtimeout`）：第二轮修
 //   「删了还能看到删掉的工作流」。用户装上前一版（delcache）后**仍能复现**：「我重启了，但是打开工作流，
 //   还是能看到已经删除的工作流」。

@@ -88,6 +88,9 @@ export interface Context {
   signal?: AbortSignal;
   /** 运行时注入：本次运行 id（manual 挂起/恢复要按 runId 定位，2026-10-03） */
   runId?: string;
+  /** 运行时注入：当前工作流名（★ 2026-10-19 用户要求"每个工作流产生的文件按工作流名分目录"
+   *  ⇒ 节点用它定位自己的 `images/<名>/`、`tmp/<名>/`；子工作流执行时是**子工作流自己的名字**） */
+  workflowName?: string;
   /** 运行时注入：是否交互式运行——HTTP /run 为 true（manual 会挂起等确认）；
    *  CLI /workflow 工具与 subflow 子工作流不传 = 非交互（manual 自动通过 + warning） */
   interactive?: boolean;

@@ -16,6 +16,44 @@ const USER_DIR = dshHome(); // 09-27 意见 2：DSH_HOME 统一（便携安装�
 // 旧 .dag-flow-workflows/ 与 .dsh-workflows/ 不迁移不删除（历史数据原地保留）。
 const LEGACY_DIR_NAMES: string[] = [];
 
+// ---------- 迁移状态标记（2026-10-19 用户拍板 A：统一收到 <DSH_HOME>/.dag-flow/.migrations/） ----------
+// 为什么搬：标记是**插件元数据**，不该混在 `workflow/`（那里是用户的工作流数据）。
+// 旧位置 `workflow/.migrated-from-workspace`、`workflow/.fallback-migrated` 靠"点号开头 + 非 .json 结尾"
+// 被 listJsonNames 双重排除才没被当工作流列出——那个"巧合"不再是必要依赖。
+/** 迁移状态目录（与 workflow/ 同级、独立子目录） */
+function migrationsDir(info: StorageInfo): string {
+  return path.join(path.dirname(info.dir), '.migrations');
+}
+/** 新文件名 → 旧标记名（旧标记曾放在 workflow/ 下） */
+const LEGACY_MARKERS: Record<string, string> = {
+  'workspace.json': '.migrated-from-workspace',
+  'fallback.json': '.fallback-migrated',
+};
+
+/**
+ * ★ **旧标记兼容**（搬目录时必须做，否则会复活已删工作流）：
+ *   新位置 `.migrations/<file>` 没有、但旧位置 `workflow/<旧标记名>` 有时 ⇒ **视为已迁过**，并把旧标记搬过去。
+ *   ⚠ 少了这一步：新位置找不到标记 ⇒ 判定"从未迁移" ⇒ 重跑补缺复制 ⇒ 把用户已删的工作流补回来
+ *     ——正是 2026-10-04（磁盘旧位置）与 2026-10-19（localStorage）两次踩过的同一类坑的另一条通道。
+ * @returns true = 已经迁过（调用方直接返回，不再迁移）
+ */
+async function adoptLegacyMarker(info: StorageInfo, file: string): Promise<boolean> {
+  const next = path.join(migrationsDir(info), file);
+  try { await fs.access(next); return true; } catch { /* 新位置还没有 */ }
+  const legacyName = LEGACY_MARKERS[file];
+  if (!legacyName) return false;
+  const legacy = path.join(info.dir, legacyName);
+  try { await fs.access(legacy); } catch { return false; }
+  try {
+    await fs.mkdir(migrationsDir(info), { recursive: true });
+    await fs.rename(legacy, next);
+    console.info('[dag-flow] 迁移标记已搬到 .migrations/：' + next);
+  } catch {
+    // 搬不动也**不能**让迁移重跑：仍按"已迁过"返回（旧文件留着，下次启动再试搬）
+  }
+  return true;
+}
+
 // ---------- 工作区根目录解析（迁移来源探测用） ----------
 
 function probeHostWorkspace(): string | null {
@@ -85,16 +123,14 @@ async function probeWorkspaceRegistry(): Promise<string | null> {
   }
 }
 
-/** 迁移标记：钉死"已从工作区时代的位置补缺复制过"，避免每次启动重跑（同 .fallback-migrated 的教训）。 */
-const WORKSPACE_MIGRATION_MARKER = '.migrated-from-workspace';
-
 /** ★ 工作区时代 → 新根的一次性**补缺复制**（2026-10-11 存储锚点变更配套）。
  *  · **只复制、绝不移动/删除**旧目录里的任何东西；目标已存在则跳过（force:false + errorOnExist:false）。
  *  · 覆盖 workflow/（含 config/ 邮件配置与 versions/ 版本历史）、runs/、schedules.json（定时任务不丢）。
- *  · 没有任何旧目录可迁时不写标记 → 将来工作区出现还能再迁一次。 */
+ *  · 没有任何旧目录可迁时不写标记 → 将来工作区出现还能再迁一次。
+ *  · ★ 2026-10-19：标记改放 `.migrations/workspace.json`（旧标记 workflow/.migrated-from-workspace
+ *    由 adoptLegacyMarker 兼容搬移，避免"搬目录"把已有的迁移状态读丢、进而重跑补缺复制）。 */
 export async function migrateFromLegacyRoots(info: StorageInfo): Promise<void> {
-  const marker = path.join(info.dir, WORKSPACE_MIGRATION_MARKER);
-  try { await fs.access(marker); return; } catch { /* 没迁过，继续 */ }
+  if (await adoptLegacyMarker(info, 'workspace.json')) return;   // 已经迁过（含旧标记兼容）
   const newHome = path.dirname(info.dir);                      // <DSH_HOME>/.dag-flow
   const candidates: string[] = [];
   const add = (root: string | null): void => { if (root) candidates.push(path.join(root, '.dag-flow')); };
@@ -123,7 +159,8 @@ export async function migrateFromLegacyRoots(info: StorageInfo): Promise<void> {
     done.push(oldHome);
   }
   if (done.length === 0) return;                                // 没旧数据：不写标记，留待将来
-  await fs.writeFile(marker, JSON.stringify({ migratedAt: new Date().toISOString(), from: done }) + '\n', 'utf8');
+  await fs.mkdir(migrationsDir(info), { recursive: true });
+  await fs.writeFile(path.join(migrationsDir(info), 'workspace.json'), JSON.stringify({ migratedAt: new Date().toISOString(), from: done }) + '\n', 'utf8');
   console.info('[dag-flow] storage root is now <DSH_HOME>/.dag-flow; copied missing files from:', done.join(', '));
 }
 
@@ -166,9 +203,8 @@ async function mergeSchedules(from: string, to: string): Promise<void> {
 // ---------- 兜底目录一次性迁入（fail-soft）：~/.dsh/workflows（user-dir-fallback 时代产物）→ 新根 ----------
 
 /** 迁移一次性标记（2026-10-04 修「删掉的工作流会复活」）。
- *  点号开头 ⇒ 不会被 listJsonNames 当工作流列出（且不以 .json 结尾，双重安全）。 */
-const MIGRATION_MARKER = '.fallback-migrated';
-
+ *  ★ 2026-10-19：标记文件从 `workflow/.fallback-migrated` 搬到 `.migrations/fallback.json`
+ *    （用户拍板 A：插件元数据与工作流数据分开放）；旧标记由 adoptLegacyMarker 兼容搬移。 */
 export async function migrateFallbackWorkflows(info: StorageInfo): Promise<void> {
   if (info.source === 'user-dir-fallback') return; // 仍落在兜底目录，无需自迁
   const oldDir = path.join(USER_DIR, 'workflows');
@@ -179,11 +215,8 @@ export async function migrateFallbackWorkflows(info: StorageInfo): Promise<void>
   //   删掉的工作流，下次 dsh web 重启就被原样复制回来（实测：删了 test.json/测试.json，重启后出现，
   //   且 mtime 与源一致 = 确系被重新复制）。现在用一次性标记把"这个工作区已迁过"钉死。
   //   标记只在**真的处理过兜底目录**之后才写：若旧目录不存在则不写，将来它出现了仍能迁一次。
-  const marker = path.join(info.dir, MIGRATION_MARKER);
-  try {
-    await fs.access(marker);
-    return; // 已经迁过：不再补缺（用户删掉的就是删掉了）
-  } catch { /* 没迁过，继续 */ }
+  //   ★ 2026-10-19：返回 true 时同样**不能再复制**（旧标记兼容命中 = 这份数据早迁过了）。
+  if (await adoptLegacyMarker(info, 'fallback.json')) return;    // 已经迁过：不再补缺
   try {
     const entries = await fs.readdir(oldDir);
     const jsons = entries.filter((f) => f.endsWith('.json') && !f.startsWith('.'));
@@ -201,11 +234,46 @@ export async function migrateFallbackWorkflows(info: StorageInfo): Promise<void>
         await fs.cp(oldVersions, newVersions, { recursive: true, force: false, errorOnExist: false });
       }
     } catch { /* 无 versions 目录，正常 */ }
-    await fs.writeFile(marker, JSON.stringify({ migratedAt: new Date().toISOString(), from: oldDir, files: jsons.length }) + '\n', 'utf8');
+    await fs.mkdir(migrationsDir(info), { recursive: true });
+    await fs.writeFile(path.join(migrationsDir(info), 'fallback.json'), JSON.stringify({ migratedAt: new Date().toISOString(), from: oldDir, files: jsons.length }) + '\n', 'utf8');
     if (jsons.length > 0) console.info('[dag-flow] fallback workflows migrated:', oldDir, '→', info.dir, `(${jsons.length} files)`);
   } catch {
     /* 旧目录不存在，正常 */
   }
+}
+
+/**
+ * ★ 2026-10-19 用户要求「每个工作流产生的文件都要以 .dag-flow/**\/工作流名称/文件 的方式存放」：
+ *   把**历史平铺**的 `runs/run-*.json` 按记录里的 `workflowName` 归进 `runs/<工作流名>/`。
+ *   · **幂等、不需要标记**：归类后根目录里就不再有 `run-*.json` 了，下次启动自然跳过。
+ *   · 读不出 `workflowName`（旧记录/损坏）⇒ **留在原地**，不猜归属、也不删。
+ *   · 失败静默：搬不动的留在根目录，读取侧本来就同时兼容"根 + 子目录"两级。
+ * @returns 实际搬移的条数（供日志/测试）
+ */
+export async function migrateRunRecords(info: StorageInfo): Promise<number> {
+  const root = path.join(path.dirname(info.dir), 'runs');
+  let names: string[] = [];
+  try { names = await fs.readdir(root); } catch { return 0; }
+  let moved = 0;
+  for (const f of names) {
+    if (!f.endsWith('.json') || f.startsWith('.')) continue;
+    const full = path.join(root, f);
+    try { if (!(await fs.stat(full)).isFile()) continue; } catch { continue; }
+    let wf = '';
+    try {
+      const j = JSON.parse(await fs.readFile(full, 'utf8')) as { workflowName?: unknown } | null;
+      wf = String(j?.workflowName ?? '').trim();
+    } catch { continue; }                                    // 解析不了：原地不动
+    if (!wf || !isValidWorkflowName(wf)) continue;           // 名字不合法：原地不动
+    try {
+      const to = path.join(root, wf);
+      await fs.mkdir(to, { recursive: true });
+      await fs.rename(full, path.join(to, f));
+      moved++;
+    } catch { /* 单个失败不影响其它 */ }
+  }
+  if (moved > 0) console.info(`[dag-flow] 运行记录已按工作流分目录：${root} → <工作流名>/（${moved} 条）`);
+  return moved;
 }
 
 // ---------- 旧目录名一次性迁入（fail-soft）：旧 <root>/.dsh-workflows → 新 <root>/.dag-flow-workflows ----------

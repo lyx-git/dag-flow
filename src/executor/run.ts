@@ -142,6 +142,9 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
     results: {},
     signal: opts.signal,
     runId,
+    // ★ 2026-10-19 用户要求「每个工作流产生的文件都要以 .dag-flow/**\/工作流名称/文件 的方式存放」：
+    //   节点需要知道自己属于哪个工作流，才能把产物落到自己的子目录（images/<名>、tmp/<名>）。
+    workflowName: def.name,
     interactive: opts.interactive === true,
     onAwaiting: opts.onAwaiting,
     logger: opts.logger,

@@ -12,7 +12,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
-import { dagFlowImagesDir } from '../dsh-gate/paths.js';
+import { dagFlowScopedPath } from '../dsh-gate/paths.js';
 
 /** mediaType → 扩展名（与 image-inputs / doc-extract 的白名单一致：png/jpeg/webp/gif）。
  *  ★ 2026-10-17：bmp 已从抽图白名单移除（宿主附件服务与「🖼 选图」都不认它）⇒ 该分支不再可达，删除。 */
@@ -63,12 +63,14 @@ export interface LibraryImageSaved {
 }
 
 /**
- * 把一批图片写进统一图片目录（自动建目录）。
+ * 把一批图片写进**该工作流的**图片目录 `images/<工作流名>/`（自动建目录）。
+ * ★ 2026-10-19 用户要求「每个工作流产生的文件都要以 .dag-flow/**\/工作流名称/文件 的方式存放」，
+ *   并明确"全部严格按照要求做，不做兼容" ⇒ 抽出的图落各自工作流的子目录，不再平铺到 images/ 根。
  * 单个文件写失败会**直接抛出**（由调用方决定是 fail-soft 还是失败整节点——doc_parse 选择 fail-soft）。
  */
-export async function saveImagesToLibrary(items: LibraryImageInput[]): Promise<LibraryImageSaved[]> {
+export async function saveImagesToLibrary(items: LibraryImageInput[], wfName?: string): Promise<LibraryImageSaved[]> {
   if (!items.length) return [];
-  const dir = dagFlowImagesDir();
+  const dir = dagFlowScopedPath('images', wfName);
   await fs.mkdir(dir, { recursive: true });
   const out: LibraryImageSaved[] = [];
   for (const it of items) {

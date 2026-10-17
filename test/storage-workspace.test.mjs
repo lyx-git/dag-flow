@@ -153,7 +153,7 @@ const withHome = (home) => {
     t('③ ★同 id 冲突以新根为准（sch_both 仍是 mine-name，不回退用户改过的值）', byId('sch_both')?.workflow === 'mine-name', String(byId('sch_both')?.workflow));
     t('③ 合并没留下 .tmp 半成品', !existsSync(join(home, '.dag-flow', 'schedules.json.tmp')));
     t('③ 旧工作区 versions/ 版本历史被复制', existsSync(join(newWf, 'versions', 'ws-wf', 'v1.json')));
-    t('③ 一次性标记 .migrated-from-workspace 已写', existsSync(join(newWf, '.migrated-from-workspace')));
+    t('③ 一次性标记已写（新位置 .migrations/workspace.json）', existsSync(join(home, '.dag-flow', '.migrations', 'workspace.json')));
     let newer = null;
     try { newer = JSON.parse(readFileSync(join(newWf, 'ws-wf.json'), 'utf8')); } catch { /* 见下断言 */ }
     t('③ ★新根已有的同名文件不被覆盖（version 仍是 99）', newer?.version === 99, String(newer?.version));
@@ -189,7 +189,7 @@ const withHome = (home) => {
     const info1 = await api1.resolveStorageRoot();
     t('⑤ 首次启动：兜底工作流 legacy-a 被迁入', existsSync(join(wfDir, 'legacy-a.json')), info1.dir);
     t('⑤ 首次启动：兜底工作流 legacy-b 被迁入', existsSync(join(wfDir, 'legacy-b.json')));
-    t('⑤ 首次启动后写入一次性标记 .fallback-migrated', existsSync(join(wfDir, '.fallback-migrated')));
+    t('⑤ 首次启动后写入一次性标记（新位置 .migrations/fallback.json）', existsSync(join(home, '.dag-flow', '.migrations', 'fallback.json')));
 
     rmSync(join(wfDir, 'legacy-a.json'));
     writeJson(join(legacy, 'legacy-c.json'), { name: 'legacy-c', version: 1, nodes: [] });
@@ -199,6 +199,36 @@ const withHome = (home) => {
     t('⑤ ★二次启动：用户删掉的 legacy-a 不会被复活', !existsSync(join(wfDir, 'legacy-a.json')));
     t('⑤ 二次启动：兜底目录里的新文件 legacy-c 也不会被补迁（标记生效）', !existsSync(join(wfDir, 'legacy-c.json')));
     t('⑤ 二次启动：已迁入且未被删的 legacy-b 仍在', existsSync(join(wfDir, 'legacy-b.json')));
+  } finally { restore(); }
+}
+
+// —— 场景 ⑥：旧标记兼容（2026-10-19 标记搬到 .migrations/ 的回归锁）——
+//   背景：标记从 `workflow/.fallback-migrated` 搬到 `.migrations/fallback.json`。
+//   老用户机器上标记还躺在旧位置 ⇒ 新位置读不到 ⇒ 会被判"从未迁移" ⇒ 重跑补缺复制
+//   ⇒ 已删的工作流复活（就是 10-04 那条 bug 的另一条通道）。
+//   锁三件事：①旧标记被搬到新位置；②旧位置不再残留；③这一轮**绝不复制**兜底目录里的文件。
+{
+  const home = tmpRoot('dsh-home-e-');
+  const legacy = join(home, 'workflows');
+  writeJson(join(legacy, 'old-a.json'), { name: 'old-a', version: 1, nodes: [] });
+  const oldMarkerDir = join(home, '.dag-flow', 'workflow');
+  mkdirSync(oldMarkerDir, { recursive: true });
+  writeFileSync(
+    join(oldMarkerDir, '.fallback-migrated'),
+    JSON.stringify({ migratedAt: '2026-10-04T00:00:00.000Z', from: legacy, files: 2 }) + '\n',
+    'utf8',
+  );
+  const restore = withHome(home);
+  try {
+    const wfDir = wfDirOf(home);
+    const api = await bundleWith({ get: () => undefined });
+    await api.resolveStorageRoot();
+    t('⑥ ★旧位置的标记被搬到 .migrations/fallback.json',
+      existsSync(join(home, '.dag-flow', '.migrations', 'fallback.json')));
+    t('⑥ 旧位置标记已移走（不再躺在 workflow/ 里）',
+      !existsSync(join(wfDir, '.fallback-migrated')));
+    t('⑥ ★★有旧标记 ⇒ 绝不重跑补缺复制（否则已删工作流会复活）',
+      !existsSync(join(wfDir, 'old-a.json')));
   } finally { restore(); }
 }
 
