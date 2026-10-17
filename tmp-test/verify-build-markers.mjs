@@ -21,7 +21,7 @@ const hasH = (s) => hTxt.includes(s);
 
 const rows = [
   // ===== A. 版本标记（产物闸门第一道）=====
-  ['client 含标记 v20261019-jsonquiet（JSON 视图关掉 Monaco 易混字符提示 unicodeHighlight）', cTxt.includes('v20261019-jsonquiet')],
+  ['client 含标记 v20261019-noflicker（切换工作流淡入遮罩 + 初始视图一步落位）', cTxt.includes('v20261019-noflicker')],
   ['host   含标记 v20261019-runsperf（运行记录枚举零 stat + prune 只扫本工作流）', hasH('v20261019-runsperf')],
 
   // ===== B. 空名三禁（2026-10-19 用户：没名字禁止运行/保存/自动建）=====
@@ -94,6 +94,7 @@ const rows = [
   ['弹窗关闭按钮类（ASCII：dag-flow-picker-close）', c.includes('dag-flow-picker-close')],
   ['画布节点卡类（ASCII：dsh-wf-fg-card）', c.includes('dsh-wf-fg-card')],
   ['名称输入框类（ASCII：dsh-wf-name-input）', c.includes('dsh-wf-name-input')],
+  ['切换工作流淡入遮罩类（ASCII：dsh-wf-fg-veil，2026-10-19 修「切换画布时闪」）', c.includes('dsh-wf-fg-veil')],
 
   // ===== Q. 产物体积（异常膨胀/截断的兜底）=====
   [`dist/client.js 体积合理（${(fs.statSync('dist/client.js').size / 1048576).toFixed(2)} MB，期望 1.0-2.1）`,

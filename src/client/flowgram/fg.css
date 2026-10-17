@@ -18,6 +18,24 @@
   inset: 0;
 }
 
+/* ★ 2026-10-19 切换工作流时的淡入遮罩 —— 用户原话：「切换画布的时候，为啥画布会闪啊，流程就像闪进来的」。
+   成因（代码层）：切换工作流 = 整个停靠面板重挂（dock.tsx 的 dockVersion → unmount + mountWorkflowPanel）
+   ⇒ 旧 React root 被拆到新画布首帧之间必然有空窗，节点层是一次性"长出来"的。
+   对策：用**与画布同底色 + 同点阵**的遮罩盖住这段空窗，等初始视图落定（onAllLayersRendered → revealVeil）
+   后淡出 120ms ⇒ 观感从"闪一下"变成"淡入"。遮罩从出现起就 pointer-events:none，不吃首帧交互。 */
+.dsh-wf-fg-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 30;                    /* 高于工具条/缩略图那批（z-index:20），低于弹窗层 */
+  background-color: var(--wf-bg, #0b1120);
+  background-image: radial-gradient(circle, #1d2a44 1px, transparent 1px);
+  background-size: 22px 22px;
+  opacity: 1;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+.dsh-wf-fg-veil.out { opacity: 0; }
+
 /* ===== 节点卡 ===== */
 .dsh-wf-fg-node {
   cursor: grab;

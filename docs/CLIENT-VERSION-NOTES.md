@@ -7,6 +7,23 @@
 
 ---
 
+// v20261019-noflicker（**纯客户端**，硬刷新即可；宿主仍 `v20261019-runsperf`）：修「切换画布时闪一下」。
+//   用户原话：「画布切换的时候，为啥画布会闪啊，流程就像闪进来的」。用户从三个方案里选了 **B+C**。
+//   · 定性（代码层）→ 三层叠加：①切换工作流＝整个停靠面板重挂（dock.tsx 的 `dockVersion` →
+//     `unmount()` + `mountWorkflowPanel()`），FlowGram 编辑器从零初始化，旧 root 拆到新画布首帧之间有空窗；
+//     ②初始视图**两次落定**（先 `centerOn` 整图、再 `scrollToView` 平移把入口节点带进来）⇒ 肉眼"跳到位置"；
+//     ③首帧要等视口尺寸就绪（`apply()` 最多重试 8×40ms）。
+//   · **C｜一步落位**：`ensureVisibleShift` 返回的 `target` 本就是那块安全视口矩形，直接居中它一次到位；
+//     需要平移时**跳过 centerOn**。最终结果与"先居中再平移"完全一致（原第二步就是把 target 居中），
+//     只是少一次中间落位。不需要平移时仍走 centerOn（一次），异常时仍兜 centerOn。
+//     `__df_initialView.applied/ensure` 诊断字段语义不变（applied 仍为"是否成功落过视图"）。
+//   · **B｜淡入遮罩**：`.dsh-wf-fg-veil`（画布同底色 + 同点阵，z-index 30，pointer-events:none）盖住空窗，
+//     `onAllLayersRendered` 里初始视图落定后（`finally` 保险）调 `revealVeil()` 淡出 120ms；
+//     另设 **500ms 兜底定时器**强制揭开 —— 遮罩绝不能永久盖住画布（这条是红线）。
+//   · 为什么不选 A（不重挂、复用编辑器）：重挂是有意设计，FlowPanel 内部大量状态跟工作流绑定
+//     （选中节点/撤销栈/运行结果/renameFromRef/dirty 等），复用要逐个重置，漏一个就串味 ⇒ 另立项。
+//   · 验证：typecheck 0 / 闸门 45/45（新增遮罩类名断言）/ CDP view-controls + button-fit 绿。
+//
 // v20261019-jsonquiet（**纯客户端**，硬刷新即可；宿主仍 `v20261019-runsperf`）：JSON 视图消掉
 //   Monaco 的「易混字符」提示。用户原话：「查看/编辑工作流json的编辑框里面报错：The character U+ff08
 //   "（" could be confused with the ASCII character U+0028 "(", which is more common in source code.

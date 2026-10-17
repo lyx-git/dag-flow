@@ -114,6 +114,11 @@ export function hasPendingPosFlush(): boolean {
   return pendingPosCtx != null || posFlushTimer != null;
 }
 
+/** ★ 2026-10-19：首帧初始视图落定 → 揭开"切换工作流"的淡入遮罩（见 Canvas 的 veil 与 fg.css）。
+ *  为什么用模块级变量而不是 props：`buildEditorProps` 是模块级函数、一个画布实例只构建一次，
+ *  拿不到组件的 setState —— 与 onChangeRef / onSelectRef 是同一套桥接机制（回调由 Canvas 每次渲染刷新）。 */
+let revealVeil: (() => void) | null = null;
+
 // ================= 编辑器 props =================
 
 function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
@@ -178,9 +183,13 @@ function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
           const zoom = pickInitialZoom(raw);
           // 居中目标 = 整图内容（与「适应画布」同源，取景与既有行为一致）；取不到内容才退回起始节点
           const box = worldBounds(ctx) ?? nodeBounds(start);
-          const applied = centerOn(cfg, box, zoom);
-          // ★ 取景 C（2026-10-04 用户拍板）：整图居中之后，若**入口节点**不在真正可见的区域内，
-          //   做一次**最少平移**把它带进来（缩放不变）。右侧面板是浮层，必须从可视宽度里减掉。
+          // ★ 取景 C（2026-10-04 用户拍板）+ **一步落位**（2026-10-19 修「切换画布时闪」）：
+          //   整图居中之后，若**入口节点**不在真正可见的区域内，要做一次**最少平移**把它带进来（缩放不变）。
+          //   ★ 原先的顺序是「先 centerOn 整图 → 再 scrollToView 平移」＝**两次视图落定**，肉眼看到
+          //   "先到位、再跳一下"。而 ensureVisibleShift 返回的 target 本就是那块安全视口区域的矩形，
+          //   直接把它居中一次到位，**最终结果与"先居中再平移"完全一致**（原第二步就是把 target 居中），
+          //   区别只是少了一次中间落位 ⇒ 画面不跳。
+          let applied = false;
           let ensure: { shifted: boolean; dx: number; dy: number } = { shifted: false, dx: 0, dy: 0 };
           try {
             const startBox = nodeBounds(start);
@@ -188,15 +197,24 @@ function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
             let panelW = 0;
             try { panelW = Math.min(460, Math.max(0, document.querySelector('.dsh-wf-right')?.getBoundingClientRect().width ?? 0)); } catch { panelW = 0; }
             const shift = ensureVisibleShift({ graphBox: box, startBox, viewW: vw, viewH: vh, panelW, zoom });
-            if (shift.shifted && shift.target) {
-              cfg?.scrollToView?.({ bounds: shift.target, zoom, easing: false, scrollToCenter: true });
+            if (shift.shifted && shift.target && typeof cfg?.scrollToView === 'function') {
+              cfg.scrollToView({ bounds: shift.target, zoom, easing: false, scrollToCenter: true });
+              applied = true;
+            } else {
+              applied = centerOn(cfg, box, zoom);
             }
             ensure = { shifted: shift.shifted, dx: Math.round(shift.dx), dy: Math.round(shift.dy) };
-          } catch { /* 取景失败不影响画布 */ }
+          } catch {
+            // 取景失败不影响画布：仍退回整图居中兜一次（与旧行为一致）
+            try { applied = centerOn(cfg, box, zoom); } catch { applied = false; }
+          }
           // 诊断钩子（CDP 验证用）
           (window as any).__df_initialView = { zoom, rawFit: Number.isFinite(raw) ? Number(raw.toFixed(4)) : null, startId: start?.id ?? null, box, applied, ensure, tryNo, at: Date.now() };
         } catch (e) {
           console.warn('[dag-flow] 初始视图设置失败:', e);
+        } finally {
+          // 初始视图已落定（或失败兜底）⇒ 揭开切换遮罩，让画布淡入（见 Canvas 的 veil 与 fg.css）
+          revealVeil?.();
         }
       };
       apply(0);
@@ -311,6 +329,17 @@ export function Canvas(props: {
   const problems = useMemo(() => computeProblems(nodes, edges), [nodes, edges]);
   const [showProblems, setShowProblems] = useState(false);
 
+  /* ★ 2026-10-19 切换工作流时的淡入遮罩（用户：「切换画布的时候，为啥画布会闪啊，流程就像闪进来的」）：
+     切换＝整个停靠面板重挂 ⇒ 画布从空到满是一次性"闪出来"。遮罩盖住这段空窗，
+     初始视图落定后由 revealVeil() 淡出（fg.css 里 120ms transition）。
+     ★ 500ms 兜底：万一 onAllLayersRendered 没来（异常/空图），也必须揭开 —— 遮罩永久盖住画布是红线。 */
+  const [veil, setVeil] = useState(true);
+  revealVeil = () => setVeil(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setVeil(false), 500);
+    return () => window.clearTimeout(t);
+  }, []);
+
   const editorProps = useMemo(() => buildEditorProps(nodes, edges), []);
   void LineType;
 
@@ -341,6 +370,13 @@ export function Canvas(props: {
         edgeCount: edges.length,
         problemCount: problems.length,
         onShowProblems: () => setShowProblems(true),
+      }),
+      // ★ 切换工作流的淡入遮罩（上方 veil state / fg.css / revealVeil）：
+      //   必须是最后一个子元素，靠 z-index:30 盖在工具条・缩略图（20）与节点层之上。
+      createElement('div', {
+        key: 'veil',
+        className: `dsh-wf-fg-veil${veil ? '' : ' out'}`,
+        'aria-hidden': true,
       }),
     ),
   );
