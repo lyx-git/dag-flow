@@ -7,6 +7,22 @@
 
 ---
 
+// v20261019-engorder（**纯客户端**，硬刷新即可；宿主仍为 `v20261019-engtimeout`）：修我自己上一轮漏改的地方
+//   （2026-10-19 用户原话：「网页搜索里面下拉选的顺序也没调整啊」）。
+//   · 真因：上一轮「按真机实测重排」只动了**三处里的两处**——
+//     ①宿主 `ENGINE_CHAIN`（改了）；②面板说明文案 + `param-meta` 的 auto 释义（改了，都写成新顺序）；
+//     ③**`inspector-fields.tsx` 里 SelectBox 的 `options` 数组本身**（没改，还是旧序
+//     `bing → ddg-lite → ddg → searxng → anysearch`）⇒ 摘要文字说新顺序、下拉里却是旧顺序。
+//   · 改法：options 严格按 `ENGINE_CHAIN` 排（`auto` 永远第一，它是默认值）：
+//     `auto → Bing → AnySearch → DuckDuckGo HTML → DuckDuckGo Lite → SearXNG`。
+//   · 为什么之前没被发现：说明文案里也有一句「Bing → AnySearch → DuckDuckGo → …」，
+//     按 `indexOf` 比对产物字符串会被这句**误命中**（假绿）⇒ 顺序只能靠 CDP 守。
+//   · 新增 CDP 用例 `engine-order`（`tmp-test/cdp/test-engine-order.mjs`，已登记进 `run-all.mjs`）：
+//     拖 web_search → 开参数弹窗 → 点开「搜索引擎」→ 读 `.dsh-wf-sel-opt .dsh-wf-sel-label` 的**真实渲染顺序**，
+//     与期望数组全等比对 + 单独断「AnySearch 在两个 DuckDuckGo 之前」。
+//   · A/B 反证（`tmp-test/ab-engine-order.mjs revert|restore`）：切回旧序重建后用例**精确变红**
+//     （实测输出 `auto → Bing → DuckDuckGo Lite → DuckDuckGo HTML → SearXNG → AnySearch`），恢复后转绿。
+//   · 验证：typecheck 0 / markers **172/172**（新增"6 个引擎 label 齐全"）/ CDP `engine-order` 1/1（A/B 双向）/ 全量 CDP 56→**57 项**。
 // v20261019-engtimeout（**宿主侧为主**，客户端只升标记；需重启 dsh web + 硬刷新）：压短引擎超时
 //   （2026-10-19 用户拍板「选择A」：单引擎约 8s、SearXNG 每实例约 4s）。
 //   · 为什么改：上一轮重排顺序后，ddg/ddg-lite/searxng 虽退到链尾，但**一旦真轮到它们**仍要

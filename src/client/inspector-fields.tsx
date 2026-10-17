@@ -179,13 +179,17 @@ export function WebFields({ node, onParamsChange }: {
         //   闭合态只显示引擎名（不再被省略号截断），点开列表时解释作为灰色小字跟在名称下面，信息一字不丢。
         // ★ 2026-10-19 用户要求「依赖 dsh-free-search 插件的内容都删掉」：原来的「仅宿主」选项已移除；
         //   老节点如果存着 provider='host'，用「当前值」兜底项如实显示（否则下拉会空白），并告诉他改哪里。
+        // ★ 2026-10-19 用户：「网页搜索里面下拉选的顺序也没调整啊」——上一轮只改了链与说明文案，
+        //   **选项数组本身的顺序没动**（还是 bing → ddg-lite → ddg → searxng → anysearch）。
+        //   ⇒ 现在严格按宿主 `ENGINE_CHAIN` 的顺序排（auto 永远第一，它是默认值）；
+        //   顺序由 CDP 用例 `engine-order` 读真实渲染的选项锁死（markers 断不了，会与说明文案里的同名文字打架）。
         options: [
           { value: 'auto', label: 'auto', sub: '内置引擎链，按顺序自动回落（推荐）' },
           { value: 'bing', label: 'Bing', sub: '免 key' },
-          { value: 'ddg-lite', label: 'DuckDuckGo Lite', sub: '免 key' },
-          { value: 'ddg', label: 'DuckDuckGo HTML', sub: '免 key' },
-          { value: 'searxng', label: 'SearXNG', sub: '公共实例，免 key' },
           { value: 'anysearch', label: 'AnySearch', sub: '免费匿名额度' },
+          { value: 'ddg', label: 'DuckDuckGo HTML', sub: '免 key' },
+          { value: 'ddg-lite', label: 'DuckDuckGo Lite', sub: '免 key' },
+          { value: 'searxng', label: 'SearXNG', sub: '公共实例，免 key' },
           ...(p.provider === 'host'
             ? [{ value: 'host', label: '（当前值：仅宿主，已移除）', sub: '运行会失败——请改成 auto 或任一内置引擎' }]
             : []),
