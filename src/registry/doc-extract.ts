@@ -151,40 +151,43 @@ function extOfName(name: string): string {
   return (/(\.[A-Za-z0-9]{1,8})$/.exec(String(name ?? ''))?.[1] ?? '').toLowerCase();
 }
 
+/** content-type → 支持集的扩展名。★ 2026-10-19 规范整改：映射表提到**模块级常量**
+ *  （原来声明在函数体里，每次调用都要新建一个 20 项对象，属"render/热路径里建大常量"的同类问题）。 */
+const EXT_BY_CONTENT_TYPE: Record<string, string> = {
+  'text/html': '.html',
+  'application/xhtml+xml': '.html',
+  'application/pdf': '.pdf',
+  'text/plain': '.txt',
+  'text/markdown': '.md',
+  'text/x-markdown': '.md',
+  'text/csv': '.csv',
+  'text/tab-separated-values': '.tsv',
+  'application/json': '.json',
+  'application/ld+json': '.json',
+  'application/xml': '.xml',
+  'text/xml': '.xml',
+  'application/yaml': '.yaml',
+  'application/x-yaml': '.yaml',
+  'text/yaml': '.yaml',
+  'application/msword': '.doc',
+  'application/vnd.ms-excel': '.xls',
+  'application/vnd.ms-powerpoint': '.ppt',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+  'image/bmp': '.bmp',
+  'image/tiff': '.tiff',
+};
+
 /** content-type → 支持集的扩展名；不认识返回空串 */
 export function extFromContentType(contentType: string): string {
   const base = String(contentType ?? '').split(';')[0]!.trim().toLowerCase();
   if (!base) return '';
-  const table: Record<string, string> = {
-    'text/html': '.html',
-    'application/xhtml+xml': '.html',
-    'application/pdf': '.pdf',
-    'text/plain': '.txt',
-    'text/markdown': '.md',
-    'text/x-markdown': '.md',
-    'text/csv': '.csv',
-    'text/tab-separated-values': '.tsv',
-    'application/json': '.json',
-    'application/ld+json': '.json',
-    'application/xml': '.xml',
-    'text/xml': '.xml',
-    'application/yaml': '.yaml',
-    'application/x-yaml': '.yaml',
-    'text/yaml': '.yaml',
-    'application/msword': '.doc',
-    'application/vnd.ms-excel': '.xls',
-    'application/vnd.ms-powerpoint': '.ppt',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
-    'image/png': '.png',
-    'image/jpeg': '.jpg',
-    'image/webp': '.webp',
-    'image/gif': '.gif',
-    'image/bmp': '.bmp',
-    'image/tiff': '.tiff',
-  };
-  const hit = table[base];
+  const hit = EXT_BY_CONTENT_TYPE[base];
   if (hit) return hit;
   // 族后缀：application/rss+xml / application/problem+json 之类
   if (base.endsWith('+json')) return '.json';

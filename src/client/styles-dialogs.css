@@ -342,12 +342,8 @@
 }
 .dsh-wf-params-addbar { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
 .dsh-wf-params-err { margin-top: 8px; font-size: 11.5px; color: var(--wf-danger, #f87171); font-family: ui-monospace, Consolas, monospace; }
-/* 面板里的只读参数摘要（同一件事只留一个入口：编辑在弹窗里做） */
-.dsh-wf-params-summary {
-  font-size: 11px; line-height: 1.55; color: var(--wf-muted, #8b9bb3);
-  font-family: ui-monospace, Consolas, monospace;
-  max-height: 52px; overflow: hidden; word-break: break-all;
-}
+/* ★ 2026-10-19（用户「参数与试跑按钮的下方，会显示参数情况，不用显示了，清掉吧」）：
+   面板里那行只读参数摘要的样式规则已删除 —— 参数只留弹窗一个入口。 */
 
 /* ===== 参数弹窗右侧「变量抽屉」（2026-10-11 用户拍板方案 A） ===== */
 .dsh-wf-params-split { display: flex; gap: 14px; align-items: flex-start; padding: 0 20px 16px; }
@@ -452,7 +448,12 @@
 .dsh-wf-code-expand:hover { border-color: var(--wf-accent, #4f8cff); color: var(--wf-text, #e6edf7); }
 .dsh-wf-code-expand svg { display: block; }
 .dsh-wf-code-expand.is-expanded { border-color: var(--wf-accent, #4f8cff); color: #dbe7ff; }
-.dsh-wf-testbar { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--wf-border, #1c2d47); }
+/* 底部试跑条。★ 2026-10-19 用户：「左下角的『▶ 试跑本节点』几乎和弹窗最下边的线重合了，
+   往右边上边移动一些，不要紧贴弹窗的边缘线」—— 真因：`.dsh-wf-params-dialog` 自身 padding 是 0，
+   参数区靠 `.dsh-wf-params-split` 的 20px 缩进，而试跑条是 dialog 的直接子元素（在 split 之外）⇒
+   实测按钮左边距边框、底边距边框都只有 1px（就是那 1px border）。这里给试跑条整体内缩：
+   左右 20px（与参数区同一缩进，分隔线也跟着内缩）+ 底 16px（与 split 的 padding-bottom 一致）。 */
+.dsh-wf-testbar { margin: 12px 20px 16px; padding-top: 12px; border-top: 1px solid var(--wf-border, #1c2d47); }
 .dsh-wf-testbar-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .dsh-wf-testbar-inputs { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .dsh-wf-testbar-row { display: flex; gap: 8px; align-items: center; }

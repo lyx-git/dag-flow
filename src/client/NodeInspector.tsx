@@ -13,7 +13,7 @@ import { paramMetaOf } from './param-meta';
 import type { VarPickGroup } from './var-picker';
 import type { TestResult } from './test-result';
 import { varMatch } from './util/varSearch';
-import { fieldsCacheOf, paramsSummary, codeSummary, truncLabel, reqMark } from './panel-utils';
+import { fieldsCacheOf, truncLabel, reqMark } from './panel-utils';
 import { InfoTip } from './info-tip';
 import { SelectBox } from './select-box';
 import { SessionInputFields, MediaFields, WebFields } from './inspector-fields';
@@ -733,6 +733,8 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
       createElement('label', { className: 'dsh-wf-panel-label' }, '🔗 变量引用'),
       createElement('button', {
         className: 'dsh-wf-btn',
+        // ★ 2026-10-19（用户「打开变量弹窗按钮和删除节点按钮的大小都改成和参数与试跑按钮的大小一致」）
+        style: { width: '100%' },
         title: '打开变量弹窗',
         onClick: () => setVarDlgOpen(true),
       }, '🔗 打开变量弹窗'),
@@ -914,10 +916,14 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
         title: '打开「参数与试跑」：每个参数一行（可新增 / 修改 / 删除，长文本用代码级多行框），底部可直接试跑本节点',
         onClick: () => setParamsOpen(true),
       }, `🧪 参数与试跑（${Object.keys(node.params ?? {}).length} 项）`),
-      createElement('div', { className: 'dsh-wf-params-summary' }, paramsSummary(node.params as Record<string, unknown> | undefined)),
+      // ★ 2026-10-19（用户「参数与试跑按钮的下方，会显示参数情况，不用显示了，清掉吧」）：
+      //   原先这里还有一行只读摘要 `paramsSummary(...)`（"prompt: xxx · model: yyy"）—— 已删除。
+      //   参数只有弹窗一个入口，按钮上已写「（N 项）」，下方再列一遍没有新信息。
     ),
     createElement('div', { className: 'dsh-wf-panel-row' },
-      createElement('button', { className: 'dsh-wf-btn dsh-wf-btn-danger', onClick: onDelete }, '🗑 删除节点'),
+      // ★ 2026-10-19（用户「打开变量弹窗按钮和删除节点按钮的大小都改成和参数与试跑按钮的大小一致」）：
+      //   三个按钮统一 `width:100%`（参数与试跑本来就是），高度由 `.dsh-wf-btn` 决定，本来同高。
+      createElement('button', { className: 'dsh-wf-btn dsh-wf-btn-danger', style: { width: '100%' }, onClick: onDelete }, '🗑 删除节点'),
     ),
     // ★ 参数编辑弹窗（2026-10-11 用户拍板）：把参数从窄面板里独立出来——字段视图（逐参数增删改）
     //   + JSON 视图 + 变量抽屉 + 底部试跑条；Portal 到 body（面板的 backdrop-filter 会困住 fixed 弹窗）。

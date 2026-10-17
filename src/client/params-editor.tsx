@@ -9,7 +9,7 @@
 // 写回：沿用 FlowPanel.handleNodeChange 的既有语义——**浅合并 + null 表示删除键**，所以这里发的是
 //   「差异补丁」：新增/改值传值，被删掉的键传 null。字符串值永远按字符串存（不猜 JSON），
 //   非字符串值（数字/布尔/对象/数组）按 JSON 解析。
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { createElement } from 'react';
 import type { ReactElement } from 'react';
 import { createPortal } from 'react-dom';
@@ -35,16 +35,11 @@ import {
 } from './params-value';
 import type { Row } from './params-value';
 import type { ParamMeta } from './param-meta';
+// ★ 2026-10-19：单行/多行两个行内 SVG 图标已拆到 ./param-icons（本文件曾 596 行、离 600 硬上限只剩几行）
+import { IconSingleLine, IconMultiLine } from './param-icons';
 
-// ★ 2026-10-11 图标换成**内联 SVG**（用户反馈「单行输入和多行编辑框的 icon 有点丑」）：
-//   原来是字体符号 ▭（U+25AD 空心方块）与 ⤢（冷僻箭头区字符）——不属于常用字形，
-//   不同字体/字号下渲染差异极大，小按钮里就成了"空心方块 + 歪箭头"。
-//   现改为一对语义直白的输入框图标（描边用 currentColor，任何字体与缩放下都清晰）：
-//   单行 = 扁框内一横线；多行 = 高框内三横线。
-const SVG_ICON = {
-  width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor',
-  strokeWidth: 1.5, strokeLinecap: 'round', 'aria-hidden': 'true',
-} as const;
+// ★ 2026-10-19：单行/多行两个行内 SVG 图标搬到 ./param-icons（本文件逼近 600 行硬上限；
+//   图标是自成一体的纯展示代码，搬出去零逻辑风险）。下面的 PARAMS_TIPS 是**弹窗自身的说明**，留在这里。
 
 /**
  * 参数弹窗的**静态说明**（2026-10-16 用户：「解释的信息统一放到合适的地方用个小问号，单击显示解释内容，
@@ -63,24 +58,6 @@ const PARAMS_TIPS = [
 //   的一小段：`N 个参数 · 改动即自动保存`，字号 / 颜色 / 字体与计数完全同款（`.dsh-wf-params-meta`）。
 //   口径：**关键提示**（影响"数据会不会丢 / 会不会真的生效"这类判断的句子）必须平铺在显眼位置——
 //   位置显眼就够了，样式跟随所在行；只有纯操作说明（语法 / 快捷键 / 怎么切多行框）才进问号。
-
-/**
- * 单行输入（扁框 + 一横线）
- */
-function IconSingleLine(): ReactElement {
-  return createElement('svg', SVG_ICON,
-    createElement('rect', { x: 2.6, y: 5.4, width: 10.8, height: 5.2, rx: 1.3 }),
-    createElement('path', { d: 'M5.4 8h5.2' }),
-  );
-}
-
-/** 多行编辑框（高框 + 三横线） */
-function IconMultiLine(): ReactElement {
-  return createElement('svg', SVG_ICON,
-    createElement('rect', { x: 2.6, y: 2.8, width: 10.8, height: 10.4, rx: 1.3 }),
-    createElement('path', { d: 'M5.2 5.6h5.6M5.2 8h5.6M5.2 10.4h3.6' }),
-  );
-}
 
 // ★ 2026-10-11 用户要求「富文本框的放大按钮在里面的右上角，斜双箭头，放大和缩小」——
 //   这个把手已由 code-text.tsx 的 `expand` prop 渲染（编辑区内部右上角），这里不再需要额外的行内图标。
@@ -128,13 +105,23 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<'fields' | 'json'>('fields');
+  // ★ 2026-10-19（修 JSON 视图写回后连带处理）：`extraFields` 里的专属表单（loop 循环设置 / switch 分支 /
+  //   subagent 模型 / doc_parse 两段式 / file_save 来源…）的编辑态是 **NodeInspector 里的惰性 useState**
+  //   （只从初始 params 读一次）。以前 JSON 视图改不动那些键，所以"改完切回来是旧值"看不见；
+  //   现在改得动了 ⇒ 必须让专属表单按最新 params 重挂载，否则显示的还是旧值、用户一编辑就把新值覆盖回去。
+  //   做法：每次从「JSON 视图」切回「字段视图」时给 extras 容器换一个 key（强制重挂载，重新读 params）。
+  const [extrasEpoch, setExtrasEpoch] = useState(0);
   // ★ 2026-10-19（用户拍板 A）：登记了中文元数据的参数（image_generate / video_generate）—— 元数据里的示例
   //   直接进 placeholder（单行/多行都吃这一份），登记的键**全部补行**（弹窗是这些参数唯一的入口）。
   //   ★ 注意：**不要**把示例并进 `fieldPlaceholders` 一起传 rowsFromParams —— 那张表会强制该行变富文本框
   //   （`multi = !!ph`），而这里多数参数（model / size / n / 各种 URL）应当是单行框。
-  const metaAutoRows = paramMeta
-    ? Object.entries(paramMeta).map(([k, m]) => ({ k, multi: !!m.multi, placeholder: m.placeholder }))
-    : undefined;
+  //   ★ 2026-10-19 规范整改：这行以前每次渲染都重建一遍数组（`Object.entries + map`）——规范要求
+  //   render 里不建大常量。`paramMeta` 来自 `paramMetaOf(type)`（模块常量表里的同一对象引用），
+  //   所以 useMemo 依赖它即可，引用变了才重算。
+  const metaAutoRows = useMemo(
+    () => (paramMeta ? Object.entries(paramMeta).map(([k, m]) => ({ k, multi: !!m.multi, placeholder: m.placeholder })) : undefined),
+    [paramMeta],
+  );
   const [rows, setRows] = useState<Row[]>(() => {
     const all = rowsFromParams(params, codeLang, fieldHints, fieldPlaceholders, metaAutoRows);
     return handledKeys?.length ? all.filter((r) => !handledKeys.includes(r.k.trim())) : all;
@@ -269,7 +256,8 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
     for (const k of handled) if (Object.prototype.hasOwnProperty.call(params, k)) out[k] = params[k];
     return out;
   };
-  const visibleRows = (rs: Row[]): Row[] => (handled.length ? rs.filter((r) => !handled.includes(r.k.trim())) : rs);
+  // ★ 2026-10-19 规范整改：这里原来还有一个 `visibleRows(rs)` 过滤器，但从来没被调用过
+  //   （过滤逻辑在初始化与 onJsonChange 里各写了一遍）⇒ 死代码，已删除。
 
   const pushRows = (next: Row[]): void => {
     setRows(next);
@@ -295,7 +283,13 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
       const nextAll = rowsFromParams(parsed as Record<string, unknown>, codeLang, fieldHints, fieldPlaceholders, metaAutoRows);
       const next = handled.length ? nextAll.filter((r) => !handled.includes(r.k.trim())) : nextAll;
       setRows(next);
-      onParamsChange(diffPatch(params, keepHandled(paramsFromRows(next))));
+      // ★ 2026-10-19 修（用户拍板 A）：JSON 视图是**整份 params 的编辑** —— parsed 里本来就带着
+      //   handledKeys 那些键（`openJson()` 用 keepHandled 补全过，所以它们是"看得见也改得动"的）。
+      //   旧实现：先把 handled 行 filter 掉、再 keepHandled 从**旧的 props.params** 回填 ⇒ 用户在 JSON 里
+      //   刚写的新值被旧值覆盖（旧值不存在时整键丢失），而且不报错 —— doc_parse 的 path/ocr、web_search 的
+      //   query、switch 的 cases、loop 的 count/over… 8 类节点的关键参数全中（2026-10-19 全量自检抓到的真缺陷）。
+      //   ⇒ 整份写回即可：diffPatch 按"parsed 里没有的键 → null（删键）"处理，用户主动删键也照做。
+      onParamsChange(diffPatch(params, parsed as Record<string, unknown>));
     } catch (e) {
       setJsonError(`JSON 解析失败：${(e as Error).message}（未写回，改对即生效）`);
     }
@@ -424,7 +418,11 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
       createElement('div', { className: 'dsh-wf-params-tabs' },
         createElement('button', {
           className: `dsh-wf-params-tab${tab === 'fields' ? ' on' : ''}`,
-          onClick: () => setTab('fields'),
+          onClick: () => {
+            // 从 JSON 视图切回来时让专属表单重挂载（见 extrasEpoch 的注释：它只从初始 params 读一次）
+            if (tab === 'json') setExtrasEpoch((n) => n + 1);
+            setTab('fields');
+          },
         }, '字段视图'),
         createElement('button', {
           className: `dsh-wf-params-tab${tab === 'json' ? ' on' : ''}`,
@@ -442,7 +440,8 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
         ? createElement('div', { className: 'dsh-wf-params-body' },
             // ★ 2026-10-19：节点专属参数控件区（整块搬进来的，不是一行一值）——放在通用参数行上方，
             //   与参数行同处一个滚动容器（`.dsh-wf-params-main`），弹窗限高后一起滚。
-            extraFields ? createElement('div', { className: 'dsh-wf-params-extras' }, extraFields) : null,
+            //   ★ key 带 extrasEpoch：JSON 视图改完 handled 键切回来时强制重挂载，让专属表单读到最新 params。
+            extraFields ? createElement('div', { className: 'dsh-wf-params-extras', key: `extras-${extrasEpoch}` }, extraFields) : null,
             rows.map(rowEl),
             createElement('div', { className: 'dsh-wf-params-addbar' },
               createElement('button', {

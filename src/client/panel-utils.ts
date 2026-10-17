@@ -142,29 +142,10 @@ export function runFailureDetail(
   return lines.join('\n');
 }
 
-/** 参数摘要（只读一行，2026-10-11）：面板里不再放可编辑的 JSON 框（同一件事只留一个入口），
- *  这里只告诉用户"有哪些参数、长文本多长"，真正的编辑在「✏️ 编辑参数」弹窗里做。 */
-export function paramsSummary(params: Record<string, unknown> | undefined): string {
-  const entries = Object.entries(params ?? {});
-  if (!entries.length) return '还没有参数——点上面的按钮添加';
-  return entries.map(([k, v]) => {
-    if (typeof v === 'string') return v.includes('\n') || v.length > 24 ? `${k}（${v.length} 字符）` : `${k}: ${v}`;
-    if (v === null || v === undefined) return `${k}: ${String(v)}`;
-    if (typeof v === 'object') { try { return `${k}: ${JSON.stringify(v)}`; } catch { return `${k}: …`; } }
-    return `${k}: ${String(v)}`;
-  }).join(' · ');
-}
-
-/** python/bash 的代码摘要（只读一行，2026-10-11 方案 A）：面板不再放"代码文件"输入框与"编辑代码"按钮，
- *  它们都在「🧪 参数与试跑」弹窗里改；这里只告诉用户当前用的是文件还是内联代码。 */
-export function codeSummary(params: Record<string, unknown> | undefined, workflowName: string): string {
-  const p = params ?? {};
-  const cp = typeof p.codePath === 'string' ? p.codePath.trim() : '';
-  const code = typeof p.code === 'string' ? p.code : '';
-  if (cp) return `用文件：${cp}（优先于内联代码）`;
-  if (code.trim()) return `内联代码：${code.split('\n').length} 行 · ${code.length} 字符`;
-  return `还没写代码——打开「🧪 参数与试跑」在 code 行直接写（或填 codePath 指向 scripts/${workflowName || '工作流名'}/xxx.py）`;
-}
+// ★ 2026-10-19（用户「参数与试跑按钮的下方，会显示参数情况，不用显示了，清掉吧」）：
+//   `paramsSummary()` 连同它在面板里的那行只读摘要一起删除 —— 参数只有一个入口（弹窗），
+//   按钮上已经写了「（N 项）」，下方再列一遍"有哪些参数、长文本多长"没有新信息。
+// ★ 同轮顺带净化：`codeSummary()` 是「批 2 删掉面板代码摘要」时遗留的死导出（全仓零调用）⇒ 一并删。
 
 // ★ 2026-10-15：TABS（画布/JSON 标签组）已删除——画布/JSON 拆成头部独立按钮（用户要求「都放成独立按钮」），
 //   图标直接写在 FlowPanel 头部（JSON 图标候选拍板后替换）

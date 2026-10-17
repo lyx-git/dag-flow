@@ -7,6 +7,66 @@
 
 ---
 
+// v20261019-testbarin（纯客户端，硬刷新即可）：试跑条整体内缩，不再贴弹窗左边框/下边框
+//   （2026-10-19 用户原话：「参数与试跑弹窗左下角的试跑本节点按钮几乎和弹窗最下边的线重合了，
+//     做下区分，往右边上边移动一些，不要紧贴弹窗的边缘线」）。
+//   · 真因（先量后改，不靠猜）：`.dsh-wf-params-dialog` 自身 padding 是 0，参数区靠
+//     `.dsh-wf-params-split { padding: 0 20px 16px }` 缩进；而底部试跑条 `.dsh-wf-testbar` 是
+//     **dialog 的直接子元素（在 split 之外）** ⇒ 拿不到那 20px。实测按钮「左边距边框 1px / 底边距边框 1px」
+//     （那 1px 就是弹窗自己的 border），所以看起来像贴死在边框上。
+//   · 修法：`.dsh-wf-testbar { margin: 12px 20px 16px }`（原 `margin-top:12px`）——左右 20px 与参数区同缩进、
+//     底 16px 与 split 的 padding-bottom 一致；顺带**顶部分隔线也跟着内缩**（不再横贯到边框）。
+//   · 实测（1101×546 弹窗、视口 900）：按钮左距边框 **1 → 21px**、底距边框 **1 → 17px**；
+//     试跑条自身左边 20px、底 16px。
+//   · 回归锁：CDP `params-testbar` 新增四条几何断言——左留白 ≥12、底留白 ≥12、试跑条整体内缩 ≥12、
+//     且**不过分缩进**（左留白 ≤32，防止以后被改成"缩到中间"）。markers 另锚 CSS 值 `margin: 12px 20px 16px`。
+//   · 验证：markers **167/167** / 全量 CDP 见交付记录。截图 `tmp-test/build/shot-testbar-geo.png`（探针
+//     `tmp-test/cdp/probe-testbar-geo.mjs` 量完自动出图，用 `Emulation` 之外的 clip 裁弹窗 2 倍）。
+// v20261019-panelbtn（纯客户端，硬刷新即可）：面板三键尺寸统一 + 删掉参数摘要 + 规范账批次 1
+//   （2026-10-19 用户三条要求 + 一个"按推荐方式一起修"的授权）。
+//   · ①「右侧编辑面板里面的打开变量弹窗按钮和删除节点按钮的大小都改成和参数与试跑按钮的大小一致」
+//     ⇒ 三个按钮统一 `width:100%`（高度本来都由 `.dsh-wf-btn` 决定、同高）。实测：面板 323px 时三键都是
+//     263×34；缩窄到 223px 时都是 163×34 —— 等宽且跟着容器走。
+//   · ②「参数与试跑按钮的下方，会显示参数情况，不用显示了，清掉吧」⇒ 删掉那行只读摘要
+//     （`paramsSummary()` 渲染的 "prompt: xxx · model: yyy"）+ 它的 `.dsh-wf-params-summary` 样式。
+//     参数只有弹窗一个入口，按钮上已带「（N 项）」计数。
+//   · ③ 规范账批次 1（上一轮自检报的 4 条，按推荐分两批，这是第一批）：
+//     a) 删死代码 `visibleRows()`（params-editor，从未被调用）；
+//     b) `metaAutoRows` 改 `useMemo`（原来每次渲染都 `Object.entries + map` 重建，规范要求 render 里不建大常量；
+//        `paramMeta` 是模块常量表里的同一对象引用，依赖它即可）；
+//     c) `extFromContentType` 的 20 项映射表提到**模块级常量** `EXT_BY_CONTENT_TYPE`（原来在函数体里每次调用新建）；
+//     d) 单行/多行两个行内 SVG 图标搬到新文件 `src/client/param-icons.tsx`（`params-editor.tsx` 曾 596 行、
+//        离 600 硬上限只剩几行 ⇒ 596 → **578**）。
+//     ★第二批（把 `rowEl`/`codeToolbar` 拆成 `ParamRow` 组件，可再降约 200 行到 <500 合规）**本轮没做**：
+//       它依赖十几个闭包，属"重构"而非"整理"，等这两轮修复真机验完单独开一轮、用全量 CDP 守。
+//   · 附带净化：`codeSummary()` 是「批 2 删掉面板代码摘要」时遗留的**死导出**（全仓零调用）⇒ 一并删除。
+//   · 用例同步（旧断言会替旧设计站台，两处必须翻转）：
+//     `button-fit` ①b 原本断「按钮外框跟随文字（不该被容器拉满）」⇒ 三个按钮移出该断言（它们现在故意整行宽），
+//     并新增 ①c **正面断三个等宽同高 + 整行宽**；`params-editor` ① 断「面板有一行只读参数摘要」⇒ 翻转成
+//     「摘要不存在」+ 断按钮上仍有「（N 项）」计数。新增 CDP 用例 `panel-buttons`（注册进 run-all）。
+//   · 验证：typecheck 0 / markers **166/166** / CDP 子集 5/5 / 全量见交付记录。
+// v20261019-jsonhandled（纯客户端，硬刷新即可）：修「JSON 视图里改由专属表单管的参数**静默失效**」
+//   （2026-10-19 全量自检抓到、用户拍板 A）。
+//   · 现象：选中节点 → 🧪 参数与试跑 → 「JSON 视图」→ 改 path / ocr / count / cases / model 这类键，
+//     不报错、界面像改成功了，实际 def 里还是旧值（切走再回来就"变回去"）。
+//   · 真因：`onJsonChange` 把 `rowsFromParams(parsed)` 里 handled 行 filter 掉后，`keepHandled()` 又从
+//     **旧的 props.params** 回填原值 ⇒ 用户在 JSON 里刚写的新值被旧值覆盖（旧值不存在时整键丢失）。
+//     讽刺点：`openJson()` 特意把这些键显示在 JSON 里（注释写"否则用户会以为参数丢了"），看得到却改不动。
+//   · 影响面（8 类节点的关键参数）：doc_parse(path/url/maxChars/ocr/extractImages)、web_search(query/provider/
+//     count/timeRange)、web_fetch(url/maxChars/raw)、file_save(source/url/content/filename)、
+//     session_input(sessionId/limit)、switch(value/cases)、subagent(model)、loop(count/over/roundIf/
+//     maxIterations/body/onIterationError)。**字段视图那条路一直是好的**（专属表单直接 onParamsChange）。
+//   · 修法：JSON 视图本就代表**整份 params**（parsed 里带着全部键）⇒ 直接 `diffPatch(params, parsed)`，
+//     不再 filter + keepHandled；用户主动删键也照旧按"缺键＝删键"处理。
+//   · 连带修：`extraFields` 的专属表单（loop 循环设置 / switch 分支 / subagent 模型 / doc_parse 两段式 /
+//     file_save 来源）编辑态是 NodeInspector 里的**惰性 useState**；以前 JSON 改不动那些键，所以"切回来是旧值"
+//     看不见。现在改得动了 ⇒ 从「JSON 视图」切回「字段视图」时给 extras 容器换一个 key（`extras-<epoch>`）
+//     强制重挂载，让它按最新 params 重新初始化。
+//   · 验证：新 CDP 用例 `tmp-test/cdp/test-json-handled.mjs`（已注册进 run-all，第 55 项）断四件事——
+//     handled 键改得动 / 非 handled 新键照旧 / 切回字段视图显示新值 / 删键语义不变；
+//     **A/B 反证**：把实现改回旧版重建后该用例精确变红（`count=3`，即"改了不生效"），还原后绿。
+//   · markers **165/165**（新增标记行 + `extras-` 锚点；`diffPatch/parsed` 是局部标识符、minify 后不在产物里，
+//     所以这条行为只能靠 CDP 用例守，markers 里写明了原因）。
 // v20261019-loophint（纯客户端，硬刷新即可）：删掉 loop「🔁 循环设置」弹窗里两处边界 ⚠ 长句
 //   （2026-10-19 用户原话：「⚠ 边界值还是空的…这个提示是啥意思，需要吗」→「有用就不删，没用就删掉」）。
 //   · 删的两句：①`loopBound==='none'` 的「没有边界时运行会立即失败（LOOP_NO_BOUND），画布问题面板也会报错」；
