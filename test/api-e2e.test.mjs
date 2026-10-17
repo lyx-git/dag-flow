@@ -673,6 +673,52 @@ const del = async (p, body) => { const r = await fetch(url(p), { method: 'DELETE
   try { rmSync(join(fakeWorkspace, 'cwd-probe2.txt')); } catch { /* 同上 */ }
 }
 
+// ===== 16. ★ 2026-10-19 用户问「改成自己的原名会不会自己和自己比较」=====
+//   端到端（真实 HTTP + 真实文件系统）回答三件事：
+//     ①A→A（原样改回自己）⇒ 正常保存，绝不报"已存在"；
+//     ②只改大小写（Windows 文件系统上就是同一份文件）⇒ 服务端两端都规范化后视为同名 ⇒ 也正常保存；
+//     ③真正的撞名（改成**别人**的名字）⇒ 仍然被拒（护栏没被放松）。
+{
+  const NAME = 'selfcase-demo';             // 纯 ASCII，才能验"只改大小写"
+  const base = (v) => ({ name: NAME, version: v, nodes: [{ id: 'start', type: 'start', next: 'end' }, { id: 'end', type: 'end' }] });
+  await post('/workflows/save', { name: NAME, def: base(1) });
+
+  // ① 原样改成自己
+  const same = await post('/workflows/save', { name: NAME, def: base(2), renameFrom: NAME });
+  t('16.1 ★改成自己的原名 → 正常保存（不自己和自己比、不报已存在）',
+    same.status === 200 && same.body?.ok === true, JSON.stringify(same.body));
+
+  // ② 只改大小写：name=SELFCASE-DEMO，renameFrom=selfcase-demo
+  //   ★ 这条锁的是**服务端既有行为**（保存路由 `normalizeWorkflowName` 会 toLowerCase），
+  //     不是"我们主张大小写等价"——用户 2026-10-19 明确说「大小写要区分的」。
+  //     它在这里的价值：证明服务端两端都规范化后才比较 ⇒ 不会自己和自己比。
+  const upper = await post('/workflows/save', { name: NAME.toUpperCase(), def: base(3), renameFrom: NAME });
+  t('16.2 大小写不同的同一名字：服务端两端规范化后视为同名 → 正常保存（不自己比自己）',
+    upper.status === 200 && upper.body?.name === NAME, JSON.stringify(upper.body));
+
+  // ③ 确实只有一份定义、内容是最新的（没有被"自己和自己比"多建一份）
+  const list = await get('/workflows');
+  const hits = (list.body?.workflows ?? []).filter((w) => String(w.name).toLowerCase() === NAME);
+  const latest = await get(`/workflows/${NAME}`);
+  t('16.3 上述两次保存后磁盘上仍只有一份定义，且内容是最新那次保存',
+    hits.length === 1 && latest.body?.workflow?.version === 3,
+    JSON.stringify({ hits: hits.map((h) => h.name), version: latest.body?.workflow?.version }));
+
+  // ④ 真撞名仍然被拒（确保前面两条不是把护栏放松了）
+  const OTHER = 'selfcase-other';
+  await post('/workflows/save', { name: OTHER, def: { ...base(1), name: OTHER } });
+  const clash = await post('/workflows/save', { name: OTHER, def: { ...base(9), name: OTHER }, renameFrom: NAME });
+  t('16.4 ★改成别人的名字 → 仍然被拒绝（护栏未被放松）',
+    clash.status === 400 && String(clash.body?.error ?? '').includes('已存在'), JSON.stringify(clash.body));
+  const otherNow = await get(`/workflows/${OTHER}`);
+  t('16.5 撞名被拒后，对方那份原样保留（version 仍是 1）', otherNow.body?.workflow?.version === 1,
+    JSON.stringify({ version: otherNow.body?.workflow?.version }));
+
+  // 收尾：清掉本组数据，别影响其它用例的列表口径
+  await del(`/workflows/${NAME}`);
+  await del(`/workflows/${OTHER}`);
+}
+
 server.close();
 console.log(`\n=== api-e2e: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) { failures.forEach((f) => console.error('FAIL:', f)); process.exit(1); }

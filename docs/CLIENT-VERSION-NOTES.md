@@ -58,10 +58,29 @@
 //     · 前端（更快的反馈）：`handleRename` 里防抖 400ms 探 `GET /workflows/<新名>`（只在**真改名**时探，
 //       否则编辑一个已存在的工作流会立刻误报）⇒ 撞名时状态栏显示「⚠ 名称已存在，换个名字才能保存」、
 //       手动保存按钮禁用、**自动保存也停发**（改动留在内存里，等服务端同意才写）。
+//   · **同日再追加：用户追问「改成自己的原名会不会误报」⇒ 不会，并补了回归锁**。
+//     用户原话：「原来的工作流名是 12345，我改了一下还是：12345，这会不会触发误报，说流程已存在」。
+//     答案（判据来源就是实现本身）：探测的比较对象是 `renameFromRef`——**本次改动最初的旧名**，
+//     不是磁盘内容。所以 `want === from` 时直接 `setNameTaken(false); return;`，**一次 GET 都不发**，
+//     物理上不可能自己和自己比。三条路径都安全：
+//       ①A→A（原样没变）：`oldName === newName` ⇒ 根本不记 `renameFromRef` ⇒ 早退；
+//       ②A→X→A（打错再改回，用户问的这条）：`want === from` ⇒ 早退；
+//       ③改名已保存过（`renameFromRef` 被清空）后再改回 A：此时 A.json 已被搬走 ⇒ 探测 404 ⇒ 不报。
+//     ★注意口径：用户随后明确「大小写要区分的」⇒ 前端比较**保持原样字符串精确比较**，不做大小写归一
+//      （曾一度想按 `normalizeWorkflowName` 比较以免 `demo`→`Demo` 被当成撞名，已撤回：
+//       那与用户口径相反。服务端保存路由本来就 toLowerCase，属既有行为，不在本轮改动范围）。
+//   · 新增回归锁（这三条是"确定结论"的凭据，不是"我觉得不会"）：
+//     - `tmp-test/cdp/test-rename-revert.mjs`（CDP `rename-revert`）：夹具里先把 `12345` 与 `67890`
+//       真写进"磁盘"，然后 ①改成 `12345x`（不存在 ⇒ 不报）②**改回 `12345`（核心：不报 + 保存按钮可用）**
+//       ③改成 `67890`（别人在用 ⇒ 必须报）。第③步是**反向锁**——没有它，前两步的绿灯可能只是"探测没跑"。
+//     - `tmp-test/ab-rename-self.mjs revert|restore`：A/B 反证。去掉 `want === from` 短路后，用例 B1
+//       立刻变红，且请求日志直接抓到它自己探测自己（`GET /workflows/12345 -> 200`）；恢复后转绿。
+//     - `test/api-e2e.test.mjs` 新增第 16 组（5 条，真实 HTTP + 真实文件系统）：原样改回自己 → 200；
+//       两端规范化后同名 → 200；磁盘上仍只有一份且是最新内容；改成别人名字 → 400 且对方原样保留。
 //   · 验证（本轮终）：typecheck 0 / `storage-json` **[8a][8b][8c][9a][9b][10a][10b][10c]**（新增撞名三条：
-//     被拒 / 对方 version 仍是 7 且节点完好 / 改名方仍在原位）/ `run-retention` **16 passed** /
-//     `storage-workspace` 28 passed / 离线链 exit 0 / markers **183/183** /
-//     全量 CDP **58/58**（`no-autosave-untitled` 含 10 条断言 A1~A8b）。
+//     被拒 / 对方 version 仍是 7 且节点完好 / 改名方仍在原位）/ `api-e2e` **103 passed**（+5）/
+//     `run-retention` **16 passed** / `storage-workspace` 28 passed / 离线链全绿（所有脚本 0 failed）/
+//     markers **183/183** / 全量 CDP **59/59**（新增 `rename-revert`；`no-autosave-untitled` 含 10 条断言）。
 // v20261019-migrations（**宿主侧**，需重启 dsh web；客户端保持 `v20261019-noautocreate`）：
 //   迁移状态标记从 `workflow/` 搬到 `<DSH_HOME>/.dag-flow/.migrations/`（2026-10-19 用户拍板 A 方案）。
 //   · 起因（用户原话）：「.migrated-from-workspace，.fallback-migrated，这两个文件是否必须，如果非必须，则删除」

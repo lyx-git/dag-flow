@@ -727,6 +727,9 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
     //   · 只在**真改名**时探（renameFromRef 有值且新名不等于它），否则编辑一个已存在的工作流会立刻误报；
     //   · 防抖 400ms：边打字边探会打一串请求；
     //   · 结果只用于**前端提示 + 禁用保存**，真正的拦截在 storage.writeWorkflow（不可绕过）。
+    // ★ 2026-10-19 用户追问「原来的名字是 12345，我改了一下还是 12345，会不会误报」——
+    //   这条判据就是答案：比较对象是 `renameFromRef`（本次改动**最初的旧名**，不是磁盘内容）。
+    //   所以「改走、再改回原名」时 want === from ⇒ 直接返回、**一次请求都不发**，不会自己和自己比。
     const want = String(name ?? '').trim();
     const from = renameFromRef.current;
     if (takenTimer.current) { window.clearTimeout(takenTimer.current); takenTimer.current = null; }
