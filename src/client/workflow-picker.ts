@@ -147,8 +147,14 @@ async function fetchJson(url: string, init?: RequestInit): Promise<any> {
 /**
  * 打开「打开 / 新建工作流」组合输入弹窗。
  * @param onOpen 用户选定/创建完成 → 回调拿到 WorkflowDef（面板以它为初始内容）
+ * @param onDeleted 删除已保存工作流成功后回调（拿到被删的名字）。
+ *   ★ 2026-10-19 用户报「我明明把所有的工作流都删了，为啥打开还能看到删掉的工作流」：
+ *     原先删除只做了两件事（DELETE 服务端文件 + 把该行从下拉里退场），
+ *     而浏览器 `localStorage['dag-flow:def-cache']` 里还留着那整份 def ⇒ 下次面板挂载
+ *     `readCacheDef()` 会把它原样恢复到画布上（更糟：此时一保存就把它**写回磁盘**＝真复活）。
+ *     缓存键归 dock 层管（它自己 import 自 panel-mount），所以这里只负责**把事件报上去**。
  */
-export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
+export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void, onDeleted?: (name: string) => void): void {
   if (document.querySelector('.dag-flow-picker-overlay')) return; // 已开
   ensurePickerStyles();
 
@@ -340,6 +346,8 @@ export function openWorkflowPicker(onOpen: (def: WorkflowDef) => void): void {
         rowEl.classList.add('del-out');
         setTimeout(() => { rowEl.remove(); }, 170);
       }
+      // 通知外层：本地缓存里那份 def 与画布上的内容都该跟着消失（见函数头 ★ 说明）
+      onDeleted?.(w.name);
       return true;
     } catch (e) {
       setOpenErr(`删除失败：${(e as Error).message}`);

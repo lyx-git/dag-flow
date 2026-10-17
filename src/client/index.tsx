@@ -6,7 +6,7 @@
 // 原先"头注释 + apply() 的 console.log"两处手写，升位时容易漏改一处；改客户端必升位）。
 
 /** ★ 客户端版本标记的唯一出处（升位只改这一行）。产物级闸门＝tmp-test/verify-build-markers.mjs。 */
-export const CLIENT_VERSION = 'v20261019-engorder';
+export const CLIENT_VERSION = 'v20261019-stalecache';
 
 import { applyTheme, getThemeMode } from './theme';
 import { mountSidebarEntry } from './sidebar';
@@ -16,7 +16,7 @@ import {
   dumpMainPanelKeys,
 } from './dsh-gate';
 import { mountWorkflowPanel, unmount } from './panel-mount';
-import { DockedMainPanel, setDockHost, openDockedCanvas, wireDockOpenRequest } from './dock';
+import { DockedMainPanel, setDockHost, openDockedCanvas, wireDockOpenRequest, pruneStaleCachedDef } from './dock';
 import './styles.css'; // ★ 注入插件独立主题样式（esbuild dsh-css-inject 转运行时 <style>）
 import './styles-dialogs.css'; // ★ 第二段（弹窗/浮层群）：紧邻上一条 import，运行时 <style> 顺序 = 拆分前段落顺序
 
@@ -52,6 +52,13 @@ export function apply(ctx: any): void {
 
     // 选择/新建工作流 → 换 def 并切到停靠画布（接线收进 dock 模块）
     wireDockOpenRequest();
+
+    // ★ 2026-10-19（第二轮修「删了还能看到」）：清掉「指向已删工作流」的历史画布缓存。
+    //   只在删除那一刻清缓存是不够的——用户可能在新版本之前就删完了，删除事件早过去了。
+    //   这里在启动时做一次存在性校验（详见 dock.tsx 的 pruneStaleCachedDef 注释）。
+    void pruneStaleCachedDef().then((pruned) => {
+      if (pruned) console.log('[dag-flow] 已清掉指向已删工作流的本地画布缓存（画布回落到空白工作流）');
+    });
 
     // ★ bundle 版本标记：真机 DevTools 控制台可确认加载的是新构建（旧缓存 bundle 无此行）
     console.log(`[dag-flow] client ${CLIENT_VERSION} · apply OK`);

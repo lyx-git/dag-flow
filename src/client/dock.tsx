@@ -184,11 +184,67 @@ export function openDockedCanvas(): void {
   setDockDef(dockDef ?? readCacheDef() ?? DEFAULT_WORKFLOW, true);
   gateSelectPanel(hostCtx, 'dag-flow');
 }
+/**
+ * ★ 2026-10-19（**第二轮**修「删了还能看到删掉的工作流」）：启动时校验缓存里的工作流是否还存在。
+ *   上一轮的修法（picker 删除成功后 `onDeleted` → 清缓存 + 重置画布）只在**删除的那一刻**生效，
+ *   对"在装上新版本之前就已经删掉"的历史缓存**完全无效** —— 删除事件早过去了，清理代码一行都没机会跑，
+ *   于是重新打开画布照样把它恢复出来（用户第二次报的正是这个）。
+ *   改成**每次启动校验一次**：缓存里的工作流若已不在磁盘列表里，就不恢复它。
+ *   判据依据：自动保存（2s 防抖）会让画布内容及时落盘 ⇒ 正常在用的工作流一定在列表里；
+ *   不在列表里的，要么已被删除，要么是"新建后 2s 内没做任何改动就刷新"这种极窄边角（可接受）。
+ *   ★ 拉不到列表时**什么都不做**（宁可留下脏缓存，也不误清用户正在用的内容）。
+ * @returns 是否清掉了脏缓存（调用方据此打日志）
+ */
+export async function pruneStaleCachedDef(): Promise<boolean> {
+  let cached: WorkflowDef | null = null;
+  try {
+    const raw = localStorage.getItem(WF_CACHE_KEY);
+    cached = raw ? (JSON.parse(raw) as WorkflowDef) : null;
+  } catch { return false; }
+  const name = String(cached?.name ?? '');
+  if (!name) return false;
+  try {
+    const res = await fetch('/api/dag-flow/workflows', { credentials: 'include' });
+    if (!res.ok) return false;
+    const data = (await res.json()) as { workflows?: { name?: string }[] };
+    const names = (data.workflows ?? []).map((w) => String(w.name ?? ''));
+    if (names.includes(name)) return false;
+    try { localStorage.removeItem(WF_CACHE_KEY); } catch { /* 忽略 */ }
+    dockDef = null;
+    // 面板若已挂载 → 触发重挂载，从而回落到 DEFAULT_WORKFLOW（空白工作流）
+    dockVersion++;
+    dockListeners.forEach((l) => l());
+    return true;
+  } catch { return false; }
+}
+
 /** 「➕ 打开 / 新建」接线：选择/新建工作流 → 换 def 并切到停靠画布 */
 export function wireDockOpenRequest(): void {
   dockOpenRequest = () => openWorkflowPicker((def) => {
     setDockDef(def, true);
     gateSelectPanel(hostCtx, 'dag-flow');
+  }, (deletedName) => {
+    // ★ 2026-10-19 修「删了还能看到删掉的工作流」（用户原话：「我明明把所有的工作流都删了，
+    //   为啥打开还能看到删掉的工作流」）——两处残留一起清：
+    //   ① browser 缓存：`localStorage[WF_CACHE_KEY]` 存着上一份 def，面板挂载时
+    //      `readCacheDef()` **不校验磁盘存在性**就恢复 ⇒ 重新打开画布，已删的工作流原地复活；
+    //      更糟的是此时改一下就会自动保存、把它**重新写回磁盘**（真复活）。
+    //   ② 画布当前内容：若正显示的正是被删的这个，继续在上面编辑没有任何意义（保存即复活），
+    //      直接重置成空白工作流（与「首次打开」的默认内容一致）。
+    let cachedName = '';
+    try {
+      const raw = localStorage.getItem(WF_CACHE_KEY);
+      if (raw) cachedName = String((JSON.parse(raw) as WorkflowDef)?.name ?? '');
+    } catch { /* 缓存坏了就当没有 */ }
+    if (cachedName === deletedName) {
+      try { localStorage.removeItem(WF_CACHE_KEY); } catch { /* 忽略 */ }
+    }
+    // dockDef 已挂载过就以它为准；还没挂载过则看缓存里的名字
+    if ((dockDef?.name ?? cachedName) === deletedName) {
+      dockDef = null;
+      // 深拷贝：DEFAULT_WORKFLOW 是模块级常量，直接塞进画布会被编辑改脏
+      setDockDef(JSON.parse(JSON.stringify(DEFAULT_WORKFLOW)) as WorkflowDef, true);
+    }
   });
 }
 

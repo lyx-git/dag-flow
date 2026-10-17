@@ -7,6 +7,51 @@
 
 ---
 
+// v20261019-stalecache（**纯客户端**，硬刷新即可；宿主仍 `v20261019-engtimeout`）：第二轮修
+//   「删了还能看到删掉的工作流」。用户装上前一版（delcache）后**仍能复现**：「我重启了，但是打开工作流，
+//   还是能看到已经删除的工作流」。
+//   · 上一版（`v20261019-delcache`）为什么没治好：它的清缓存挂在**删除成功的那一刻**（picker `onDeleted`），
+//     而用户的工作流是**在装上新版本之前就删掉的** ⇒ 删除事件早过去了，清理代码一行都没机会跑，
+//     `localStorage['dag-flow:def-cache']` 里的旧 def 原样留着，打开画布照样恢复。
+//     一句话：**只解决"以后删除"，没解决"已经删掉的"**。
+//   · 本版改法（治本）：`dock.tsx` 新增 `pruneStaleCachedDef()`，在 `apply()` 里启动时跑一次——
+//     读缓存 → `GET /workflows` 取真实列表 → **缓存里的名字不在列表里就清掉缓存并 `dockDef=null`**
+//     （bump `dockVersion` 让已挂载的面板重挂载，回落到 `DEFAULT_WORKFLOW` 空白工作流）。
+//     ★ 拉不到列表（网络/401）时**什么都不做**，宁可留脏缓存也不误清用户正在用的内容。
+//     ★ 判据为何成立：自动保存（2s 防抖）会让画布内容及时落盘 ⇒ 正常在用的工作流一定在列表里；
+//       不在列表的只可能是"已删除"或"新建后 2s 内没改动就刷新"这种极窄边角。
+//   · 两版合起来才是完整闭环：**删除时清（管以后）+ 启动时校验（管历史）**。
+//   · 排查中还核实了两件不是原因的事：①磁盘真干净（`workflow/` 0 个 json、`versions/` 0 快照）；
+//     ②旧位置的自动迁移不是元凶（`.fallback-migrated` / `.migrated-from-workspace` 标记都在，
+//     那个标记的 note 本身写着「2026-10-04 修复「删掉的工作流会复活」」——**同一类问题第三次出现，每次通道不同**）。
+//   · 验证：typecheck 0 / markers **173/173**（新增"清缓存日志在产物里"一条）/ 全量 CDP 待跑。
+//   · ★仍需真机验：CDP 夹具不加载 `index.tsx` 的 `apply()`（夹具只挂 FlowPanel）⇒ `pruneStaleCachedDef`
+//     不在自动化覆盖范围内。用户已用「控制台 `localStorage.removeItem('dag-flow:def-cache')` + 刷新」
+//     自行确认症状消失（**等于反向证明了诊断**）；本版是让这件事**不再需要手动做**。
+// v20261019-delcache（**纯客户端**，硬刷新即可；宿主仍 `v20261019-engtimeout`）：删掉工作流后它还会"复活"
+//   （2026-10-19 用户原话：「我明明把所有的工作流都删了，为啥打开还能看到删掉的工作流」）。
+//   · 现场核实（只读）：真机 `GET /api/dag-flow/workflows` 返回 `workflows: []`，数据根 `workflow/` 下
+//     **0 个 .json**、`versions/` 0 个快照 —— **磁盘确实删干净了**，问题在浏览器侧。
+//   · 真因（两处叠加）：
+//     ① 打开工作流时整份 def 会写进 `localStorage['dag-flow:def-cache']`（`dock.tsx` 的 `setDockDef`）；
+//     ② 删除走 `workflow-picker.ts` 的 `deleteWorkflow`：DELETE 成功后只「从下拉列表过滤掉 + 该行退场动画」，
+//        **既没清缓存、也没通知画布**；而 `dock.tsx` 面板挂载是 `dockDef ?? readCacheDef() ?? DEFAULT_WORKFLOW`
+//        ——`readCacheDef()` **不校验磁盘是否存在**，于是重新打开画布/刷新页面就把已删的工作流原样恢复。
+//     ★连带风险：此时改一下就会 2s 防抖自动保存，把已删工作流**重新写回磁盘**（等于真复活）。
+//   · 改法：
+//     ① `openWorkflowPicker(onOpen, onDeleted?)` 新增可选第二参；`deleteWorkflow` 成功后 `onDeleted?.(w.name)`
+//        （缓存键归 dock 层管，picker 只负责把"删了谁"报上去，不 import 存储细节）；
+//     ② `dock.tsx` 的 `wireDockOpenRequest` 传回调：缓存里那份 def 的名字 === 被删名 ⇒ `removeItem`；
+//        画布当前显示的正是它 ⇒ 重置成空白（`DEFAULT_WORKFLOW` 深拷贝后 `setDockDef(..., true)` 触发重挂载）。
+//        ⇒ 用户不会在一个"已删"的工作流上继续编辑，也就不存在保存复活。
+//   · 顺带清数据（用户拍板"都修，顺带清掉孤儿定时任务"）：`schedules.json` 里有一条孤儿定时
+//     `sch_8bhqjv → 金融政策日报 cron 0 6 * * * enabled=true`，def 已不存在、每天 6:00 仍在排期
+//     （`scheduler.ts` 的"定时项保留、等它回来"设计），而定时弹窗按当前工作流过滤 ⇒ 这条**界面上根本看不到**。
+//     已备份到 `backup-20261017-192628/workflow/schedules.json` 后经 `POST /schedules/delete` 删除，现 `items=0`。
+//   · ★验证边界（必须说清）：CDP 夹具**只挂 FlowPanel、不加载 dock 层**（无「➕ 打开 / 新建」入口），
+//     所以"删除后清缓存 + 重置画布"这条**无法在自动化里覆盖**——只能真机验。
+//     `onDeleted?.()` 在夹具里恒不传 ⇒ 对既有 57 项用例零影响（全量 CDP 已跑确认）。
+//   · 验证：typecheck 0 / markers **172/172** / 全量 CDP 无回归 / 定时任务已删并读回确认。
 // v20261019-engorder（**纯客户端**，硬刷新即可；宿主仍为 `v20261019-engtimeout`）：修我自己上一轮漏改的地方
 //   （2026-10-19 用户原话：「网页搜索里面下拉选的顺序也没调整啊」）。
 //   · 真因：上一轮「按真机实测重排」只动了**三处里的两处**——
