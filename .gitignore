@@ -9,4 +9,18 @@ dist/
 Thumbs.db
 .DS_Store
 
-tmp-test/
+# tmp-test/ 下的东西一律不入库，**但产物级闸门例外**（见下）
+# ★ 注意写法：先 `tmp-test/*`（忽略目录内容）再 `!文件`，Git 才会 re-include；
+#   写成 `tmp-test/`（忽略整个目录）+ `!文件` 是**无效的**（父目录被忽略后文件级否定不生效）。
+tmp-test/*
+# 产物级闸门是**正式契约**，必须进版本库——
+# 2026-10-19 就是因为它被 gitignore、出事后无备份可恢复（PowerShell 编码事故把 183 条断言写坏），
+# 只能按产物存在性重建。纳入后同类事故可 `git checkout` 直接回退。
+!tmp-test/verify-build-markers.mjs
+
+# Python 字节码缓存 —— `runtime/` 里内置解释器**跑起来才会生成**，不是源码。
+# ★ 注意：仓库里现有 582 个 stdlib pyc 是当初打包 runtime 时一并提交的、**仍被跟踪**；
+#   gitignore 只对**未跟踪**文件生效 ⇒ 这条规则挡的是"以后新冒出来的"（例如用
+#   `datetime.strptime()` 才会懒加载生成的 `_strptime.cpython-312.pyc`），
+#   已有的 582 个照旧跟踪、被重编时仍会显示 modified（2026-10-11 那次 10 个 pyc 变脏就是这原因）。
+runtime/**/__pycache__/

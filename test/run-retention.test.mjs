@@ -109,5 +109,39 @@ console.log('== G. 触发点：writeRunRecord 落盘后自动清理 ==');
   assert(existsSync(join(runsDir, 'hook', `${id}.json`)), '★刚写入的这条落在 runs/<工作流名>/ 下且一定还在（不会把自己清掉）');
 }
 
+// ★ 2026-10-19 全量自检补的两条：prune 按工作流隔离 + listRunRecords 顺序正确（枚举改成零 stat 后必须仍有序）
+console.log('== H. pruneRunRecords({workflowName}) 只扫本工作流目录 ==');
+{
+  const A = join(runsDir, 'wfA');
+  const B = join(runsDir, 'wfB');
+  mkdirSync(A, { recursive: true });
+  mkdirSync(B, { recursive: true });
+  for (let i = 0; i < 201; i++) {
+    const ms = Date.now() - DAY - (201 - i) * 1000;
+    const rec = (wf) => JSON.stringify({ workflowName: wf, status: 'success', finishedAt: new Date(ms).toISOString() });
+    writeFileSync(join(A, `run-${ms}-a${i}.json`), rec('wfA'), 'utf8');
+    writeFileSync(join(B, `run-${ms}-b${i}.json`), rec('wfB'), 'utf8');
+  }
+  const r = await st.pruneRunRecords({ workflowName: 'wfA' });
+  const aLeft = readdirSync(A).filter((f) => f.endsWith('.json')).length;
+  const bLeft = readdirSync(B).filter((f) => f.endsWith('.json')).length;
+  assert(aLeft === 200, `A 目录被压回 200 条（实际 ${aLeft}）`);
+  assert(bLeft === 201, `★B 目录一条没动（实际 ${bLeft}）—— 按工作流隔离生效（写入后只扫自己那棵树）`);
+  assert(!r.deleted.some((f) => /-b\d+\.json$/.test(f)), '删除清单里没有 B 的任何记录');
+}
+
+console.log('== I. listRunRecords 顺序＝新→旧（零 stat 按文件名排序也必须有序） ==');
+{
+  const D = join(runsDir, 'wfC');
+  mkdirSync(D, { recursive: true });
+  const base = Date.now();
+  const ids = [base - 3000, base - 2000, base - 1000].map((ms, i) => `run-${ms}-c${i}`);
+  for (const id of ids) writeFileSync(join(D, `${id}.json`), JSON.stringify({ workflowName: 'wfC', status: 'success' }), 'utf8');
+  const got = await st.listRunRecords('wfC');
+  const pos = ids.map((id) => got.indexOf(id));
+  assert(pos.every((v) => v >= 0), '三条都在返回里');
+  assert(pos[2] < pos[1] && pos[1] < pos[0], `顺序新→旧：${got.filter((x) => /-c\d/.test(x)).join(' > ')}`);
+}
+
 console.log(`\n=== 运行记录保留策略：${pass} passed, ${fail} failed ===`);
 process.exit(fail ? 1 : 0);

@@ -7,6 +7,92 @@
 
 ---
 
+// v20261019-jsonquiet（**纯客户端**，硬刷新即可；宿主仍 `v20261019-runsperf`）：JSON 视图消掉
+//   Monaco 的「易混字符」提示。用户原话：「查看/编辑工作流json的编辑框里面报错：The character U+ff08
+//   "（" could be confused with the ASCII character U+0028 "(", which is more common in source code.
+//   Adjust settings」。
+//   · 定性：**不是 JSON 语法错**、不影响保存与运行——那是 Monaco 的 `unicodeHighlight`，把中文全角标点
+//     （（） ，：）当成"可能与 ASCII 混淆的字符"标出来。本视图展示的是用户自己的工作流数据，
+//     中文全角标点是正常内容 ⇒ `MONACO_OPTIONS.unicodeHighlight` 三项（ambiguousCharacters /
+//     invisibleCharacters / nonBasicASCII）全关，从源头不再弹这类提示。
+//   · 合法性判据不变：仍由 ajv 校验（400ms 防抖）+ 顶部 ✅/❌ 条负责，与 unicodeHighlight 无关。
+//   · 验证：typecheck 0 / 闸门 43/43 / CDP json-view + json-handled 绿。
+//
+// v20261019-split3（**纯客户端**，硬刷新即可；宿主仍 `v20261019-runsperf`）：FlowPanel 拆分**完成**
+//   —— 1655 → **921 行**（低于 1000 硬顶），共拆出 `src/client/panels/` 四个模块：
+//   `run-control.ts`(287) / `node-editing.ts`(216) / `workflow-io.ts`(315) / `render-body.tsx`(246)。
+//   · 第 3 批搬「工作流 IO」：saveDefToDisk（renameFrom 语义）、handleSaveToDisk（有名字/不撞名/AI 选模型三项校验 +
+//     版本快照）、自动保存 effect（2s 防抖；空名与撞名一律不写盘）、handleRename（改名 + def 内引用同步 + 撞名防抖探测）、
+//     导出 JSON·PNG·SVG、导入 JSON。
+//   · 最后把文件末尾的 `renderBody`（198 行，**模块级纯渲染**、不闭包组件状态）整体移到 `panels/render-body.tsx`，
+//     一次把 1118 → 921。它是"最安全的一块"：所有依赖走参数或 import，搬移零行为风险。
+//   · 手法（值得沿用）：**用脚本按锚点抽取原文再包进 hook 骨架**，不手抄代码 ⇒ 零抄写误差；
+//     抽出的语句因参数同名解构而一个字都不用改。
+//   · ★ 差点出事（dry-run 救了）：`pickImportFile` 的依赖数组是 `[importFile]` 而不是 `[]`，
+//     我最初用 `}, []);` 找区间终点，会一路找到 118 行外、把 inputsDlg/schedDlg/监视 effect 全吞进区间。
+//     ⇒ **任何按行号/锚点改源码的脚本都必须先 dry-run 打印区间长度与起止行，与预期行数对上再 --apply**。
+//   · 验证：typecheck 0 / 闸门 15/15 / 全量 CDP 见交付说明。
+//
+// v20261019-split2（**纯客户端**，硬刷新即可；宿主仍 `v20261019-runsperf`）：FlowPanel 拆分第 2 批
+//   —— 把「节点增删改」整块抽成 `src/client/panels/node-editing.ts`。
+//   · 搬走：handleRFChange（画布抛出的改动 → def）、handleDefChange（JSON 视图/装饰节点整份改，含 canonicalizeDef 归一化
+//     与"已统一为 edges"提示）、handleSelectNode、handleAddNode、handleDeleteNode、deleteNodeFull（先 dispose 画布实体再改 def）、
+//     handleNodeChange（null=删键的补丁语义 + `_label` 专键写顶层 label）。
+//   · 位置约束：`useUndoWiring(def, setDef, setDirty)` 不依赖这些函数 ⇒ 先接 undo 线，再调本 hook；
+//     而 `handleDefChange` 会写顶部浮窗（`setImportMsg` 来自运行控制 hook）⇒ 本 hook 必须放在运行控制之后。
+//   · 行数：FlowPanel **1473 → 1174**（两批累计 1655 → 1174，共 −481）；新文件 `run-control.ts` 287 行 + `node-editing.ts` 216 行。
+//   · 验证：typecheck 0 / 闸门 **15/15**（见下面的事故说明）/ CDP 子集
+//     `palette-drag,inspector-switch,delete-button,line-drop-panel,label-rename,json-handled` **6/6** / 全量 CDP 见交付说明。
+//   · ⚠ 仍超硬顶（1174 > 1000），还差 ~174 行；下一批计划：工作流 IO（saveDefToDisk/handleSaveToDisk/自动保存 effect/
+//     handleRename+撞名探测/导出 JSON·PNG·SVG/导入 ≈ 250 行，搬完约 920，够了）。
+//
+// ★ 事故记录（2026-10-19，务必别再犯）：用 PowerShell 的 `Get-Content -Raw | -replace | Set-Content -Encoding utf8`
+//   去改 `verify-build-markers.mjs` 与 `src/client/index.tsx`，把两个文件的**中文全写成乱码**（UTF-8 被按 GBK 读入，
+//   外加换行丢失）。处置：①`index.tsx` 在 git 里 ⇒ `git checkout --` 恢复，再重设版本标记（零损失）；
+//   ②markers 在 `tmp-test/`（gitignore）**没有备份** ⇒ 先逆向（GBK→UTF-8）恢复，但仍有字符丢失与断行，
+//   最终**重写为 15 条核心断言版**并降级说明（原 183 条里"版本标记 / 用户可见文案 / 关键类名 / 产物体积"这几类保留）。
+//   铁律：**改文件一律用编辑工具或 node 脚本（readFileSync/writeFileSync('utf8')），永远不要用 PowerShell 的
+//   Get-Content / Set-Content 处理含中文的源码**；关键闸门脚本要另有备份或纳入版本控制。
+//
+// v20261019-split1（**纯客户端**，硬刷新即可；宿主仍 `v20261019-runsperf`）：FlowPanel 拆分第 1 批
+//   —— 把「运行控制」整块抽成 `src/client/panels/run-control.ts`。
+//   · 起因：2026-10-19 用户新定「单文件硬顶 1000 行、不可突破」（见 CONVENTIONS.md §3），
+//     自检发现 `FlowPanel.tsx` **1655 行**是唯一硬违规；NodeInspector 965 / params-editor 571 / doc-extract 563 只超软上限。
+//   · 本轮搬走（只搬位置，零行为变化）：运行态 runResults/running/cancelling/cancellingRef/cancelTick/runAbortRef/manualRunRef
+//     + applyRunSummary + handleRun（自检→人工确认→真跑→600ms 逐节点点亮）+ cancelRun + importMsg 浮窗
+//     + **useManualDialog**（它依赖 applyRunSummary、又要给 handleRun 提供 setter ⇒ 只能一起搬，否则循环依赖）。
+//   · 接线要点：`handleRun`/`applyRunSummary` 要写「运行失败详情弹窗」的状态，那个 hook（useRunFailDialog）在
+//     FlowPanel 里声明在前 ⇒ 直接当入参传进去（试过用 ref 转发，实际不需要，已简化）。
+//   · 行数：FlowPanel **1655 → 1473**（首次净减 182），新文件 287 行。
+//   · 验证（第 1 批）：typecheck 0 / markers **183/183** / CDP 子集 `run-button,cancel-run,live-status,manual-confirm,selfcheck-gate,run-log`
+//     **6/6** / **全量 CDP 59/59**（含 `undo-redo` / `drag-writeback` / `no-autosave-untitled` / `rename-revert`）。
+//   · ⚠ 仍超硬顶，后续批次（下一轮）：①工作流 IO（saveDefToDisk/handleSaveToDisk/自动保存 effect/handleRename+撞名探测/
+//     导出 JSON·PNG·SVG/导入 ≈ 250 行）②节点操作与画布导航（handleDefChange/handleAddNode/handleDeleteNode/deleteNodeFull/
+//     handleNodeChange/handleNodeDoubleClick/handleNavBack ≈ 150 行）。两批做完约 1070 → 再压注释可到 1000 以内。
+//
+// v20261019-runsperf（**宿主侧**，需重启 dsh web；客户端另见 `v20261019-split1`）：
+//   一次"按开发规范全量自检"里量出来的两处**随规模恶化**的性能点，都在运行记录。
+//   · 起因：自检实测 `GET /runs` 45.6ms，而 handler 直调只有 0.36ms；再拆下去发现
+//     ①`listRunRecords` 用「readdir + 每文件**串行** fs.stat」枚举（用户机器 343 条 = 23.22ms）；
+//     ②`readRunRecord` 只拿到 runId，逐目录试读 ⇒ `GET /runs` 一次读最近 20 条 = 最坏 20×24 次 fs（实测 6.6~27ms，随目录数走）；
+//     ③`writeRunRecord` 每次落盘后调 `pruneRunRecords()` **无参** ⇒ 每次都扫全树（24 目录 + 逐文件 open/read 判组）。
+//   · 改法（都不改行为语义，只改枚举/定位方式）：
+//     ①`listJsonNames(dir, sortBy)` 增加 `sortBy='name'` 分支：`readdir({withFileTypes})` **零 stat**、按文件名倒序
+//       （记录名 `run-<13 位 epoch ms>-<rand>.json`，字典序≡时间序），子目录**并行**读；
+//     ②`listRunRecords` 扫目录时顺手记 `id → 目录`（模块级 `_runLoc`），`readRunRecord` 优先**精确读**；
+//       命中但读不到（文件被删/搬走）⇒ 清该项并回退逐目录试，**不需要精细失效逻辑**；
+//     ③`pruneRunRecords(opts.workflowName)`：给了名字只扫**本工作流目录 + runs 根**，不传仍全量清扫（配管/手工调用口径不变）。
+//   · 实测（隔离环境造 23 目录 / 342 条，与用户机器同规模）：
+//     `GET /runs` **26.52ms → 2.33ms（11.4×）**；写入后 prune 的目录扫描 **2.91ms → 0.34ms（8.6×，且不再随其它工作流增长）**。
+//   · 顺带（数据面，非代码）：清掉 23 个孤儿 runs 目录 / 343 条记录（对应工作流已删除，`deleteWorkflow` 只清现存工作流的）。
+//   · 回归锁：`test/run-retention.test.mjs` 新增 **[H]**（`pruneRunRecords({workflowName:'wfA'})` 只压 A、B 的 201 条一条不动）
+//     与 **[I]**（`listRunRecords` 顺序仍是新→旧——零 stat 排序不能把顺序改坏）⇒ **21 passed**。
+//   · 验证：typecheck 0 / markers **183/183** / 离线链全绿 / CDP 子集 `run-log,cancel-run,live-status,run-path` **4/4**。
+//   · ⚠ 未做（留给下一轮）：自检还查出唯一**硬违规**——`src/client/FlowPanel.tsx` **1600 行**超用户 2026-10-19 新定的
+//     "单文件硬顶 1000 行"（`docs/CONVENTIONS.md` 第 3 节已写入该硬顶）。拆分方案待拍板。
+
+---
+
 // v20261019-wfscoped（**宿主侧**，需重启 dsh web；客户端保持 `v20261019-noautocreate`）：按工作流名分目录
 //   ＋ 删除工作流时级联清理。用户原话：「dag-flow插件每个工作流产生的文件都要以 .dag-flow/**/工作流名称/文件
 //   的方式存放，如果文件夹不存在，dag-flow需要自动创建；然后删除工作流的时候，也要以这种方式，

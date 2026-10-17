@@ -31,7 +31,15 @@ const MONACO_VS_BASE = 'https://unpkg.com/monaco-editor@0.55.1/min/vs';
 const MONACO_LOAD_TIMEOUT_MS = 8000;
 /** Monaco 编辑器选项（★ 模块常量：写在 render 里等于每次渲染都新建对象、Monaco 每次都收到新
  *  options 引用而重跑 options 更新——规范"render 里不建大常量/新对象引用"）。 */
-const MONACO_OPTIONS: Record<string, unknown> = { minimap: { enabled: false }, fontSize: 12, wordWrap: 'on' };
+const MONACO_OPTIONS: Record<string, unknown> = {
+  minimap: { enabled: false }, fontSize: 12, wordWrap: 'on',
+  // ★ 2026-10-19 用户报「JSON 编辑框里报错：The character U+ff08 "（" could be confused with the
+  //   ASCII character U+0028 "("」——那是 Monaco 的 **unicodeHighlight（易混字符提示）**，
+  //   既不是 JSON 语法错、也不影响保存与运行，只是把中文全角标点（（） ，：）当成"可疑字符"标出来。
+  //   本视图显示的是用户自己的工作流数据，中文全角标点是正常内容 ⇒ 三项全关，消掉这类噪音。
+  //   JSON 的合法性由下方 ajv 校验（400ms 防抖）负责，不依赖这个提示。
+  unicodeHighlight: { ambiguousCharacters: false, invisibleCharacters: false, nonBasicASCII: false },
+};
 
 /** 超时竞速（★ 必须在 finally 清掉定时器）：内核通常 1s 就绪，裸 setTimeout 会让这个 8s 的 timer
  *  一直挂到卸载之后（虽无 setState 副作用，但属定时器泄漏；规范"超时/竞速类必须统一清理"）。 */
