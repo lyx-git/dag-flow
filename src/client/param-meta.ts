@@ -144,7 +144,7 @@ export const PARAM_META: Record<string, Record<string, ParamMeta>> = {
   },
   web_search: {
     query: { label: '搜索关键词', desc: '要搜什么，可引用上游数据。', multi: true },
-    provider: { label: '搜索引擎', desc: 'auto＝自动挑可用的引擎；也可指定具体引擎（下拉里每项带说明）。', placeholder: 'auto' },
+    provider: { label: '搜索引擎', desc: 'auto＝按内置引擎链自动挑（Bing → AnySearch → DuckDuckGo → DuckDuckGo Lite → SearXNG，谁先出结果用谁；前两个在国内网络下最稳，2026-10-19 按真机实测重排）；也可指定具体引擎（下拉里每项带说明）。只走内置免 key 引擎，不依赖任何外部搜索插件。', placeholder: 'auto' },
     count: { label: '结果条数', desc: '取多少条（1~20），默认 8。', placeholder: '8' },
     lang: { label: '语言/地区', desc: '如 zh-cn；部分引擎支持，留空用引擎默认。', placeholder: 'zh-cn' },
     timeRange: { label: '时间范围', desc: 'day / week / month / year：只看该时间段内的结果。' },

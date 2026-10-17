@@ -171,20 +171,24 @@ export function WebFields({ node, onParamsChange }: {
         className: 'dsh-wf-input', rows: 3, placeholder: '要搜索的内容…（可引用 {{u.out.xxx}}）',
         defaultValue: typeof p.query === 'string' ? p.query : '',
         onBlur: (e: React.FocusEvent<HTMLTextAreaElement>) => onParamsChange({ query: e.target.value }),
-      }), '内置 5 个免 key 引擎，任何 DSH 零配置可用；auto 模式下若宿主装有 dsh-free-search 会优先走宿主（自动继承你配置的付费引擎与密钥），失败自动回落内置引擎链（Bing→DDG Lite→DDG→SearXNG→AnySearch）。query 留空时节点不执行、流程在此中断。'),
+      }), '内置 5 个免 key 引擎，任何 DSH 零配置可用；auto 按「Bing → AnySearch → DuckDuckGo → DuckDuckGo Lite → SearXNG」的顺序依次尝试、谁先出结果用谁（前两个在国内网络下最稳，2026-10-19 按真机实测重排）。搜索只走内置引擎，不依赖任何外部搜索插件。query 留空时节点不执行、流程在此中断。'),
       row('搜索引擎', createElement(SelectBox, {
         value: typeof p.provider === 'string' ? p.provider : 'auto',
         onChange: (v: string) => onParamsChange({ provider: v }),
         // ★ 2026-10-18（用户：「把长解释挪到列表项下面那行小字说明里」）：名称留 label、解释进 sub ——
         //   闭合态只显示引擎名（不再被省略号截断），点开列表时解释作为灰色小字跟在名称下面，信息一字不丢。
+        // ★ 2026-10-19 用户要求「依赖 dsh-free-search 插件的内容都删掉」：原来的「仅宿主」选项已移除；
+        //   老节点如果存着 provider='host'，用「当前值」兜底项如实显示（否则下拉会空白），并告诉他改哪里。
         options: [
-          { value: 'auto', label: 'auto', sub: '宿主优先 + 内置兜底（推荐）' },
+          { value: 'auto', label: 'auto', sub: '内置引擎链，按顺序自动回落（推荐）' },
           { value: 'bing', label: 'Bing', sub: '免 key' },
           { value: 'ddg-lite', label: 'DuckDuckGo Lite', sub: '免 key' },
           { value: 'ddg', label: 'DuckDuckGo HTML', sub: '免 key' },
           { value: 'searxng', label: 'SearXNG', sub: '公共实例，免 key' },
           { value: 'anysearch', label: 'AnySearch', sub: '免费匿名额度' },
-          { value: 'host', label: '仅宿主', sub: '要求已装 dsh-free-search' },
+          ...(p.provider === 'host'
+            ? [{ value: 'host', label: '（当前值：仅宿主，已移除）', sub: '运行会失败——请改成 auto 或任一内置引擎' }]
+            : []),
         ],
       })),
       row('结果条数', text('count', '8', 'number'), '1-20 条'),

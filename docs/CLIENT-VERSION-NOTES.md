@@ -7,6 +7,74 @@
 
 ---
 
+// v20261019-engtimeout（**宿主侧为主**，客户端只升标记；需重启 dsh web + 硬刷新）：压短引擎超时
+//   （2026-10-19 用户拍板「选择A」：单引擎约 8s、SearXNG 每实例约 4s）。
+//   · 为什么改：上一轮重排顺序后，ddg/ddg-lite/searxng 虽退到链尾，但**一旦真轮到它们**仍要
+//     22.7s / 34.6s / 48.0s 才失败 —— auto 全挂时用户要等 105s 才看到报错。
+//   · 改法（`src/adapter/search.ts`）：
+//     ① 新增 `ENGINE_DEADLINE_MS`（bing/anysearch/ddg/ddg-lite 各 8000）——引擎级**总** deadline，
+//        含它内部的 3 次重试；到点放弃换下一个引擎。
+//     ② `SEARXNG_INSTANCE_TIMEOUT_MS = 4000`（原每实例 8s）⇒ 6 实例最坏 48s → 24s。
+//     ③ deadline 用 **`Promise.race`** 兜住，不只是 `AbortController.abort()`：abort 只是"请求它停"，
+//        若底层 fetch 卡在不响应 signal 的状态，`await` 会永不返回、整个搜索挂死。**这是本轮实测发现的
+//        真缺陷**：只 abort 时用例跑满 300s 都不返回（`test/search.test.mjs` A12 复现），加 race 后 8s 准时结束。
+//     ④ 另补两处守卫：`fetchHtml` 开头检查 `signal.aborted`（已 abort 时 addEventListener 不补发事件，
+//        内部请求会白跑满 12s）、`fetchHtmlWithRetry` 循环开头 break（超时后别再补请求）。
+//   · 真机复测（`tmp-test/probe-engine-timeout.mjs`，加载 dist + 本地 server + 真实网络，逐个 provider）：
+//     | 引擎 | 改前 | 改后 |
+//     | bing | 645ms | **720ms**（5 条，不受影响） |
+//     | anysearch | 2715ms | **1744ms**（5 条，不受影响） |
+//     | ddg | 22731ms | **8007ms**（超时放弃） |
+//     | ddg-lite | 34632ms | **8011ms**（超时放弃） |
+//     | searxng | 48040ms | **22986ms**（全实例失败） |
+//     ⇒ auto 全挂最坏 105s → **39s**；正常路径（第一个就命中 bing）毫无变化。
+//   · 副作用（单列）：① 网络极慢时 bing/anysearch 若超过 8s 会被判超时转下一个引擎（实测两者 ≤2.7s，余量充足）；
+//     ② 错误信息里出现「超时 8000ms 未返回」，聚合到 `SEARCH_FAILED` 的 message 里。
+//   · 验证：typecheck 0 / markers **171/171**（新增超时文案锚点）/ 离线链 exit 0 / search **24/24**（新增 A12）。
+// v20261019-engineord（**宿主+客户端都改**，需重启 dsh web + 硬刷新）：内置搜索链**按真机实测重排**
+//   （2026-10-19 用户原话：「网络搜索免费的尝试顺序调整一下，哪些比较好用的都移到前面来」）。
+//   · 实测方法：`tmp-test/probe-engine-order.mjs` 走**真宿主** `POST /api/dag-flow/run-node`
+//     （nodeType=web_search、逐个指定 provider），中英文各一次、共 10 次调用。结果：
+//     | 引擎 | 成功率 | 平均耗时 |
+//     | bing | 2/2 | **645ms** |
+//     | anysearch | 2/2 | **2715ms** |
+//     | ddg | 0/2 | 22731ms（fetch failed） |
+//     | ddg-lite | 0/2 | 34632ms（fetch failed） |
+//     | searxng | 0/2 | 48040ms（公共实例全超时） |
+//   · 改法：`ENGINE_CHAIN` 由 `bing → ddg-lite → ddg → searxng → anysearch`
+//     改为 **`bing → anysearch → ddg → ddg-lite → searxng`** —— 能通的提到前面，DDG 系与 SearXNG
+//     留在链尾兜底（**没删**：换网络环境/换公共实例时它们可能可用，只是不再排在前面白等几十秒）。
+//   · 副作用（重要）：改前若 bing 失败，会先白等 ddg-lite(34s)+ddg(22s)+searxng(48s) 才到 anysearch；
+//     改后第二个就是 anysearch ⇒ bing 不可用时**找得到结果的路径短得多**。
+//   · 文案同步：`inspector-fields.tsx` 的 auto 说明、`param-meta.ts` 的 provider 释义、
+//     `docs/ERROR_REFERENCE.md` 的 SEARCH_FAILED 说明都写成新顺序。
+//   · 用例同步：`test/search.test.mjs` A4 原来断「bing 判 0 条 → 回退 ddg-lite」⇒ 改成「→ 回退 anysearch」；
+//     A5 的 ddg-lite uddg 解码改为**直接指定 provider=ddg-lite**（它已排在链尾、A4 不再触达）。
+//   · 验证：typecheck 0 / markers **170/170** / 离线链 exit 0 / search 23/23 / 全量 CDP 见交付记录。
+// v20261019-nohost（**宿主+客户端都改**，需重启 dsh web + 硬刷新）：删掉 web_search 的「宿主优先」通路
+//   （2026-10-19 用户原话：「网络搜索依赖 dsh-free-search 插件的内容都删掉，不能依赖不稳定的第三方插件」）。
+//   · 删了什么（`src/adapter/search.ts`）：整套宿主优先实现 —— `HostTools` / `getHostTools()`（走
+//     `hostService('tools')`）/ `normalizeHostOutput()`（兼容 sources|results / MCP content[].text / JSON 字符串）/
+//     `toSources()` / `tryHostSearch()`（25s 超时、callId 传参、失败静默回落），以及 `runWebSearch` 里
+//     "provider=auto 先试宿主、失败回落内置链"那条分支；`SearchOutcome` 的 `viaHost` 字段也删了。
+//     净效果：search.ts 496 → 390 行，**web_search 不再探测也不再调用宿主注册的任何工具**。
+//   · 老数据兼容（红线）：节点 schema 的 `provider` 枚举**仍保留 `'host'`**（否则老工作流结构校验直接失败），
+//     但运行时 `provider='host'` 会**明确报错**并给改法（「…已移除（不再依赖 dsh-free-search 等外部插件）——
+//     请改成 auto 或任一内置引擎」）。不静默降级成 auto，免得用户以为还在走宿主。
+//   · 客户端：`inspector-fields.tsx` 删掉「仅宿主」这个正常选项（改为"当前值兜底项"——只有老节点存着
+//     `provider:'host'` 时才出现，文案「（当前值：仅宿主，已移除）/ 运行会失败——请改成 auto 或任一内置引擎」）；
+//     auto 的说明文案与 `param-meta.ts` 的 provider 释义都不再提宿主，改成"只走内置免 key 引擎"；
+//     `client/types.ts` 的 web_search out 字段表删掉 `viaHost` 一行。
+//   · ★**必须保留的**：`search.ts` 文件头的 **MIT 版权声明**（"引擎适配器移植自 dsh-free-search 0.4.36，
+//     MIT License，© DDDMUC"）以及两处"常量/小工具移植自…"的出处注释 —— 那是**许可证义务**，与"是否依赖
+//     那个插件"无关（代码是复制进来自己维护的，不是运行时依赖）。删掉它会违反 MIT。
+//   · 文档：`docs/ERROR_REFERENCE.md` 的 SEARCH_FAILED 说明改写；`docs/PARAM-LABELS.md` 重新导出
+//     （`node tmp-test/export-param-labels.mjs`，仍 20 节点 / 90 条）。
+//   · 用例翻转：`test/search.test.mjs` B 段整段重写 —— B1「宿主注册了 web_search 工具也**不再被调用**」
+//     （用 called 计数，正面证明零依赖）、B2「out 里不再有 viaHost 死字段」、B3「老数据 provider=host →
+//     明确报错并给改法」；`node-matrix` 的 16b 去掉 `viaHost === false` 断言。
+//   · 验证：typecheck 0 / markers **169/169**（新增 `!h.includes('host:web_search')` 锚点证明通路真没了）/
+//     离线链 exit 0（search 23/23、node-matrix 58/58）/ CDP 子集 3/3 / 全量 CDP 见交付记录。
 // v20261019-testbarin（纯客户端，硬刷新即可）：试跑条整体内缩，不再贴弹窗左边框/下边框
 //   （2026-10-19 用户原话：「参数与试跑弹窗左下角的试跑本节点按钮几乎和弹窗最下边的线重合了，
 //     做下区分，往右边上边移动一些，不要紧贴弹窗的边缘线」）。

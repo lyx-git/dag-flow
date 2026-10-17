@@ -128,7 +128,6 @@ export const NODE_OUT_SPECS: Record<string, NodeOutSpec> = {
     fields: [
       { path: 'query', desc: '实际用的搜索词' },
       { path: 'engine', desc: '命中的引擎（bing/ddg/…）' },
-      { path: 'viaHost', desc: '是否走宿主搜索' },
       { path: 'count', desc: '结果条数' },
       { path: 'results', desc: '结果数组' },
       { path: 'results.0.title', desc: '第 1 条标题' },

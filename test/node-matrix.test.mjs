@@ -213,7 +213,7 @@ const target = (r) => r.body?.summary?.results?.target;
   try {
     const r = await runNode('web_search', { query: 'matrix search', count: 5 });
     const out = target(r)?.out;
-    t('16b. web_search → success 且内置 bing 引擎解析结果', target(r)?.status === 'success' && out?.engine === 'bing' && out?.viaHost === false && out?.results?.[0]?.url === 'https://example.com/nm-hit', JSON.stringify(out)?.slice(0, 160));
+    t('16b. web_search → success 且内置 bing 引擎解析结果', target(r)?.status === 'success' && out?.engine === 'bing' && out?.results?.[0]?.url === 'https://example.com/nm-hit', JSON.stringify(out)?.slice(0, 160));
   } finally { globalThis.fetch = realFetch; }
 }
 // 16c. web_fetch（stub fetch → 剥 HTML 正文）

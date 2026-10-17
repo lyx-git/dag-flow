@@ -69,7 +69,7 @@ python/bash（code 纯空白）、http（url）、if（condition）、switch（v
 | session_input | `SESSION_INPUT_NO_ID` / `SESSION_INPUT_NOT_FOUND` / `SESSION_INPUT_READ` | sessionId 为空／会话不存在: xxx／读取失败 |
 | http | `HTTP_TIMEOUT` / `HTTP_ERROR` | 超时（Xms）／请求失败（附原因） |
 | web_search | `SEARCH_EMPTY_QUERY` | query 为空——搜索节点未执行，流程已在此中断 |
-| web_search | `SEARCH_FAILED` | 所有搜索引擎均失败：bing: …；或 宿主 web_search 工具不可用（未安装 dsh-free-search 插件或调用失败） |
+| web_search | `SEARCH_FAILED` | 所有搜索引擎均失败：bing: …（**2026-10-19 起只走内置免 key 引擎链**，尝试顺序按真机实测排为 Bing → AnySearch → DuckDuckGo → DuckDuckGo Lite → SearXNG；原「仅宿主」通路已移除，老数据的 `provider: 'host'` 会明确报错并提示改成 auto / 任一内置引擎。**同日加超时**：单引擎 8s 到点即放弃、SearXNG 每实例 4s，所以 message 里会出现 `xx: 超时 8000ms 未返回`——这不是网络断开，是该引擎在预算内没答完，auto 会自动换下一个） |
 | web_fetch | `FETCH_NO_URL` / `FETCH_TIMEOUT` / `FETCH_FAILED` | url 为空——…／网页抓取超时（Xms）／HTTP 404（…）等原始原因 |
 | if / switch | （表达式错误经 ExprError） | 表达式解析失败／表达式求值失败：… |
 | loop | `LOOP_NO_BOUND` / `LOOP_OVER_NOT_ARRAY` / `LOOP_COND_ERROR` / `LOOP_BODY_FAILED` / `LOOP_MAX_ITER`（已退役） | 缺少循环边界——count / over 至少配置一个（**条件循环 while 已于 2026-10-19 移除**：老节点只配了 while 也走这条，文案会说明并给出"在循环体里判断 + `end` 输出 `break: true`"的出路）／**over 解析出来不是数组**（实际是 string / object / …）——按数组长度循环要求 over 是数组：检查 `{{…}}` 引用路径是否指到数组本身（如 `{{节点id.out.items}}`）、上游这一轮是否真的产出了数组／「每轮条件」`roundIf` 求值失败（写错变量名、引用自身；可引用「运行前已完成的节点」＋循环体注入的 `lastOutput`（上一轮输出）/ `loopIndex`（轮次序号））／第 N/M 轮循环体（子工作流）以 failed 结束（已完成轮次保留在 out.items；要跳过失败轮设 onIterationError: "continue"）／`LOOP_MAX_ITER` 是旧 while 专属码，**现已不再产生**（历史运行记录里仍可见） |

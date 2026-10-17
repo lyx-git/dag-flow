@@ -71,6 +71,8 @@ const PAGE_HTML = `<!DOCTYPE html><html><head><title>页面</title><style>body{c
 // ===== fetch 路由桩（127.0.0.1 直通真实测试服务器） =====
 const realFetch = globalThis.fetch;
 let failAnysearch = false;
+// ★ 2026-10-19 用户选 A（压短单引擎超时）：用于验证「引擎挂死 → 8s 放弃」的桩
+let hangDdg = false;
 globalThis.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input?.url ?? String(input);
   if (url.startsWith('http://127.0.0.1')) return realFetch(input, init);
@@ -78,7 +80,15 @@ globalThis.fetch = async (input, init) => {
   try { u = new URL(url); } catch { throw new Error('unmocked url: ' + url); }
   if (u.hostname === 'www.bing.com' && u.pathname === '/search') return new Response(BING_HTML, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
   if (u.hostname === 'lite.duckduckgo.com') return new Response(DDG_LITE_HTML, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
-  if (u.hostname === 'html.duckduckgo.com') return new Response(DDG_HTML_DOC, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
+  if (u.hostname === 'html.duckduckgo.com') {
+    // 永不 resolve 的桩，但**像真 fetch 一样响应 abort**（真实网络里 abort 会让 fetch reject）
+    if (hangDdg) {
+      return new Promise((_, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+    }
+    return new Response(DDG_HTML_DOC, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
+  }
   if (u.pathname === '/search' && u.searchParams.get('format') === 'json') return new Response(JSON.stringify(SEARXNG_JSON), { status: 200, headers: { 'content-type': 'application/json' } });
   if (u.hostname === 'api.anysearch.com') {
     if (failAnysearch) return new Response('any down', { status: 500 });
@@ -95,16 +105,23 @@ globalThis.fetch = async (input, init) => {
 {
   const r = await runNode('web_search', { query: 'FlowGram 画布引擎', count: 5 });
   const out = target(r)?.out;
-  t('A1. auto → 命中内置 bing 引擎并解析出结果', target(r)?.status === 'success' && out?.engine === 'bing' && out?.viaHost === false, JSON.stringify(out)?.slice(0, 200));
+  t('A1. auto → 命中内置 bing 引擎并解析出结果', target(r)?.status === 'success' && out?.engine === 'bing', JSON.stringify(out)?.slice(0, 200));
   t('A2. bing 结果字段完整（title/url/snippet）', out?.results?.[0]?.url === 'https://example.com/flowgram' && String(out?.results?.[0]?.title).includes('FlowGram') && String(out?.results?.[0]?.snippet).includes('流程画布'), JSON.stringify(out?.results?.[0]));
   t('A3. count 钳制生效（count=5 → 最多 5 条）', Array.isArray(out?.results) && out?.results?.length <= 5 && out?.count === out?.results?.length, JSON.stringify(out?.count));
 }
 {
-  // bing 返回与查询无关的缓存 SERP（内容不含查询 token）→ 判 0 条 → 回退 ddg-lite
+  // bing 返回与查询无关的缓存 SERP（内容不含查询 token）→ 判 0 条 → 回退链上的**下一个**引擎
+  // ★ 2026-10-19 用户「哪些比较好用的都移到前面来」⇒ 链改成 bing → anysearch → ddg → ddg-lite → searxng，
+  //   所以 bing 之后紧接着是 anysearch（不再是 ddg-lite）。
   const r = await runNode('web_search', { query: '完全不相关的查询词xyzzyq', count: 5 });
   const out = target(r)?.out;
-  t('A4. bing 无关缓存页 → 自动回退 ddg-lite', target(r)?.status === 'success' && out?.engine === 'ddg-lite' && out?.results?.length >= 1, JSON.stringify(out)?.slice(0, 200));
-  t('A5. ddg-lite uddg 跳转链接已解码', out?.results?.[0]?.url === 'https://example.com/one', JSON.stringify(out?.results?.[0]?.url));
+  t('A4. bing 无关缓存页 → 自动回退链上下一个引擎（anysearch）', target(r)?.status === 'success' && out?.engine === 'anysearch' && out?.results?.length >= 1, JSON.stringify(out)?.slice(0, 200));
+}
+{
+  // ddg-lite 现在排在链尾，不再被 A4 触达 ⇒ 单独指定它验证 uddg 跳转链接解码能力
+  const r = await runNode('web_search', { query: 'lite 查询', provider: 'ddg-lite', count: 3 });
+  const out = target(r)?.out;
+  t('A5. ddg-lite uddg 跳转链接已解码（直接指定该引擎）', target(r)?.status === 'success' && out?.engine === 'ddg-lite' && out?.results?.[0]?.url === 'https://example.com/one', JSON.stringify(out?.results?.[0]?.url));
 }
 {
   const r = await runNode('web_search', { query: 'searxng 查询', provider: 'searxng', count: 3 });
@@ -135,31 +152,49 @@ globalThis.fetch = async (input, init) => {
   t('A10. query 留空 → 快失败 SEARCH_EMPTY_QUERY（不发网络请求）', tg?.status === 'failed' && tg?.error?.code === 'SEARCH_EMPTY_QUERY' && tg?.durationMs < 50, JSON.stringify(tg)?.slice(0, 160));
   t('A11. 空白 query 同样快失败且耗时极短', Date.now() - t0 < 500, `wall=${Date.now() - t0}ms`);
 }
-
-// ===== B. 宿主优先（方案 C） =====
 {
+  // ★ 2026-10-19 用户选 A：单引擎 8s 到点即放弃（此前 ddg 要 22–34s 才在 fetch 层失败）
+  hangDdg = true;
+  const t0 = Date.now();
+  const r = await runNode('web_search', { query: '挂死查询', provider: 'ddg', count: 3 });
+  hangDdg = false;
+  const wall = Date.now() - t0;
+  const tg = target(r);
+  const msg = String(tg?.error?.message ?? '');
+  t('A12. ★引擎挂死 → 8s deadline 到点放弃（错误文案 + 实际耗时 ≈8s，不再白等几十秒）',
+    tg?.status === 'failed' && msg.includes('超时 8000ms 未返回') && wall >= 7500 && wall <= 11000,
+    `wall=${wall}ms msg=${msg.slice(0, 140)}`);
+}
+
+// ===== B. ★宿主通路已移除（2026-10-19 用户：「网络搜索依赖 dsh-free-search 插件的内容都删掉，
+//        不能依赖不稳定的第三方插件」）=====
+//   原来的 B1/B2（宿主有 web_search 工具 → auto 优先走宿主、结果归一化）随功能一起删除；
+//   现在反过来断言它**不该再被调用**，这是"真的不依赖"的正面证据。
+{
+  let called = 0;
   const fakeToolsOk = {
     get: (n) => (n === 'web_search' ? { ok: true } : undefined),
-    execute: async () => ({ sources: [{ url: 'https://host.example/a', title: 'Host A', snippet: '来自宿主的搜索结果' }] }),
+    execute: async () => {
+      called++;
+      return { sources: [{ url: 'https://host.example/a', title: 'Host A', snippet: '来自宿主的搜索结果' }] };
+    },
   };
   mod.apply({ logger: stubLogger, webServer: { register() {} }, tools: fakeToolsOk });
-  const r = await runNode('web_search', { query: 'host 优先查询', count: 5 });
-  const out = target(r)?.out;
-  t('B1. 宿主有 web_search 工具 → auto 优先走宿主', target(r)?.status === 'success' && out?.viaHost === true && out?.engine === 'host:web_search', JSON.stringify(out)?.slice(0, 200));
-  t('B2. 宿主结果归一化（title/snippet 保留）', out?.results?.[0]?.url === 'https://host.example/a' && String(out?.results?.[0]?.title).includes('Host A') && String(out?.results?.[0]?.snippet).includes('宿主'), JSON.stringify(out?.results?.[0]));
-}
-{
-  const fakeToolsErr = { get: () => ({}), execute: async () => { throw new Error('boom: callId rejected'); } };
-  mod.apply({ logger: stubLogger, webServer: { register() {} }, tools: fakeToolsErr });
   const r = await runNode('web_search', { query: 'FlowGram 画布引擎', count: 5 });
   const out = target(r)?.out;
-  t('B3. 宿主调用抛错 → 静默回落内置链（bing）', target(r)?.status === 'success' && out?.viaHost === false && out?.engine === 'bing', JSON.stringify(out)?.slice(0, 200));
+  t('B1. ★宿主注册了 web_search 工具也**不再被调用**（零外部插件依赖）',
+    called === 0 && target(r)?.status === 'success' && out?.engine === 'bing',
+    `called=${called} status=${target(r)?.status} engine=${out?.engine}`);
+  t('B2. ★out 里不再有 viaHost 死字段', out != null && !('viaHost' in out), JSON.stringify(out)?.slice(0, 160));
 }
 {
   mod.apply({ logger: stubLogger, webServer: { register() {} } }); // 无 tools 服务
   const r = await runNode('web_search', { query: '仅宿主查询', provider: 'host', count: 5 });
   const tg = target(r);
-  t('B4. provider=host 且宿主未装插件 → 明确报错指引', tg?.status === 'failed' && tg?.error?.code === 'SEARCH_FAILED' && String(tg?.error?.message).includes('宿主 web_search 工具不可用'), JSON.stringify(tg?.error)?.slice(0, 200));
+  t('B3. ★老数据 provider=host → 明确报错并给改法（不静默降级成 auto）',
+    tg?.status === 'failed' && tg?.error?.code === 'SEARCH_FAILED'
+    && String(tg?.error?.message).includes('已移除') && String(tg?.error?.message).includes('auto'),
+    JSON.stringify(tg?.error)?.slice(0, 300));
 }
 
 // ===== C. web_fetch =====

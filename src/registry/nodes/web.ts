@@ -1,6 +1,6 @@
 // src/registry/nodes/web.ts — 网页节点：web_search / web_fetch
-// 搜索/抓取引擎在 ../../adapter/search（宿主优先 + 免 key 引擎兜底）；网络错误统一 humanizeFetchError。
-// 拆分自 builtin.ts（2026-10-14 重构轮 1，纯搬运）。
+// 搜索/抓取引擎在 ../../adapter/search（**只走内置免 key 引擎**，2026-10-19 起不再依赖宿主插件）；
+// 网络错误统一 humanizeFetchError。拆分自 builtin.ts（2026-10-14 重构轮 1，纯搬运）。
 
 import type { Context, NodeDefinition, NodeResult } from '../../types.js';
 import { makeResult, safeNodeRun } from '../external.js';
@@ -10,9 +10,11 @@ import type { WebSearchEngineParams } from '../../adapter/search.js';
 import { humanizeFetchError } from '../../adapter/fetch-errors.js';
 import { startedEnded, finish } from './shared.js';
 
-// ---------- web_search（#搜索节点：宿主优先 + 内置免 key 引擎兜底） ----------
+// ---------- web_search（内置 5 个免 key 引擎；★ 2026-10-19 已移除「宿主优先」） ----------
 interface WebSearchParams {
   query: string;
+  /** ★ `'host'` 仅为**兼容老数据**保留在类型与 schema 里：运行时它会明确报错（见 adapter/search 的入口），
+   *  不会再真的去调宿主插件。正常选项只有 auto + 5 个内置引擎。 */
   provider?: 'auto' | 'host' | 'bing' | 'ddg' | 'ddg-lite' | 'searxng' | 'anysearch';
   count?: number;
   lang?: string;
@@ -36,7 +38,8 @@ async function runWebSearchNode(p: WebSearchParams, ctx: Context): Promise<NodeR
       ctx.signal,
     );
     return finish(t0, startedAt, {
-      out: { query: p.query, engine: outcome.engine, viaHost: outcome.viaHost, count: outcome.results.length, results: outcome.results } as never,
+      // ★ 2026-10-19：out 里不再有 `viaHost`（那个字段只为"是否走了宿主搜索"存在，功能已移除）
+      out: { query: p.query, engine: outcome.engine, count: outcome.results.length, results: outcome.results } as never,
     });
   } catch (e) {
     const msg = (e as Error).message ?? String(e);
@@ -52,6 +55,7 @@ export const webSearchDef: NodeDefinition<WebSearchParams> = {
     type: 'object', required: ['query'], additionalProperties: false,
     properties: {
       query: { type: 'string', minLength: 1 },
+      /** 'host' 仅为兼容老数据保留（运行时明确报错并给改法）；正常选项是 auto + 5 个内置引擎 */
       provider: { enum: ['auto', 'host', 'bing', 'ddg', 'ddg-lite', 'searxng', 'anysearch'] },
       count: { type: 'integer', minimum: 1, maximum: 20 },
       lang: { type: 'string' },
