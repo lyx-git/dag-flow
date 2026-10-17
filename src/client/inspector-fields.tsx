@@ -6,6 +6,7 @@
 import { createElement, useEffect, useState } from 'react';
 import { reqMark } from './panel-utils';
 import { InfoTip } from './info-tip';
+import { SelectBox } from './select-box';
 
 export function SessionInputFields({ node, onParamsChange }: {
   node: import('./types').ClientNode;
@@ -58,17 +59,18 @@ export function SessionInputFields({ node, onParamsChange }: {
   return createElement('div', null,
     createElement('div', { className: 'dsh-wf-panel-row' },
       createElement('label', { className: 'dsh-wf-panel-label' }, reqMark(), '选择会话'),
-      createElement('select', {
-        className: 'dsh-wf-input',
+      createElement(SelectBox, {
         value: selectedId,
-        onChange: (e: React.ChangeEvent<HTMLSelectElement>) => handleId(e.target.value),
-      },
-        createElement('option', { value: '' }, sessionsLoaded ? '（选择一个会话，按最近活动排序）' : '（加载会话列表...）'),
-        sessions.map((s) => {
-          const when = fmtSessionTime(s.mtime);
-          return createElement('option', { key: s.id, value: s.id }, when ? `${when} · ${s.name}` : s.name);
-        }),
-      ),
+        onChange: handleId,
+        placeholder: sessionsLoaded ? '（选择一个会话，按最近活动排序）' : '（加载会话列表...）',
+        options: [
+          { value: '', label: sessionsLoaded ? '（选择一个会话，按最近活动排序）' : '（加载会话列表...）' },
+          ...sessions.map((s) => {
+            const when = fmtSessionTime(s.mtime);
+            return { value: s.id, label: when ? `${when} · ${s.name}` : s.name };
+          }),
+        ],
+      }),
     ),
     createElement('div', { className: 'dsh-wf-panel-row' },
       createElement('label', { className: 'dsh-wf-panel-label' }, '取最近对话条数',
@@ -162,15 +164,15 @@ export function MediaFields({ node, onParamsChange }: {
   }
   // file_save
   return createElement('div', null,
-    row('内容来源', createElement('select', {
-      className: 'dsh-wf-input',
+    row('内容来源', createElement(SelectBox, {
       value: typeof p.source === 'string' ? p.source : 'text',
-      onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onParamsChange({ source: e.target.value }),
-    },
-      createElement('option', { value: 'text' }, '文本内容（text）'),
-      createElement('option', { value: 'base64' }, 'Base64（base64）'),
-      createElement('option', { value: 'url' }, 'URL 下载（url）'),
-    )),
+      onChange: (v: string) => onParamsChange({ source: v }),
+      options: [
+        { value: 'text', label: '文本内容（text）' },
+        { value: 'base64', label: 'Base64（base64）' },
+        { value: 'url', label: 'URL 下载（url）' },
+      ],
+    })),
     p.source === 'url'
       ? row('!文件 URL', text('url', 'https://…（可引用 {{u.out.url}}）'))
       : row('文件内容', createElement('textarea', {
@@ -214,31 +216,33 @@ export function WebFields({ node, onParamsChange }: {
         defaultValue: typeof p.query === 'string' ? p.query : '',
         onBlur: (e: React.FocusEvent<HTMLTextAreaElement>) => onParamsChange({ query: e.target.value }),
       }), '内置 5 个免 key 引擎，任何 DSH 零配置可用；auto 模式下若宿主装有 dsh-free-search 会优先走宿主（自动继承你配置的付费引擎与密钥），失败自动回落内置引擎链（Bing→DDG Lite→DDG→SearXNG→AnySearch）。query 留空时节点不执行、流程在此中断。'),
-      row('搜索引擎', createElement('select', {
-        className: 'dsh-wf-input',
+      row('搜索引擎', createElement(SelectBox, {
         value: typeof p.provider === 'string' ? p.provider : 'auto',
-        onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onParamsChange({ provider: e.target.value }),
-      },
-        createElement('option', { value: 'auto' }, 'auto（宿主优先 + 内置兜底，推荐）'),
-        createElement('option', { value: 'bing' }, 'Bing（免 key）'),
-        createElement('option', { value: 'ddg-lite' }, 'DuckDuckGo Lite（免 key）'),
-        createElement('option', { value: 'ddg' }, 'DuckDuckGo HTML（免 key）'),
-        createElement('option', { value: 'searxng' }, 'SearXNG（公共实例，免 key）'),
-        createElement('option', { value: 'anysearch' }, 'AnySearch（免费匿名额度）'),
-        createElement('option', { value: 'host' }, '仅宿主（要求已装 dsh-free-search）'),
-      )),
+        onChange: (v: string) => onParamsChange({ provider: v }),
+        // ★ 2026-10-18（用户：「把长解释挪到列表项下面那行小字说明里」）：名称留 label、解释进 sub ——
+        //   闭合态只显示引擎名（不再被省略号截断），点开列表时解释作为灰色小字跟在名称下面，信息一字不丢。
+        options: [
+          { value: 'auto', label: 'auto', sub: '宿主优先 + 内置兜底（推荐）' },
+          { value: 'bing', label: 'Bing', sub: '免 key' },
+          { value: 'ddg-lite', label: 'DuckDuckGo Lite', sub: '免 key' },
+          { value: 'ddg', label: 'DuckDuckGo HTML', sub: '免 key' },
+          { value: 'searxng', label: 'SearXNG', sub: '公共实例，免 key' },
+          { value: 'anysearch', label: 'AnySearch', sub: '免费匿名额度' },
+          { value: 'host', label: '仅宿主', sub: '要求已装 dsh-free-search' },
+        ],
+      })),
       row('结果条数', text('count', '8', 'number'), '1-20 条'),
-      row('时间范围', createElement('select', {
-        className: 'dsh-wf-input',
+      row('时间范围', createElement(SelectBox, {
         value: typeof p.timeRange === 'string' ? p.timeRange : '',
-        onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onParamsChange({ timeRange: e.target.value || undefined }),
-      },
-        createElement('option', { value: '' }, '不限'),
-        createElement('option', { value: 'day' }, '一天内'),
-        createElement('option', { value: 'week' }, '一周内'),
-        createElement('option', { value: 'month' }, '一月内'),
-        createElement('option', { value: 'year' }, '一年内'),
-      )),
+        onChange: (v: string) => onParamsChange({ timeRange: v || undefined }),
+        options: [
+          { value: '', label: '不限' },
+          { value: 'day', label: '一天内' },
+          { value: 'week', label: '一周内' },
+          { value: 'month', label: '一月内' },
+          { value: 'year', label: '一年内' },
+        ],
+      })),
     );
   }
   if (node.type === 'doc_parse') {
@@ -248,18 +252,16 @@ export function WebFields({ node, onParamsChange }: {
     const srcKind = String(p.url ?? '').trim() ? 'url' : 'path';
     return createElement('div', null,
       row('!文件来源', createElement('div', { className: 'dsh-wf-srcrow' },
-        createElement('select', {
-          className: 'dsh-wf-input dsh-wf-srcrow-kind',
+        createElement(SelectBox, {
+          className: 'dsh-wf-srcrow-kind',
           title: '选择这一行填的是本地文件路径，还是下载地址',
           value: srcKind,
-          onChange: (e: React.ChangeEvent<HTMLSelectElement>) => {
-            const next = e.target.value;
-            onParamsChange(next === 'url' ? { url: '', path: null } : { path: '', url: null });
-          },
-        },
-          createElement('option', { value: 'path' }, '本地路径'),
-          createElement('option', { value: 'url' }, '下载地址'),
-        ),
+          onChange: (next: string) => onParamsChange(next === 'url' ? { url: '', path: null } : { path: '', url: null }),
+          options: [
+            { value: 'path', label: '本地路径' },
+            { value: 'url', label: '下载地址' },
+          ],
+        }),
         createElement('input', {
           className: 'dsh-wf-input dsh-wf-srcrow-val',
           value: srcKind === 'url' ? String(p.url ?? '') : String(p.path ?? ''),
@@ -272,36 +274,37 @@ export function WebFields({ node, onParamsChange }: {
         }),
       ), '左侧「本地路径」＝读磁盘文件：相对路径锚定 <DSH_HOME>/.dag-flow/（例：documents/公告.pdf），也可以直接填绝对路径（例：D:\\文件\\报告.docx），还可以引用上游输出 {{u.out.path}}；「下载地址」＝先下载再解析（60s 超时，填了就忽略本地路径）。\n支持 pdf / docx / xlsx / pptx / txt / md / csv / json / html。把 PDF / Office 文档 / 图片抽成纯文本喂给下游（PDF / Office 零依赖，不需要装任何库；图片和扫描版 PDF 走 OCR 引擎）。扫描版 PDF 有文本层就直接读、没有文本层才转图片识别（OCR 选「关」时它会明确报错告诉你怎么开）；旧版 .doc/.xls/.ppt 请先另存为 docx/xlsx/pptx。两者都为空时节点不执行、流程在此中断。'),
       row('文本上限 (字符)', text('maxChars', '200000', 'number'), '默认 20 万；超出会截断并把 truncated 置为 true'),
-      row('OCR（图片识别）', createElement('select', {
-        className: 'dsh-wf-input',
+      row('OCR（图片识别）', createElement(SelectBox, {
         value: p.ocr === 'force' ? 'force' : (p.ocr === 'off' ? 'off' : 'auto'),
-        onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onParamsChange({ ocr: e.target.value }),
-      },
-        createElement('option', { value: 'off' }, '关 —— 不跑 OCR（图片会明确报错、扫描版 PDF 只拿到空文本）'),
-        createElement('option', { value: 'auto' }, '自动（默认）—— 图片识别；扫描版 PDF 自动转图片识别'),
-        createElement('option', { value: 'force' }, '强制 —— 连有文本层的 PDF 也重新识别'),
-      ), '图片（png / jpg / webp / bmp / tif）与扫描版 PDF（没有文本层的）都走 OCR 引擎；有文本层的 PDF 直接读文本、不做无用功（想强制重识别选「强制」）。扫描版 PDF 按页栅格化，最多 20 页（参数 ocrMaxPages 可调），页多会慢。'),
-      row('抽取内嵌图片', createElement('select', {
-        className: 'dsh-wf-input',
+        onChange: (v: string) => onParamsChange({ ocr: v }),
+        // 名称留 label、解释进 sub（同上）：sub 里的文字与旧 label 的破折号后半**一字不差**
+        options: [
+          { value: 'off', label: '关', sub: '不跑 OCR（图片会明确报错、扫描版 PDF 只拿到空文本）' },
+          { value: 'auto', label: '自动（默认）', sub: '图片识别；扫描版 PDF 自动转图片识别' },
+          { value: 'force', label: '强制', sub: '连有文本层的 PDF 也重新识别' },
+        ],
+      }), '图片（png / jpg / webp / bmp / tif）与扫描版 PDF（没有文本层的）都走 OCR 引擎；有文本层的 PDF 直接读文本、不做无用功（想强制重识别选「强制」）。扫描版 PDF 按页栅格化，最多 20 页（参数 ocrMaxPages 可调），页多会慢。'),
+      row('抽取内嵌图片', createElement(SelectBox, {
         value: p.extractImages === 'off' ? 'off' : 'auto',
-        onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onParamsChange({ extractImages: e.target.value }),
-      },
-        createElement('option', { value: 'auto' }, '自动（默认）—— 抽到就存进统一图片目录，并在文本相应位置标注文件名'),
-        createElement('option', { value: 'off' }, '关 —— 只解析文本，不抽取图片'),
-      ), '抽出的图片存到 <DSH_HOME>/.dag-flow/images/（与 AI 节点 images 参数同一个目录，可直接被 AI 节点引用）；文档文本里会在图片原来的位置插入「[图片：文件名]」。Word / PPT 能定位到段落、页；Excel 的浮动图统一标在文末。反复解析同一份文档不会堆副本（同名同内容不重写）。'),
+        onChange: (v: string) => onParamsChange({ extractImages: v }),
+        options: [
+          { value: 'auto', label: '自动（默认）', sub: '抽到就存进统一图片目录，并在文本相应位置标注文件名' },
+          { value: 'off', label: '关', sub: '只解析文本，不抽取图片' },
+        ],
+      }), '抽出的图片存到 <DSH_HOME>/.dag-flow/images/（与 AI 节点 images 参数同一个目录，可直接被 AI 节点引用）；文档文本里会在图片原来的位置插入「[图片：文件名]」。Word / PPT 能定位到段落、页；Excel 的浮动图统一标在文末。反复解析同一份文档不会堆副本（同名同内容不重写）。'),
     );
   }
   // web_fetch
   return createElement('div', null,
     row('!抓取地址 (url)', text('url', 'https://…（可引用 {{u.out.url}}）'), '抓取网页：HTML 自动剥离标签取正文文本，JSON 自动解析为对象；常与「网页搜索→网页抓取→AI」串联。url 留空时节点不执行、流程在此中断。'),
     row('正文上限 (字符)', text('maxChars', '8000', 'number'), 'HTML 自动剥标签取正文；200-200000'),
-    row('原样返回', createElement('select', {
-      className: 'dsh-wf-input',
+    row('原样返回', createElement(SelectBox, {
       value: p.raw ? '1' : '0',
-      onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onParamsChange({ raw: e.target.value === '1' }),
-    },
-      createElement('option', { value: '0' }, '否（剥 HTML / 解析 JSON，推荐）'),
-      createElement('option', { value: '1' }, '是（返回原始响应体）'),
-    )),
+      onChange: (v: string) => onParamsChange({ raw: v === '1' }),
+      options: [
+        { value: '0', label: '否', sub: '剥 HTML / 解析 JSON（推荐）' },
+        { value: '1', label: '是', sub: '返回原始响应体' },
+      ],
+    })),
   );
 }

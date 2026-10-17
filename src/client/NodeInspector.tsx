@@ -14,6 +14,7 @@ import type { TestResult } from './test-result';
 import { varMatch } from './util/varSearch';
 import { fieldsCacheOf, paramsSummary, codeSummary, truncLabel, reqMark } from './panel-utils';
 import { InfoTip } from './info-tip';
+import { SelectBox } from './select-box';
 import { SessionInputFields, MediaFields, WebFields } from './inspector-fields';
 // ★ 2026-10-15 用户拍板「复制反馈在按钮本身」：变量 chips 的复制走公共 hook（无浮窗）
 import { useCopyFlash } from './use-copy-flash';
@@ -224,15 +225,16 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
     const out: React.ReactNode[] = [
       createElement('label', { className: 'dsh-wf-panel-label', key: 'loop-label' }, '🔁 循环设置',
         createElement(InfoTip, { text: 'loop 只产出迭代序列（out.count / out.items），「不会重复执行下游节点」：它算出「跑几次 / 跑哪些项」，由下游节点自己逐项处理。三种边界同时只按一个生效，优先级 over > count > while。' })),
-      createElement('select', {
-        className: 'dsh-wf-input', key: 'loop-bound', value: loopBound,
-        onChange: (e: React.ChangeEvent<HTMLSelectElement>) => setLoopBound(e.target.value),
-      },
-        createElement('option', { value: 'count', key: 'b-count' }, '固定次数 count'),
-        createElement('option', { value: 'over', key: 'b-over' }, '遍历数组 over'),
-        createElement('option', { value: 'while', key: 'b-while' }, '条件为真 while'),
-        createElement('option', { value: 'none', key: 'b-none' }, '⚠ 不设边界（运行会失败）'),
-      ),
+      createElement(SelectBox, {
+        key: 'loop-bound', value: loopBound,
+        onChange: setLoopBound,
+        options: [
+          { value: 'count', label: '固定次数 count' },
+          { value: 'over', label: '遍历数组 over' },
+          { value: 'while', label: '条件为真 while' },
+          { value: 'none', label: '⚠ 不设边界', sub: '运行会失败' },
+        ],
+      }),
     ];
     if (loopBound === 'count') out.push(numInput('count', '迭代次数，如 3', 0, null, '3'));
     if (loopBound === 'over') out.push(createElement('input', {
@@ -263,15 +265,16 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
     // —— 循环体：子工作流（方案 A）——
     out.push(createElement('label', { className: 'dsh-wf-panel-label', key: 'loop-body-label' }, '🔁 循环体（可选）',
       createElement(InfoTip, { text: '每轮调用该子工作流：值里可用 {{vars.loopItem}}（当轮的项或轮次序号）与 {{vars.loopIndex}}（序号），也可引用上游 {{节点id.out.x}}；子工作流 end 节点的输出会依次收进本节点的 out.items，下游写法不变。' })));
-    out.push(createElement('select', {
-      className: 'dsh-wf-input', key: 'loop-body-sel', value: loopBody.workflowName ?? '',
-      onChange: (e: React.ChangeEvent<HTMLSelectElement>) => writeLoopBody(e.target.value, bodyRows),
-    },
-      createElement('option', { value: '', key: 'lb-none' }, '（不设：只产出迭代序列 count/items）'),
-      ...wfNames.map((n) => createElement('option', { value: n, key: 'lb-' + n }, n)),
-      ...(loopBody.workflowName && !wfNames.includes(loopBody.workflowName)
-        ? [createElement('option', { value: loopBody.workflowName, key: 'lb-cur' }, `${loopBody.workflowName}（当前值）`)] : []),
-    ));
+    out.push(createElement(SelectBox, {
+      key: 'loop-body-sel', value: loopBody.workflowName ?? '',
+      onChange: (v: string) => writeLoopBody(v, bodyRows),
+      options: [
+        { value: '', label: '（不设循环体）', sub: '只产出迭代序列 count/items' },
+        ...wfNames.map((n) => ({ value: n, label: n })),
+        ...(loopBody.workflowName && !wfNames.includes(loopBody.workflowName)
+          ? [{ value: loopBody.workflowName, label: `${loopBody.workflowName}（当前值）` }] : []),
+      ],
+    }));
     if (loopBody.workflowName) {
       bodyRows.forEach((row, i) => out.push(createElement('div', { key: 'loop-body-row-' + i, style: { display: 'flex', gap: 6, marginBottom: 6 } },
         createElement('input', {
@@ -291,13 +294,14 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
         className: 'dsh-wf-inputs-add', key: 'loop-body-add', title: '添加输入映射',
         onClick: () => setBodyRows((rs) => [...rs, { k: '', v: '' }]),
       }, '+'));
-      out.push(createElement('select', {
-        className: 'dsh-wf-input', key: 'loop-iter-err', value: String(loopParam.onIterationError ?? 'stop'),
-        onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onParamsChange({ onIterationError: e.target.value }),
-      },
-        createElement('option', { value: 'stop', key: 'ie-stop' }, '某轮失败 → 整节点失败（已完成轮次保留在 items）'),
-        createElement('option', { value: 'continue', key: 'ie-cont' }, '某轮失败 → 写占位并继续跑'),
-      ));
+      out.push(createElement(SelectBox, {
+        key: 'loop-iter-err', value: String(loopParam.onIterationError ?? 'stop'),
+        onChange: (v: string) => onParamsChange({ onIterationError: v }),
+        options: [
+          { value: 'stop', label: '某轮失败 → 整节点失败', sub: '已完成轮次保留在 items' },
+          { value: 'continue', label: '某轮失败 → 写占位并继续跑' },
+        ],
+      }));
     }
     // ★ 必须包一层 dsh-wf-panel-row：面板的每块设置都是一行（switch 分支设置同款），
     //   否则元素直接挂在面板根上——样式错位，且任何按 .dsh-wf-panel-row 定位的断言/测试都找不到它
@@ -669,45 +673,51 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
       return [
         createElement('div', { className: 'dsh-wf-panel-row', key: 'fail-policy' },
           createElement('label', { className: 'dsh-wf-panel-label' }, '🛟 本节点失败后'),
-          createElement('select', {
-            className: 'dsh-wf-input dsh-wf-failpolicy',
+          createElement(SelectBox, {
+            className: 'dsh-wf-failpolicy',
             value: policy,
-            onChange: (e: React.ChangeEvent<HTMLSelectElement>) => {
-              const v = e.target.value as 'stop' | 'skip' | 'ignore' | 'goto';
+            onChange: (v: string) => {
               if (v === 'goto') {
                 // 切到 goto：保留已设目标，否则给一个默认（第一个非 start、非自身的节点）
                 const kept = typeof onError === 'object' && onError.goto ? onError.goto : '';
                 const fallback = defNodes.find((n) => n.id !== node.id && n.type !== 'start')?.id ?? '';
                 onNodeError?.({ goto: kept || fallback });
               } else {
-                onFailPolicyChange?.(v);
+                onFailPolicyChange?.(v as 'stop' | 'skip' | 'ignore');
               }
             },
-          },
-            createElement('option', { value: 'stop' }, '⛔ 停止这条支路（默认，算运行失败）'),
-            createElement('option', { value: 'skip' }, '⏭ 跳过这条支路，不算运行失败'),
-            createElement('option', { value: 'ignore' }, '🛟 忽略失败，下游照常执行'),
-            createElement('option', { value: 'goto' }, '↪ 失败后跳转到指定节点'),
-          ),
+            // ★ 2026-10-18（用户：「把长解释挪到列表项下面那行小字说明里」）：括号/逗号后面的短解释挪进 sub ——
+            //   选项名只剩策略本身（闭合态不再被省略号截断）；每档的完整语义**仍然平铺**在下方
+            //   `.dsh-wf-failpolicy-hint`（关键说明既不进问号、也不只藏在列表项里）。
+            options: [
+              { value: 'stop', label: '⛔ 停止这条支路', sub: '默认，算运行失败' },
+              { value: 'skip', label: '⏭ 跳过这条支路', sub: '不算运行失败' },
+              { value: 'ignore', label: '🛟 忽略失败', sub: '下游照常执行' },
+              { value: 'goto', label: '↪ 失败后跳转到指定节点' },
+            ],
+          }),
         ),
         createElement('div', { className: 'dsh-wf-panel-hint dsh-wf-failpolicy-hint', key: 'fail-hint' }, hintOf[policy] ?? ''),
       ];
     })(),
     typeof onError === 'object' && onError.goto !== undefined && createElement('div', { className: 'dsh-wf-panel-row' },
       createElement('label', { className: 'dsh-wf-panel-label' }, reqMark(), '↪ 跳转目标'),
-      createElement('select', {
-        className: 'dsh-wf-input',
+      createElement(SelectBox, {
         value: onError.goto,
-        onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onNodeError?.({ goto: e.target.value }),
-      },
+        onChange: (v: string) => onNodeError?.({ goto: v }),
         // ★ 轮 3：目标只对"还没跑到的层"生效——把**排在本节点之前**的候选标出来，
         //   免得用户选了个永远不会生效的目标（引擎会在节点错误详情里写明"未重复执行"）。
-        defNodes.filter((n) => n.id !== node.id && n.type !== 'start').map((n) => {
+        // ★ 2026-10-18：上游警告从选项名里挪进 sub —— 名称列只剩「名称（类型）」（长节点名不再把警告挤没），
+        //   警告仍以灰色小字平铺在选项下方（不是问号、不用悬停就能看到）。
+        options: defNodes.filter((n) => n.id !== node.id && n.type !== 'start').map((n) => {
           const isUpstream = upstream.includes(n.id);
-          return createElement('option', { key: n.id, value: n.id },
-            `${n.label ?? n.id}（${n.type}）${isUpstream ? ' · ⚠ 在本节点之前执行，跳转不会生效' : ''}`);
+          return {
+            value: n.id,
+            label: `${n.label ?? n.id}（${n.type}）`,
+            ...(isUpstream ? { sub: '⚠ 在本节点之前执行，跳转不会生效' } : {}),
+          };
         }),
-      ),
+      }),
     ),
     // ★ loop 循环设置（P2，2026-10-03 用户拍板）
     node.type === 'loop' && loopConfigNodes(),
@@ -758,26 +768,30 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
     node.type === 'subagent' && createElement('div', { className: 'dsh-wf-panel-row' },
       createElement('label', { className: 'dsh-wf-panel-label' }, reqMark(), '选择模型',
         createElement(InfoTip, { text: '模型自动发现自 dsh 配置（存在 profile 的 cordis.patch.yml 里，旧版是 settings.yaml），密钥由 dsh 统一管理，无需在此录入。必须选择执行模型（必选）；prompt 留空（或上游输出为空）时本节点不执行，流程在此中断。' })),
-      createElement('select', {
-        className: 'dsh-wf-input',
+      createElement(SelectBox, {
         value: selectedModel,
-        onChange: (e: React.ChangeEvent<HTMLSelectElement>) => handleModelSelect(e.target.value),
+        onChange: handleModelSelect,
         style: !selectedModel ? { borderColor: 'var(--wf-warn, #fbbf24)' } : undefined,
-      },
-        createElement('option', { value: '', disabled: true }, models.length === 0 ? '（dsh 未配置可用模型，请先在 dsh 添加）' : '⬇ 请选择执行模型'),
-        // ★ 存值不在当前列表里（旧工作流留下的快照 id、或 dsh 已下架该模型）→ **显式列出来**。
-        //   否则 controlled select 匹配不到任何 option，界面显示"请选择执行模型"，而工作流里仍是旧 id
-        //   → 看起来没选模型、实际按旧 id 执行（2026-10-03 用户问「模型不是实时获取的吗」时发现的缺口）。
-        ...(selectedModel && !models.some((m) => m.id === selectedModel)
-          ? [createElement('option', { key: 'stale-model', value: selectedModel }, `✓ ⚠ ${selectedModel}（当前值，dsh 当前未提供）`)] : []),
-        orderedModels.map((m) => createElement('option', { key: m.id, value: m.id },
-          // ★ 显示「模型显示名」（用户 2026-10-03：不用内部 id，不容易分辨）；重名才补提供方名消歧
-          // ★ 已选中项打「✓」前缀（用户 2026-10-03：「点开下拉选项的已经选中的下拉选项就有一个选中的状态
-          //   标记它……如果没有已经选择的下拉选，点开下拉选项的时候，就没有选中状态」）——原生 <option>
-          //   不能设背景色/图标，只能用文案前缀；未选任何模型时（selectedModel===''）任何一项都不带 ✓。
-          `${m.id === selectedModel ? '✓ ' : ''}⚙️ ${modelLabelOf(m)}${modelDisambig(m) ? `（${modelDisambig(m)}）` : ''}${m.hasImage ? ' · 📷 图片' : ''}`,
-        )),
-      ),
+        options: [
+          {
+            value: '',
+            label: models.length === 0 ? '（dsh 未配置可用模型，请先在 dsh 添加）' : '⬇ 请选择执行模型',
+            disabled: true,
+          },
+          // ★ 存值不在当前列表里（旧工作流留下的快照 id、或 dsh 已下架该模型）→ **显式列出来**。
+          //   否则控件的值匹配不到任何一项，界面显示"请选择执行模型"，而工作流里仍是旧 id
+          //   → 看起来没选模型、实际按旧 id 执行（2026-10-03 用户问「模型不是实时获取的吗」时发现的缺口）。
+          ...(selectedModel && !models.some((m) => m.id === selectedModel)
+            ? [{ value: selectedModel, label: `✓ ⚠ ${selectedModel}`, sub: '当前值，dsh 当前未提供' }] : []),
+          ...orderedModels.map((m) => ({
+            value: m.id,
+            // ★ 显示「模型显示名」（用户 2026-10-03：不用内部 id，不容易分辨）；重名才补提供方名消歧
+            // ★ 已选中项打「✓」前缀（用户 2026-10-03：「点开下拉选项的已经选中的下拉选项就有一个选中的状态
+            //   标记它……」）——自研下拉里除了 ✓ 前缀，选中项本身也有高亮底色（比原生 option 更强的状态提示）。
+            label: `${m.id === selectedModel ? '✓ ' : ''}⚙️ ${modelLabelOf(m)}${modelDisambig(m) ? `（${modelDisambig(m)}）` : ''}${m.hasImage ? ' · 📷 图片' : ''}`,
+          })),
+        ],
+      }),
     ),
     node.type === 'subagent' && selectedModel && !models.some((m) => m.id === selectedModel) && createElement('div', { className: 'dsh-wf-panel-hint' },
       models.length === 0

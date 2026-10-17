@@ -523,6 +523,48 @@
   box-shadow: 0 0 0 3px var(--wf-focus, rgba(111,143,255,.18));
 }
 
+/* ===== 自研下拉（样式 2，2026-10-18 用户拍板）：组件 src/client/select-box.tsx =====
+   为什么不用原生 <select>：它的展开列表在 Windows Chromium 下是系统菜单（白底 / 系统字体 / 蓝高亮），
+   CSS 改不了；闭合态那个系统三角也和项目的线条图标风格不搭。
+   闭合态＝与输入框同几何 + 单行省略号；展开态＝深色列表（文案可换行看全、可带小字说明、可搜索）。 */
+.dsh-wf-selwrap { position: relative; display: block; width: 100%; }
+.dsh-wf-sel { display: flex; align-items: center; gap: 8px; position: relative; padding-right: 34px; cursor: pointer; user-select: none; }
+.dsh-wf-sel-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-wf-sel-chev { position: absolute; right: 11px; top: 50%; transform: translateY(-50%); flex: none; color: var(--wf-muted, #8b9bb3); }
+.dsh-wf-sel:hover .dsh-wf-sel-chev { color: var(--wf-text, #e6edf7); }
+.dsh-wf-sel:focus-visible { border-color: var(--wf-accent, #6f8fff); box-shadow: 0 0 0 3px var(--wf-focus, rgba(111,143,255,.18)); }
+.dsh-wf-sel.on { border-color: var(--wf-accent, #6f8fff); box-shadow: 0 0 0 3px var(--wf-focus, rgba(111,143,255,.18)); }
+.dsh-wf-sel.is-disabled { opacity: .55; cursor: not-allowed; }
+/* 展开列表：Portal 到 body + position:fixed（面板的 backdrop-filter 会给 fixed 造包含块，挂在面板里会被困住）；
+   只做 opacity 淡入（有几何依赖的浮层不用位移/缩放动画）。 */
+.dsh-wf-sel-list {
+  position: fixed; z-index: 90; display: flex; flex-direction: column; gap: 2px;
+  padding: 6px; overflow: hidden; opacity: 0;
+  background: var(--wf-panel3, #162135); border: 1px solid var(--wf-border3, #365173);
+  border-radius: 10px; box-shadow: 0 14px 32px rgba(0, 0, 0, .5);
+  animation: dsh-wf-sel-in 120ms ease forwards;
+}
+@keyframes dsh-wf-sel-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .dsh-wf-sel-list { animation: none; opacity: 1; } }
+.dsh-wf-sel-search { flex: none; padding: 2px 2px 6px; }
+.dsh-wf-sel-q {
+  width: 100%; min-height: 30px; padding: 5px 9px; font-size: 12px; border-radius: 7px;
+  background: var(--wf-bg, #08101e); border: 1px solid var(--wf-border2, #29405f);
+  color: var(--wf-text2, #f6f9ff); font-family: inherit;
+}
+.dsh-wf-sel-q:focus { outline: none; border-color: var(--wf-accent, #6f8fff); }
+.dsh-wf-sel-opts { overflow-y: auto; flex: 1; min-height: 0; }
+.dsh-wf-sel-opt { display: flex; gap: 8px; align-items: flex-start; padding: 7px 9px; border-radius: 7px; font-size: 12.5px; color: var(--wf-text, #e6edf7); cursor: pointer; }
+.dsh-wf-sel-opt.is-hi { background: color-mix(in srgb, var(--wf-accent, #6f8fff) 18%, transparent); }
+.dsh-wf-sel-opt.is-on { background: color-mix(in srgb, var(--wf-accent, #6f8fff) 24%, transparent); color: #dbe7ff; }
+.dsh-wf-sel-opt.is-disabled { opacity: .5; cursor: default; }
+.dsh-wf-sel-tick { flex: none; width: 12px; color: #7fe3a4; }
+.dsh-wf-sel-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* 展开列表里允许换行 —— 这是自研相对系统菜单的关键收益：长选项能看全 */
+.dsh-wf-sel-label { line-height: 1.45; white-space: normal; }
+.dsh-wf-sel-sub { font-size: 10.5px; color: var(--wf-muted, #91a4bf); line-height: 1.5; white-space: normal; }
+.dsh-wf-sel-empty { padding: 8px 9px; font-size: 12px; color: var(--wf-muted2, #647895); }
+
 /* ── 不可编辑输入框置灰 + 必填红星（2026-10-02 用户需求：不能编辑的置灰、必填的加标识）── */
 .dsh-wf-input[readonly],
 .dsh-wf-input:disabled,
