@@ -26,7 +26,6 @@ import { SessionInputFields, MediaFields, WebFields } from '../inspector-fields'
 import { NodeInspector } from '../NodeInspector';
 import { useInputsDialog, InputsDialogView } from '../dialogs/inputs-dialog';
 import { useVersionsDialog, VersionsDialogView } from '../dialogs/versions-dialog';
-import { useRunFailDialog, RunFailDialogView } from '../dialogs/run-fail-dialog';
 import { useSchedulesDialog, SchedulesDialogView, ScheduleRunConfirmView } from '../dialogs/schedule-dialog';
 import { useRunLogDialog, RunLogDialogView } from '../dialogs/run-log-dialog';
 import { useRunControl } from '../panels/run-control';
@@ -86,22 +85,49 @@ export function renderBody(p: {
             return rs ? { ...n, data: { ...n.data, runStatus: rs } } : n;
           }) : p.rfNodes,
           edges: p.rfEdges,
-          // 运行路径高亮（用户 2026-10-11 拍板方案 C）：**源节点已成功**的边就算进运行路径，
-          //   绿线紧跟执行前沿（不再等两端都完成）。
-          // ★ 判据必须看「有没有节点级运行结果」，不能只看 `p.runResults` 是否真值：
-          //   runResults 的**初始值就是 `{}`（truthy）**——只判真值会得到一个**空 Set**，
-          //   于是画布把"所有边都不在运行路径上"当成事实、进画布就把全部线淡化
-          //   （2026-10-11 实现本功能时 CDP 首跑即抓到这个：没跑过也 on=true）。
-          //   语义：没有运行结果 → `undefined`（保持原样、一条都不淡）；正在跑但还没有
-          //   "源节点成功"的边 → 空 Set（该淡的就该淡）。
+          // 运行路径高亮：★ 2026-10-19 用户两轮定稿，**以第二轮为准**：
+          //   第一轮「只要后一个节点运行过就绿，不论前后成功失败」
+          //   → 第二轮修正「连接线变绿，**必须要前后节点都执行了**，不论执行成功还是失败」。
+          //   ⇒ 判据：**source 与 target 都得执行过**（success / failed / running 都算"执行了"；
+          //   pending、skipped 算"没执行"）。这堵住了 goto 场景的假绿：失败后跳转的目标会被提前执行，
+          //   它那条入边的**来源节点根本没跑**，旧判据（只看 target）会把那条边点亮成绿。
           activeEdges: hasRun
-            ? new Set(p.rfEdges.filter((e) => p.runResults?.[e.source]?.status === 'success').map((e) => e.id))
+            ? new Set(
+                p.rfEdges
+                  .filter((e) => {
+                    const ran = (id: string): boolean => {
+                      const st = p.runResults?.[id]?.status;
+                      return st === 'success' || st === 'failed' || st === 'running';
+                    };
+                    return ran(e.source) && ran(e.target);
+                  })
+                  .map((e) => e.id),
+              )
             : undefined,
-          // 其中"两端都成功"的那部分＝已走通（常亮绿 + 外发光）；差集＝正在走（绿 + 光点跑）
+          // 其中"两端都成功"的那部分＝已走通（运行结束后常亮绿 + 外发光）；差集＝静态绿
           doneEdges: hasRun
             ? new Set(
                 p.rfEdges
                   .filter((e) => p.runResults?.[e.source]?.status === 'success' && p.runResults?.[e.target]?.status === 'success')
+                  .map((e) => e.id),
+              )
+            : undefined,
+          // ★ 2026-10-19 用户末版口径：「线上的动画效果，在后一个节点开始运行的时候才有，直到整个链路执行结束
+          //   （无论成功还是失败）才停止」＋「**如果中间某个节点失败、流程不继续了，也要中断后面线的动画；
+          //   如果中间节点的失败被忽略了、还继续执行后面的流程，动画还是正常要有的**」。
+          //   ⇒ 该流动的边＝走过（两端都执行过）且**支路没被判死**：目标节点失败且流程中断（⛔停止这条支路 /
+          //   ⏭跳过这条支路）的边不流动，立刻转静态绿；失败被忽略（🛟忽略失败，下游照跑）的边照常流动。
+          //   整轮结束（成功/失败/取消）由 runActive=false 统一收口。
+          flowingEdges: hasRun
+            ? new Set(
+                p.rfEdges
+                  .filter((e) => {
+                    const rs = p.runResults?.[e.target];
+                    if (rs?.status !== 'failed') return true;          // 目标没失败 ⇒ 支路还活着
+                    const node = (p.def.nodes ?? []).find((n) => n.id === e.target);
+                    // 🛟「忽略失败」= tolerate:true（下游照常执行）⇒ 继续流动；其余（stop / goto / skip）⇒ 停
+                    return node?.tolerate === true;
+                  })
                   .map((e) => e.id),
               )
             : undefined,

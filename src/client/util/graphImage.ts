@@ -120,11 +120,14 @@ export function buildGraphSvg(opts: BuildGraphSvgOptions): string {
     const x2 = b.cx - NODE_W / 2;
     const y2 = b.cy;
     const dx = Math.max(36, Math.abs(x2 - x1) * 0.45);
-    const color = e.when ? whenColor(e.when) : '#4a5f80';
+    // ★ 2026-10-19 用户拍板：连线**不再按分支染色**（true/false 只靠线上的「真/假」标签区分）——
+    //   导出图里线一律用默认边色，标签框/文字仍按分支上色，与画布口径保持一致。
+    const lineColor = '#4a5f80';
+    const color = e.when ? whenColor(e.when) : lineColor;
     parts.push(
-      `<path d="M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="1.6" opacity="0.85"/>`,
+      `<path d="M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}" fill="none" stroke="${lineColor}" stroke-width="1.6" opacity="0.85"/>`,
       // 箭头（指向目标左侧）
-      `<path d="M ${x2} ${y2} l -9 -4.5 l 0 9 z" fill="${color}" opacity="0.9"/>`,
+      `<path d="M ${x2} ${y2} l -9 -4.5 l 0 9 z" fill="${lineColor}" opacity="0.9"/>`,
     );
     if (e.when) {
       const mx = (x1 + x2) / 2;

@@ -83,23 +83,29 @@ class DockErrorBoundary extends Component<{ children: any }, { error: Error | nu
   }
 }
 
-/** 应用内浮窗提示（用于面板外的宿主级操作，例如「打开文件夹」失败）——
- *  与 FlowPanel 的 toast **同一套观感与口径**：顶部 14vh 居中、`dsh-wf-toast` 类名（吃 styles.css 的入场动画）；
- *  **成功类 2.6s 自动消失、失败类常驻且点一下关闭**。
+/** 应用内提示（用于面板外的宿主级操作，例如「打开文件夹」失败）——
+ *  与 FlowPanel 的顶部提示**同一套观感与口径**：顶部 14vh 居中、`dsh-wf-toast` 类名（吃 CSS 的淡入动画）；
+ *  两种都 5s 自动消失、点一下立刻关闭（★ 2026-10-19 起失败也不再常驻，与运行失败提示的口径统一）。
  *  ★ 2026-10-11：用它替换了原来的原生 `alert`（用户准则：禁止系统原生弹窗）。 */
 function showToast(text: string, ok = false): void {
   try {
     const el = document.createElement('div');
-    el.className = 'dsh-wf-toast';
+    el.className = 'dsh-wf-toast ' + (ok ? 'is-ok' : 'is-err');
     el.title = '点击关闭';
-    el.textContent = (ok ? '✓ ' : '✗ ') + text;
+    el.textContent = (ok ? '✓ ' : '✕ ') + text;
     const accent = ok ? 'var(--wf-success, #34d399)' : 'var(--wf-danger, #f87171)';
+    // ★ 2026-10-19 与 FlowPanel 的顶部提示统一形态（用户拍板「不要是方形，按设计规范设计一下；不要漂移」）：
+    //   10px 圆角卡片 + 左侧状态色竖条 + 深空蓝底 + 阴影；居中改**盒模型居中**（left:0/right:0/margin:auto），
+    //   不再用 translateX(-50%) —— 那个会被入场动画的 transform 覆盖，表现为"先偏右、再跳回居中"的漂移。
     el.setAttribute('style', [
-      'position:fixed', 'top:14vh', 'left:50%', 'transform:translateX(-50%)', 'z-index:10001',
-      'background:var(--wf-panel, #101a2b)',
-      `border:1px solid ${accent}`,
-      'border-radius:8px', 'padding:6px 14px', 'font-size:12px', 'line-height:1.5',
-      `color:${accent}`, 'cursor:pointer', 'max-width:min(560px, 88vw)', 'word-break:break-word',
+      'position:fixed', 'top:14vh', 'left:0', 'right:0', 'margin:0 auto', 'z-index:10001',
+      'width:max-content', 'max-width:min(560px, calc(100vw - 32px))',
+      'background:var(--wf-panel2, #162135)',
+      'border:1px solid var(--wf-border3, #2b3d57)',
+      `border-left:3px solid ${accent}`,
+      'border-radius:10px', 'padding:10px 16px', 'font-size:12.5px', 'line-height:1.55',
+      `color:${accent}`, 'cursor:pointer', 'text-align:left',
+      'box-shadow:0 10px 28px rgba(0, 0, 0, .5)', 'word-break:break-word',
     ].join(';'));
     el.addEventListener('click', () => { el.remove(); });
     document.body.appendChild(el);

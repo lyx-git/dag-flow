@@ -68,6 +68,17 @@ export function tipModel(item: RunStatusItem | undefined, opts: { label: string;
   if (item.error) {
     lines.push({ kind: 'err', text: `${item.error.code ?? 'ERROR'}：${clip(item.error.message ?? '', ERR_PREVIEW_MAX)}` });
   }
+  // ★ 2026-10-19 用户原话：「父子工作流，子工作流的失败信息透传到父工作流的节点上，因为子工作流是隐式执行的，
+  //   在画布上看不到执行结果」——引擎把子工作流里第一个失败节点写进 out.failedNode（loop 另有 failedRound）。
+  //   单独列一整行：父节点那行错误摘要会被 400 字截断，真正定位（哪个节点、什么码、说了什么）要看这条。
+  const outObj = (item.out && typeof item.out === 'object')
+    ? item.out as { failedNode?: { id?: string; code?: string; message?: string }; failedRound?: number }
+    : undefined;
+  const fn = outObj?.failedNode;
+  if (fn && typeof fn === 'object') {
+    const where = typeof outObj?.failedRound === 'number' ? `第 ${outObj.failedRound} 轮循环体内失败：` : '子工作流内失败：';
+    lines.push({ kind: 'err', text: `${where}节点「${fn.id ?? '?'}」—— ${fn.code ?? 'ERROR'}${fn.message ? `：${clip(fn.message, ERR_PREVIEW_MAX)}` : ''}` });
+  }
   if (tolerated) {
     lines.push({ kind: 'warn', text: '已容错：本节点失败被放行，后续节点照常执行（这次没有中断工作流）' });
   }

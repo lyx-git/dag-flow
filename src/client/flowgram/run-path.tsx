@@ -11,20 +11,16 @@ import type { RFEdge } from '../util/flowDef';
 import { runPathStore, runPathKey } from './runStatus';
 import { LineBranchLabel } from './branch-editor';
 
-/** 线条配色：true 绿 / false 红（选中、悬停、运行流动时不覆盖，保留官方交互反馈色）。
- *  ★ 只被下面的 linePropsFor 当兜底用，所以随运行路径配色一起放本文件（2026-10-14 轮 4）。 */
-function branchColorProps(line: any, oldProps: any): any {
-  try {
-    const key = String(line?.fromPort?.portID ?? '');
-    const color = key === 'true' ? '#10b981' : key === 'false' ? '#f43f5e' : null;
-    return color ? { ...oldProps, color } : oldProps;
-  } catch { return oldProps; }
-}
+/** ★ 2026-10-19 用户拍板：**连线不再按分支染红绿**（原 true 绿 / false 红已删除）——
+ *  "分支的颜色改成和其他节点一样，只有两种颜色，走过就绿，没走过其他连接线是什么色就什么色，
+ *   还没跑的时候不分红绿"。分支身份只靠线上的「真/假」标签；颜色交给运行路径绿 / 主题默认色。 */
 
 /** ★ 运行路径高亮配色（2026-10-11 用户拍板方案 C：**源节点成功即算运行路径**，
  *  其中两端都成功＝已走通、只源成功＝正在走） */
 const RUN_PATH_COLOR = '#35d39a';                       // 与旧 `--wf-edge-active` 同色
 const RUN_PATH_GLOW = 'drop-shadow(0 0 3px rgba(53,211,154,.78))';
+/** 还没到的边淡化到 40%（★ 2026-10-19 用户纠正：这是**原有逻辑，保留**——"连线只有两种状态"指
+ *  「走过＝绿 / 还没到＝淡化的原色」，不是取消淡化） */
 const RUN_PATH_DIM = 0.4;
 /** 「正在走」的光点：沿边跑的小圆（候选 ②）。速度＝走完一条边 1.25s，尾巴用负延迟错开 */
 const COMET_RUN_MS = 1250;
@@ -42,8 +38,9 @@ export function linePropsFor(line: any, oldProps: any): any {
     if (runState === 'done') return { ...oldProps, color: RUN_PATH_COLOR, version: `${oldProps?.version ?? ''}|rp:done` };
     if (runState === 'moving') return { ...oldProps, color: RUN_PATH_COLOR, version: `${oldProps?.version ?? ''}|rp:move` };
     if (runState === 'stalled') return { ...oldProps, color: RUN_PATH_COLOR, version: `${oldProps?.version ?? ''}|rp:stall` };
-    const base = branchColorProps(line, oldProps);
-    return runState === 'dim' ? { ...base, version: `${base?.version ?? ''}|rp:dim` } : base;
+    // ★ 2026-10-19 用户拍板：分支线**不再分红绿**（true/false 只靠线上的「真/假」标签区分），
+    //   没走过时与普通连线同色；走过才由上面的 done/moving/stalled 覆盖成运行路径绿。
+    return runState === 'dim' ? { ...oldProps, version: `${oldProps?.version ?? ''}|rp:dim` } : oldProps;
   } catch { return oldProps; }
 }
 
@@ -113,15 +110,16 @@ export function LineInside(props: any) {
 //     ③ 类名 `is-runpath-done` / `is-runpath-moving` / `is-runpath-dim` → CSS 与 CDP 断言的抓手；
 //        光点本身由 `renderInsideLine` 上的 `CometDots` 画（③ 里那条线的包装 div 就是它的定位父级）。
 //   为什么还要订阅线变化：fromJSON 重建、手动拖线新建都会产生新实体，必须重新套用。
-export function RunPathSync(props: { edges: RFEdge[]; activeEdges?: Set<string>; doneEdges?: Set<string>; runActive?: boolean }) {
+export function RunPathSync(props: { edges: RFEdge[]; activeEdges?: Set<string>; doneEdges?: Set<string>; flowingEdges?: Set<string>; runActive?: boolean }) {
   const ctx = useClientContext();
-  // 用内容签名当依赖：两个 Set 每次渲染都是新的，直接进 deps 会每帧重跑
-  // ★ 2026-10-19 性能（P4）：三段签名各自 useMemo —— 原来每个 render 都要把全部边重新拼一遍字符串，
+  // 用内容签名当依赖：这些 Set 每次渲染都是新的，直接进 deps 会每帧重跑
+  // ★ 2026-10-19 性能（P4）：几段签名各自 useMemo —— 原来每个 render 都要把全部边重新拼一遍字符串，
   //   而 RunPathSync 随 FlowPanel 每次重渲染都会跑（点选节点、运行状态刷新…）。
   const activeIds = useMemo(() => (props.activeEdges ? [...props.activeEdges].sort().join(',') : ''), [props.activeEdges]);
   const doneIds = useMemo(() => (props.doneEdges ? [...props.doneEdges].sort().join(',') : ''), [props.doneEdges]);
+  const flowingIds = useMemo(() => (props.flowingEdges ? [...props.flowingEdges].sort().join(',') : ''), [props.flowingEdges]);
   const edgeSig = useMemo(() => props.edges.map((e) => `${e.id}:${e.source}|${e.sourceHandle ?? ''}|${e.target}`).join(','), [props.edges]);
-  const sig = `${activeIds}##${doneIds}##${props.runActive ? 'run' : 'idle'}##${edgeSig}`;
+  const sig = `${activeIds}##${doneIds}##${flowingIds}##${props.runActive ? 'run' : 'idle'}##${edgeSig}`;
   // 给闭包外的 apply 一个稳定的读点（延迟重放时也要拿到最新值）
   const runActiveRef = useRef(!!props.runActive);
   runActiveRef.current = !!props.runActive;
@@ -130,15 +128,18 @@ export function RunPathSync(props: { edges: RFEdge[]; activeEdges?: Set<string>;
     const on = !!props.activeEdges;
     const keys = new Set<string>();
     const done = new Set<string>();
+    const flowing = new Set<string>();
     if (on) {
       for (const e of props.edges) {
         if (!props.activeEdges?.has(e.id)) continue;
         const k = `${e.source}|${e.sourceHandle ?? ''}|${e.target}`;
         keys.add(k);
         if (props.doneEdges?.has(e.id)) done.add(k);
+        // ★ 该流动的边（目标失败且流程中断的边不在其中 ⇒ 动画当场停）
+        if (props.flowingEdges?.has(e.id)) flowing.add(k);
       }
     }
-    runPathStore.set(on, keys, done, runActiveRef.current);
+    runPathStore.set(on, keys, done, flowing, runActiveRef.current);
     const lines: any[] = [];
     try {
       const lm: any = ctx.container.get(WorkflowLinesManager);
@@ -149,6 +150,7 @@ export function RunPathSync(props: { edges: RFEdge[]; activeEdges?: Set<string>;
         const st = runPathStore.stateFor(l);
         let err = '';
         try {
+          // ★ 2026-10-19 用户纠正：'dim' 恢复——未走过的边淡化到 40%，但**颜色仍走分支配色**（if 的红/绿）。
           const wantClass = st === 'done' ? 'is-runpath-done'
             : st === 'moving' ? 'is-runpath-moving'
               : st === 'stalled' ? 'is-runpath-stalled'

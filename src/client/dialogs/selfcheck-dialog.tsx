@@ -7,9 +7,10 @@ import { createElement, useState } from 'react';
 
 export function useSelfcheckDialog() {
   // ★ 运行前自检拦住（2026-10-04 轮 1）：存住 host 返回的问题清单（含解决办法），弹窗让用户人工确认
-  const [selfcheckBlock, setSelfcheckBlock] = useState<{ items: { level?: string; code?: string; nodeId?: string; message?: string; fix?: string }[]; errorCount: number; warnCount?: number; stats?: { nodes?: number; edges?: number } } | null>(null);
+  const [selfcheckBlock, setSelfcheckBlock] = useState<{ items: { level?: string; code?: string; nodeId?: string; message?: string; fix?: string }[]; errorCount: number; warnCount?: number; stats?: { nodes?: number; edges?: number }; ms?: number } | null>(null);
   // 「点运行 → 先自检（按钮显示『自检中…』）→ 自检通过 → 人工确认 → 才真正开跑」的中间态
-  const [selfcheckState, setSelfcheckState] = useState<null | { phase: 'checking' } | { phase: 'ok'; result: { items: any[]; errorCount: number; warnCount: number; stats: { nodes?: number; edges?: number } } }>(null);
+  // ★ `ms`＝本次自检耗时（2026-10-19 加：几十毫秒就通过时「自检中…」只闪一帧，把耗时写进弹窗才能说明它真检过）
+  const [selfcheckState, setSelfcheckState] = useState<null | { phase: 'checking' } | { phase: 'ok'; result: { items: any[]; errorCount: number; warnCount: number; stats: { nodes?: number; edges?: number }; ms?: number } }>(null);
   return { selfcheckBlock, setSelfcheckBlock, selfcheckState, setSelfcheckState };
 }
 
@@ -36,7 +37,8 @@ export function SelfcheckOkDialogView({ d, onRun, setSelectedNodeId }: {
       ),
       createElement('div', { className: 'dag-flow-picker-body' },
         createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11.5, opacity: 0.8, lineHeight: 1.65 } },
-          `已检查 ${sc.result.stats?.nodes ?? 0} 个节点 / ${sc.result.stats?.edges ?? 0} 条边：结构、连线引用、必填参数、分支键、环路、循环与子工作流依赖都没问题。`,
+          `已检查 ${sc.result.stats?.nodes ?? 0} 个节点 / ${sc.result.stats?.edges ?? 0} 条边：结构、连线引用、必填参数、分支键、环路、循环与子工作流依赖都没问题。`
+            + (typeof sc.result.ms === 'number' ? `（本次自检用时 ${sc.result.ms} ms）` : ''),
           sc.result.warnCount > 0 ? `另有 ${sc.result.warnCount} 条提醒（不影响运行，可先看看）：` : '点「开始运行」就真正执行，运行期间可以在头部取消。',
         ),
         sc.result.items.filter((i) => i.level === 'warn').length
@@ -88,7 +90,8 @@ export function SelfcheckBlockDialogView({ d, setSelectedNodeId }: {
       ),
       createElement('div', { className: 'dag-flow-picker-body' },
         createElement('div', { className: 'dag-flow-picker-hint', style: { fontSize: 11.5, opacity: 0.8, lineHeight: 1.65 } },
-          '这些问题会让工作流跑不起来、或跑出意料之外的结果。请先按下面的「解决办法」改掉——自检不通过时不能运行。'),
+          '这些问题会让工作流跑不起来、或跑出意料之外的结果。请先按下面的「解决办法」改掉——自检不通过时不能运行。'
+            + (typeof block.ms === 'number' ? `（本次自检用时 ${block.ms} ms）` : '')),
         createElement('div', { className: 'dsh-wf-selfcheck-list' },
           block.items.filter((i) => i.level === 'error').map((it, i) =>
             createElement('div', {

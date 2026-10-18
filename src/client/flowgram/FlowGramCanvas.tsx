@@ -310,10 +310,13 @@ export function Canvas(props: {
   def?: unknown;
   nodes: RFNode[];
   edges: RFEdge[];
+  /** 两端**都执行过**（success / failed / running）的边＝运行路径（绿）。见 RunPathSync 头注释 */
   activeEdges?: Set<string>;
-  /** 其中"两端都成功"的边＝已走通（常亮绿）；差集＝正在走（绿 + 光点跑）。见 RunPathSync 头注释 */
+  /** 其中"两端都成功"的边＝已走通（运行结束后常亮绿 + 外发光）；差集＝静态绿 */
   doneEdges?: Set<string>;
-  /** 运行是否仍在进行（false ⇒ 没走完的边只留静态绿、光点停）。见 RunPathSync 头注释 */
+  /** 该流动的边（走过、且目标节点没因失败中断支路）；整轮结束后一律不流动 */
+  flowingEdges?: Set<string>;
+  /** 运行是否仍在进行（true ⇒ flowing 的边流动；false ⇒ 全部转静态）。见 RunPathSync 头注释 */
   runActive?: boolean;
   onChange: (nodes: RFNode[], edges: RFEdge[]) => void;
   /** ★ null = 点空白取消选中（onSelectRef 桥同款契约；renderBody/p.onSelectNode 本来就是 string|null） */
@@ -370,7 +373,7 @@ export function Canvas(props: {
       FreeLayoutEditorProvider,
       editorProps,
       createElement(DefSync, { nodes, edges }),
-      createElement(RunPathSync, { edges, activeEdges: props.activeEdges, doneEdges: props.doneEdges, runActive: props.runActive }),
+      createElement(RunPathSync, { edges, activeEdges: props.activeEdges, doneEdges: props.doneEdges, flowingEdges: props.flowingEdges, runActive: props.runActive }),
       createElement(EditorRenderer, { className: 'dsh-wf-fg-editor' }),
       createElement(CanvasInteractions, { nodes, edges, onChange: props.onChange }),
       createElement(NodePalette),

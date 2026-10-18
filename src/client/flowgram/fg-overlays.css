@@ -390,6 +390,8 @@
    ★ 2026-10-11 用户反馈「运行中的工作流取消了，能不能关闭这个光点动画」 */
 .dsh-wf-fg-root .gedit-flow-activity-edge.is-runpath-stalled svg path { stroke: #35d39a; }
 .dsh-wf-fg-root .gedit-flow-activity-edge.is-runpath-stalled { opacity: .82; }
+/* 还没到的边：淡化到 40%（★ 2026-10-19 用户纠正：这是**原有逻辑，保留**）——
+   「连线只有两种状态」= 走过（绿）/ 还没到（淡化的原色）；颜色仍由分支配色决定（if 的红/绿），CSS 只压透明度。 */
 .dsh-wf-fg-root .gedit-flow-activity-edge.is-runpath-dim { opacity: .4; }
 
 /* 「正在走」的光点（候选 ② 光点跑）：沿这条线自己的贝塞尔路径跑，尾巴用负延迟错开。
@@ -403,6 +405,10 @@
   animation-name: dsh-wf-comet-run;
   animation-timing-function: linear;
   animation-iteration-count: infinite;
+  /* 2026-10-19：把光点动画提到合成层——offset-distance 每帧插值 + 自带 box-shadow，
+     留在主线程渲染流水线上会持续占用合成/绘制预算（无头软件渲染实测 3s 内 program 1.15s）。
+     只在「正在走」时才渲染这个元素，所以 will-change 不会常驻占显存。 */
+  will-change: offset-distance;
 }
 @keyframes dsh-wf-comet-run { from { offset-distance: 0%; } to { offset-distance: 100%; } }
 /* 兜底：不支持 offset-path 的浏览器干脆不画光点（否则它们会全部堆在线的左上角） */

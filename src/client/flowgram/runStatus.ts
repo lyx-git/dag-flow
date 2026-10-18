@@ -53,6 +53,11 @@ export const runStatusStore = {
 let _rpOn = false;
 let _rpSrcDone = new Set<string>();
 let _rpDone = new Set<string>();
+/** ★ 2026-10-19 用户拍板（末版）：哪些走过的边**还该流动**。
+ *  规则：流过（两端都执行过）的边在整轮运行期间一直流动，但——**如果这条边的目标节点失败且流程中断**
+ *  （⛔ 停止这条支路 / ⏭ 跳过这条支路，下游不再执行），它立刻停；**失败被忽略**（🛟 忽略失败，下游照跑）
+ *  则照常流动。整轮结束（成功/失败/取消）时全部转静态。 */
+let _rpFlowing = new Set<string>();
 /** 运行是否**仍在进行**：false 时"正在走"退化成静态绿（stalled），不再有光点动画。
  *  ★ 2026-10-11 用户真机反馈：「运行中的工作流取消了，能不能关闭这个光点动画」——运行结束/被取消后，
  *  「源成功、目标没成功」这个条件依然成立，光点会**永远转下去**，所以必须由"是否还在跑"来收口。 */
@@ -66,13 +71,15 @@ export function runPathKey(line: any): string {
 
 export const runPathStore = {
   /** @param on 当前有没有运行态（有才淡化，没有就一切照旧）
-   *  @param srcDone 源节点已成功的边（＝运行路径）
-   *  @param done 两端都成功的边（＝已走通，是 srcDone 的子集）
-   *  @param running 运行是否仍在进行（false ⇒ 没走完的边只留静态绿、不放光点） */
-  set(on: boolean, srcDone: Set<string>, done: Set<string>, running: boolean) {
+   *  @param srcDone 两端都执行过的边（＝运行路径，绿）
+   *  @param done 两端都成功的边（＝已走通，常亮绿 + 外发光）
+   *  @param flowing 走过、且"支路还没被判死"的边（＝该流动的边；目标失败且流程中断的不在其中）
+   *  @param running 运行是否仍在进行（true ⇒ flowing 的边都流动；false ⇒ 全部转静态） */
+  set(on: boolean, srcDone: Set<string>, done: Set<string>, flowing: Set<string>, running: boolean) {
     _rpOn = on;
     _rpSrcDone = srcDone;
     _rpDone = done;
+    _rpFlowing = flowing;
     _rpRunning = running;
     for (const fn of rpListeners) {
       try { fn(); } catch { /* 忽略 */ }
@@ -81,13 +88,14 @@ export const runPathStore = {
   isOn(): boolean {
     return _rpOn;
   },
-  /** 'done' 已走通 / 'moving' 正在走（光点跑）/ 'stalled' 没走完就停了（静态绿）/ 'dim' 还没到 / null 无运行态 */
+  /** 'done' 已走通（两端成功，常亮绿+外发光）/ 'moving' 走过的线在流动（光点）/ 'stalled' 走过但停止流动
+   *  （静态绿：整轮已结束，或这条边的目标失败且流程中断）/ 'dim' 还没到（淡化 40%）/ null 无运行态 */
   stateFor(line: any): 'done' | 'moving' | 'stalled' | 'dim' | null {
     if (!_rpOn) return null;
     const k = runPathKey(line);
-    if (_rpDone.has(k)) return 'done';
-    if (!_rpSrcDone.has(k)) return 'dim';
-    return _rpRunning ? 'moving' : 'stalled';
+    if (!_rpSrcDone.has(k)) return 'dim';                          // 没走过 ⇒ 淡化
+    if (_rpRunning && _rpFlowing.has(k)) return 'moving';          // 走过 + 支路还活着 + 整轮在跑 ⇒ 流动
+    return _rpDone.has(k) ? 'done' : 'stalled';                    // 否则静态：两端成功⇒常亮发光，其他⇒静态绿
   },
   subscribe(fn: () => void): () => void {
     rpListeners.add(fn);

@@ -82,14 +82,32 @@
     0 10px 26px rgba(0, 0, 0, 0.45);
 }
 
-.dsh-wf-fg-card.is-ok {
-  border-color: color-mix(in srgb, var(--wf-success, #34d399) 60%, var(--wf-node-border, #3a4d68));
+/* ★ 2026-10-19 用户拍板（含当轮纠正）——节点按**执行结果**着色，四种失败策略归成红/黄两色：
+   成功＝绿；失败且流程中断（⛔ 停止这条支路）＝红；失败但流程继续（🛟 忽略失败 / ⏭ 跳过这条支路）＝琥珀黄；
+   未运行（**含跳过**）＝节点本来的样子 + 轻微发暗 62%（`.is-skip`，**原逻辑保留**）：`skipped` 与 `pending`
+   都算未运行；一次都没跑过时不给状态类，画布保持设计态。
+   `:not(.fg-selected)`：选中态的背景/描边优先级更高，别被状态底色盖掉。 */
+.dsh-wf-fg-card.is-ok:not(.fg-selected) {
+  border-color: color-mix(in srgb, var(--wf-success, #34d399) 85%, var(--wf-node-border, #3a4d68));
+  background: color-mix(in srgb, var(--wf-success, #34d399) 16%, var(--wf-panel2, #162135));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--wf-success, #34d399) 32%, transparent), 0 6px 18px rgba(0, 0, 0, .35);
 }
 
-.dsh-wf-fg-card.is-err {
-  border-color: color-mix(in srgb, var(--wf-danger, #f87171) 65%, var(--wf-node-border, #3a4d68));
+/* 失败但**流程继续**（容错 / 跳过支路）：告警色——它不是"这条流程挂了" */
+.dsh-wf-fg-card.is-warn:not(.fg-selected) {
+  border-color: color-mix(in srgb, var(--wf-warn, #fbbf24) 85%, var(--wf-node-border, #3a4d68));
+  background: color-mix(in srgb, var(--wf-warn, #fbbf24) 14%, var(--wf-panel2, #162135));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--wf-warn, #fbbf24) 30%, transparent), 0 6px 18px rgba(0, 0, 0, .35);
 }
 
+/* 失败且**流程中断**（默认的「⛔ 停止这条支路」）：红色 */
+.dsh-wf-fg-card.is-err:not(.fg-selected) {
+  border-color: color-mix(in srgb, var(--wf-danger, #f87171) 88%, var(--wf-node-border, #3a4d68));
+  background: color-mix(in srgb, var(--wf-danger, #f87171) 16%, var(--wf-panel2, #162135));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--wf-danger, #f87171) 36%, transparent), 0 6px 18px rgba(0, 0, 0, .35);
+}
+
+/* 未运行 / 被跳过：保持原来的"轻微发暗"，不叠状态色（2026-10-19 用户明确要求恢复这条原有逻辑） */
 .dsh-wf-fg-card.is-skip {
   opacity: 0.62;
 }

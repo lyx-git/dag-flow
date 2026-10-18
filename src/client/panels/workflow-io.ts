@@ -112,11 +112,12 @@ export function useWorkflowIo(p: UseWorkflowIoParams) {
   // ★ 2026-10-09：导出菜单（⬇ 按钮 → 导出 JSON / 导出图片 PNG）；menuAt = 按钮位置，用于 fixed 锚定
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportMenuAt, setExportMenuAt] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
-  // ★ 2026-10-08：**成功类浮窗自动消失**（约 2.6s）——否则「取消成功」这类提示会一直挂着等用户点 ✗；
-  //   失败类（ok:false）保留"点击关闭"，避免错误信息被自动吞掉。
+  // ★ 2026-10-19 用户拍板「画布里面不想要有运行失败的弹窗了…只有最后的执行失败和执行成功的提示」：
+  //   失败提示也**不再常驻**——成功 2.6s、失败 5s（留够读完那一句话的时间）后自动消失，随时可点关闭。
+  //   失败的具体原因不在浮窗里，而是落在画布对应节点上（徽标标红 + 悬停悬浮卡）。
   useEffect(() => {
-    if (!importMsg?.ok) return;
-    const t = window.setTimeout(() => setImportMsg(null), 2600);
+    if (!importMsg) return;
+    const t = window.setTimeout(() => setImportMsg(null), importMsg.ok ? 2600 : 5000);
     return () => window.clearTimeout(t);
   }, [importMsg]);
 

@@ -96,51 +96,10 @@ export function displayTag(def: { nodes?: { id: string; label?: string }[] } | n
   return label && label !== id ? `${label}_${id}` : id;
 }
 
-/** 运行失败详情全文（失败弹窗正文，2026-10-02）：优先执行器错误串；否则从 RunSummary
- *  提取汇总错误 + 逐节点失败明细（画布徽标只标了状态，弹窗里给出每个节点的失败原因）。
- *  ★ 节点标识统一「显示名_节点id」格式（2026-10-02 用户指定：【失败原因：显示名_id】
- *    【失败节点：显示名_id】，让用户一眼定位是哪个节点出问题）；未设 label 回退只显示 id。 */
-export function runFailureDetail(
-  runResult: { status: string; summary?: unknown; error?: string } | null,
-  def?: { nodes?: { id: string; label?: string }[] },
-): string {
-  if (!runResult) return '';
-  if (runResult.error) return runResult.error;
-  const s = runResult.summary as
-    | { status?: string; error?: { code?: string; message?: string; nodeId?: string }; results?: Record<string, { status?: string; error?: { code?: string; message?: string } }> }
-    | null | undefined;
-  if (!s) return '运行失败（无详细信息）';
-  // 节点标识：显示名_id（label 与 id 相同时只显示 id，避免重复）
-  const nodeTag = (id: string): string => {
-    const label = def?.nodes?.find((n) => n.id === id)?.label;
-    return label && label !== id ? `${label}_${id}` : id;
-  };
-  const lines: string[] = [];
-  const failed = Object.entries(s.results ?? {}).filter(([, r]) => r?.status === 'failed');
-  // 单节点失败：按用户指定的标题格式——失败节点 / 失败原因 都带「显示名_id」
-  if (failed.length === 1 && failed[0] !== undefined) {
-    const [id, r] = failed[0];
-    const tag = nodeTag(id);
-    lines.push(`【失败节点：${tag}】`);
-    lines.push(`【失败原因：${tag}】${r.error?.code ? r.error.code + '：' : ''}${r.error?.message ?? '未知错误'}`);
-    return lines.join('\n');
-  }
-  // 多节点失败：逐行带节点标识
-  if (failed.length > 1) {
-    lines.push(`【失败节点（${failed.length}）】`);
-    for (const [id, r] of failed) {
-      lines.push(`· 【${nodeTag(id)}】${r.error?.code ? r.error.code + '：' : ''}${r.error?.message ?? '未知错误'}`);
-    }
-    return lines.join('\n');
-  }
-  // 无节点级失败（如工作流参数校验失败 / DAG 成环等运行级错误）：显示汇总原因
-  if (s.error?.message) {
-    const who = s.error.nodeId ? `：${nodeTag(s.error.nodeId)}` : '';
-    lines.push(`【失败原因${who}】${s.error.code ? s.error.code + '：' : ''}${s.error.message}`);
-  }
-  if (lines.length === 0) lines.push(`工作流以「${s.status ?? 'failed'}」状态结束（无节点级错误）`);
-  return lines.join('\n');
-}
+// ★ 2026-10-19 用户拍板「画布里面不想要有运行失败的弹窗了……失败具体内容全部放到具体节点上」：
+//   原先这里有一个 runFailureDetail()（失败弹窗正文 / 「复制失败详情」用），随弹窗一起删除。
+//   失败信息现在就在节点上（徽标 + 悬浮卡），完整运行明细仍可在「🧾 运行日志」弹窗逐节点查看与复制。
+
 
 // ★ 2026-10-19（用户「参数与试跑按钮的下方，会显示参数情况，不用显示了，清掉吧」）：
 //   `paramsSummary()` 连同它在面板里的那行只读摘要一起删除 —— 参数只有一个入口（弹窗），

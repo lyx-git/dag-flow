@@ -62,6 +62,31 @@ console.log('== B. 失败 / 失败但已容错（A 方案开关）==');
   eq(kinds(m), ['warn'], 'B10. 容错失败且无 error 信息 → 只有容错说明行');
 }
 
+// ★ 2026-10-19（用户原话「父子工作流，子工作流的失败信息透传到父工作流的节点上，因为子工作流是隐式执行的，
+//   在画布上看不到执行结果…失败具体内容全部放到具体节点上」）：
+//   父节点（loop / subflow）的悬浮卡必须**单独列出**子工作流内部的失败节点，不能只靠那一行会被截断的父级错误。
+{
+  const m = tipModel({
+    status: 'failed', durationMs: 368,
+    error: { code: 'LOOP_BODY_FAILED', message: '第 1/7 轮循环体「股票分析-单方向」以 failed 结束' },
+    out: { count: 0, items: [], failedRound: 1, failedNode: { id: 'ai_dir', code: 'SUBAGENT_UNAVAILABLE', message: 'RATE_LIMIT / 429' } },
+  }, { label: '循环', id: 'loop_dirs' });
+  ok(texts(m).includes('第 1 轮循环体内失败：节点「ai_dir」'), 'B11. 循环体失败：卡片单列「第 N 轮循环体内失败：节点「x」」');
+  ok(texts(m).includes('SUBAGENT_UNAVAILABLE：RATE_LIMIT / 429'), 'B12. 带出子节点的错误码与原文原因');
+}
+{
+  const m = tipModel({
+    status: 'failed',
+    error: { code: 'SUBFLOW_FAILED', message: '子工作流「采集」以 failed 结束' },
+    out: { workflow: '采集', status: 'failed', failedNode: { id: 'py_read', code: 'PYTHON_EXIT', message: '退出码 1' } },
+  }, { label: '子工作流', id: 'sub_collect' });
+  ok(texts(m).includes('子工作流内失败：节点「py_read」'), 'B13. subflow 失败：卡片单列「子工作流内失败：节点「x」」');
+}
+{
+  const m = tipModel({ status: 'failed', error: { code: 'X', message: 'y' } }, { label: 'L', id: 'n' });
+  ok(!texts(m).includes('内失败：'), 'B14. 反向锁：没有 failedNode 时不该凭空冒出「内失败：」行');
+}
+
 console.log('== C. 跳过 ==');
 {
   const m = tipModel({ status: 'skipped' }, { label: 'L', id: 'n' });

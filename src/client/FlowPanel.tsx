@@ -39,12 +39,12 @@ import { useUndoWiring } from './undo-wiring';
 import { SessionInputFields, MediaFields, WebFields } from './inspector-fields';
 // ★ 2026-10-14 重构轮 7：右侧检查器整体拆至 NodeInspector.tsx（840 行一个组件，不二次切）
 import { NodeInspector } from './NodeInspector';
-// ★ 2026-10-14 弹窗专项批 1：工作流参数/历史版本/运行失败详情三弹窗成对拆出（hook 状态留在本组件实例）
+// ★ 2026-10-14 弹窗专项批 1：工作流参数/历史版本弹窗成对拆出（hook 状态留在本组件实例）
 import { useInputsDialog, InputsDialogView } from './dialogs/inputs-dialog';
 import { useVersionsDialog, VersionsDialogView } from './dialogs/versions-dialog';
-import { useRunFailDialog, RunFailDialogView } from './dialogs/run-fail-dialog';
 import { useSchedulesDialog, SchedulesDialogView, ScheduleRunConfirmView } from './dialogs/schedule-dialog';
 import { useRunLogDialog, RunLogDialogView } from './dialogs/run-log-dialog';
+import { useRunResult } from './run-result';
 import { useRunControl } from './panels/run-control';
 import { useNodeEditing } from './panels/node-editing';
 import { useWorkflowIo } from './panels/workflow-io';
@@ -182,10 +182,12 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
   }, [ctx, def]);
 
   // 运行
-  // ★ 运行失败详情弹窗（2026-10-02）：状态/开关拆至 dialogs/run-fail-dialog.tsx
-  //   （hook 仍在本组件实例上调用——applyRunSummary/handleRun/头部失败徽标的读写零变化）
-  const runDlg = useRunFailDialog();
-  const { runResult, setRunResult, runDlgOpen, setRunDlgOpen } = runDlg;
+  // ★ 2026-10-19 用户拍板「画布里面不想要有运行失败的弹窗了……失败具体内容全部放到具体节点上」：
+  //   运行失败详情弹窗（dialogs/run-fail-dialog.tsx）已整体移除，失败原因改由画布节点自己承载
+  //   （节点徽标标红 + 悬停看悬浮卡；loop / subflow 的卡片还会带出子工作流内部失败的节点与原因）。
+  //   这里只留下 summary 状态：变量面板的「实际有哪些变量」靠它反推。
+  const runResultState = useRunResult();
+  const { runResult } = runResultState;
   // ★ 弹窗样式挂载即注入（2026-10-02 用户报「报错信息在左下角」根因：dag-flow-picker 系弹窗
   //   样式由 ensurePickerStyles 注入，过去只有点开 📂 时才注入——停靠模式刷新后直接点 ▶，
   //   失败弹窗因缺样式渲染成面板底部的裸块。挂载即注入（幂等），全部弹窗不再依赖打开顺序）
@@ -201,7 +203,7 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
   //   + 运行入口（handleRun：自检→人工确认→真跑）+ 取消（cancelRun）+ 顶部提示（importMsg）
   //   + 人工确认弹窗（useManualDialog，它依赖 applyRunSummary 又要给 handleRun 提供 setter，只能一起搬）。
   //     而 handleRun 要写它的 setter ⇒ 渲染期赋值（与 nodesRef.current 同款手法），避开入参求值早于声明。
-  const run = useRunControl({ def, dirty, handleSave, ctx, runDlg, selfcheckDlg });
+  const run = useRunControl({ def, dirty, handleSave, ctx, runOut: runResultState, selfcheckDlg });
   const {
     runResults, setRunResults,
     running, setRunning,
@@ -614,6 +616,9 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
       // ★ 运行按钮：运行中变**动态**状态（方案 D = 弧线旋转环 + 按钮呼吸外发光 + 扫光 + 「运行中」；
       //   2026-10-03 用户在候选原型里拍板 D，弃漏斗/弃字符 ◌）；跑完恢复 ▶
       //   `is-icolike`＝静态时与相邻纯图标按钮**同宽**（否则 ▶ 这个字符只有 ~16px，比旁边窄一截）。
+      // ★ 2026-10-19 两轮定稿：自检「**慢才显示**」——handleRun 里超过 400ms 才切 phase='checking'。
+      //   快（真机中位 18ms）时用户看不到任何中间态，直接进确认窗（解决"闪一下容易误解"）；
+      //   慢时这里才亮「自检中…」+ 转圈，避免"点了没反应像卡死"。
       createElement(
         'button',
         {
@@ -891,24 +896,37 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
         ),
       ),
     ),
-    // 结果/操作提示浮窗（保存/导出/导入/运行结果/取消成功）
-    //   ★ 2026-10-08 用户要求：**放到上面**（原在底部 18px ✗）——改为顶部锚定，与项目弹窗约定一致（14vh）；
-    //   ★ 带 onClick 的（如「运行失败——点这里看详情」）点击执行该动作，否则点击关闭。
+    // 结果/操作提示（保存/导出/导入/运行结果/取消成功）
+    //   ★ 2026-10-08：顶部锚定 14vh（原在底部 18px ✗），与项目弹窗约定一致。
+    //   ★ 2026-10-19 用户拍板「不要是方形，按设计规范设计一下；弹窗后也不要漂移」：
+    //     ① 形态按项目规范：10px 圆角卡片 + 左侧 3px 状态色竖条 + 深空蓝底 + 阴影 0 10px 28px rgba(0,0,0,.5)，
+    //        图标与文案分开排版（文案用正文色，只有图标带状态色），不再是一整行彩色方框；
+    //     ② **居中不再用 transform**：原来 `left:50% + translateX(-50%)` 会被入场动画的 `transform: scale()`
+    //        覆盖 ⇒ 动画期间元素以视口中心为**左边缘**（偏右半个宽度），动画结束才跳回居中，看起来就是"弹出来漂一下"。
+    //        现在改成 `left:0/right:0/margin:auto` 的纯盒模型居中，配合 CSS 只做 opacity 淡入，位置一次到位。
     importMsg && createElement(
       'div',
       {
-        className: 'dsh-wf-toast',   // ★ 2026-10-09：加类名以便 CSS 做"缩放浮现"入场（见 styles.css 交互动画段）
+        className: `dsh-wf-toast ${importMsg.ok ? 'is-ok' : 'is-err'}`,
         title: importMsg.onClick ? '点击查看详情' : '点击关闭',
         style: {
-          position: 'fixed', top: '14vh', left: '50%', transform: 'translateX(-50%)', zIndex: 10001,
-          background: 'var(--wf-panel, #101a2b)', border: `1px solid ${importMsg.ok ? 'var(--wf-success, #34d399)' : 'var(--wf-danger, #f87171)'}`,
-          borderRadius: 8, padding: '6px 14px', fontSize: 12,
-          color: importMsg.ok ? 'var(--wf-success, #34d399)' : 'var(--wf-danger, #f87171)',
+          position: 'fixed', top: '14vh', left: 0, right: 0, margin: '0 auto', zIndex: 10001,
+          width: 'max-content', maxWidth: 'min(560px, calc(100vw - 32px))',
+          display: 'flex', alignItems: 'center', gap: 8,
+          background: 'var(--wf-panel2, #162135)',
+          border: '1px solid var(--wf-border3, #2b3d57)',
+          borderLeft: `3px solid ${importMsg.ok ? 'var(--wf-success, #34d399)' : 'var(--wf-danger, #f87171)'}`,
+          borderRadius: 10, padding: '10px 16px', fontSize: 12.5, lineHeight: 1.55,
+          color: 'var(--wf-text, #dbe6f5)', textAlign: 'left', wordBreak: 'break-word',
+          boxShadow: '0 10px 28px rgba(0, 0, 0, .5)',
           cursor: 'pointer',
         },
         onClick: () => { const act = importMsg.onClick; setImportMsg(null); act?.(); },
       },
-      `${importMsg.ok ? '✓ ' : '✗ '}${importMsg.text}`,
+      createElement('span', {
+        style: { flex: '0 0 auto', fontWeight: 700, color: importMsg.ok ? 'var(--wf-success, #34d399)' : 'var(--wf-danger, #f87171)' },
+      }, importMsg.ok ? '✓' : '✕'),
+      createElement('span', { style: { flex: '1 1 auto', minWidth: 0 } }, importMsg.text),
     ),
     // 人工确认弹窗 → dialogs/manual-dialog.tsx（弹窗专项批 4：hook 状态 + View 渲染成对拆出）
     createElement(ManualDialogView, { d: manualDlg, def }),
@@ -921,7 +939,5 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
     // 🧾 运行日志弹窗 → dialogs/run-log-dialog.tsx（弹窗专项批 2+3：hook 状态 + View 渲染成对拆出）
     createElement(RunLogDialogView, { d: logDlg, def, setSelectedNodeId, setImportMsg }),
     // 🧾 运行日志（2026-10-04 用户需求：工作流执行黑盒 → 能看到节点之间的参数传递）
-    // 运行失败详情弹窗 → dialogs/run-fail-dialog.tsx（弹窗专项批 1：hook 状态 + View 渲染成对拆出）
-    createElement(RunFailDialogView, { d: runDlg, def, setImportMsg }),
   );
 }

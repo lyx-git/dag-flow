@@ -763,8 +763,11 @@
 .dag-flow-picker { animation: dsh-wf-fade 140ms ease-out; }
 /* 导出菜单同理：它紧贴按钮下方，缩放会让"锚定在按钮正下方"的几何断言/视觉轻微偏移 ✗ → 纯淡入 ✓ */
 .dsh-wf-export-menu { animation: dsh-wf-fade 120ms ease-out; }
-/* 顶部浮窗：**保留缩放浮现**（小元素、没人在量它的矩形 ✓，缩放读起来更有"浮现感" ✓） */
-.dsh-wf-toast { animation: dsh-wf-pop 160ms cubic-bezier(.2, .8, .2, 1); }
+/* 顶部提示：**纯淡入**（★ 2026-10-19 改）。
+   原用 dsh-wf-pop 的 `transform: scale()` 会**覆盖元素自身的居中 transform**（旧写法是 left:50% + translateX(-50%)）
+   ⇒ 动画期间元素以 left:50% 为左边缘、整体偏右半个宽度，动画结束才跳回居中——用户看到的就是「弹出来以后漂一下」。
+   现在居中改用 left:0/right:0/margin:auto（盒模型居中，不占 transform），这里只做 opacity，位置一次到位。 */
+.dsh-wf-toast { animation: dsh-wf-fade 140ms ease-out; }
 /* 右侧参数面板整体出现/消失（内容切换不重放，见上面说明） */
 .dsh-wf-right { animation: dsh-wf-fade 140ms ease-out; }
 

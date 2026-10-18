@@ -33,10 +33,8 @@ export interface ThemeTokens {
   // 节点
   nodeBorder: string;
   nodeBorderStrong: string;
-  // 连线语义色
+  // 连线语义色（★ 2026-10-19：edgePass / edgeFail 已删——连线不再按分支染红绿，分支身份只靠「真/假」标签）
   edgeFlow: string;
-  edgePass: string;
-  edgeFail: string;
   edgeContext: string;
   edgeData: string;
   // 端口（蓝进橙出）
@@ -79,8 +77,6 @@ export const DSH_THEME: ThemeTokens = {
   nodeBorder: 'var(--dsw-alias-border-l2, #cbd5e1)',
   nodeBorderStrong: 'var(--dsw-alias-border-l3, #94a3b8)',
   edgeFlow: '#94a3b8',
-  edgePass: '#10b981',
-  edgeFail: '#f43f5e',
   edgeContext: '#d9a441',
   edgeData: '#4a9fd8',
   portIn: '#3d8bfd',
@@ -118,8 +114,6 @@ export const NODE_FLOW_THEME: ThemeTokens = {
   nodeBorder: '#3a4d68',
   nodeBorderStrong: '#475569',
   edgeFlow: '#475569',
-  edgePass: '#34d399',
-  edgeFail: '#f87171',
   edgeContext: '#d9a441',
   edgeData: '#4a9fd8',
   portIn: '#3d8bfd',

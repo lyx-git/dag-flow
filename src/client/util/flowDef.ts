@@ -59,9 +59,9 @@ export function toRF(def: WorkflowDef): { nodes: RFNode[]; edges: RFEdge[] } {
     };
   });
 
-  const edgeStyle = (when?: string) =>
-    when === 'true' ? { stroke: '#10b981' } : when === 'false' ? { stroke: '#f43f5e' } : undefined;
-
+  // ★ 2026-10-19 用户拍板：**连线不再按分支染红绿**（"分支的颜色改成和其他节点一样，只有两种颜色，
+  //   走过就绿，没走过其他连接线什么色就什么色，还没跑的时候不分红绿"）。分支身份只靠线上的「真/假」
+  //   标签区分（`label`），颜色交给统一主题色 / 运行路径绿。原 edgeStyle 已删。
   let edges: RFEdge[] = [];
   if (def.edges && def.edges.length > 0) {
     edges = def.edges.map((e, i) => {
@@ -72,7 +72,6 @@ export function toRF(def: WorkflowDef): { nodes: RFNode[]; edges: RFEdge[] } {
         target: e.to,
         ...(handle ? { sourceHandle: handle } : {}),
         label: handle ?? undefined,
-        style: edgeStyle(handle ?? undefined),
       };
     });
   } else {
@@ -92,7 +91,6 @@ export function toRF(def: WorkflowDef): { nodes: RFNode[]; edges: RFEdge[] } {
             target,
             sourceHandle: key,
             label: key,
-            style: edgeStyle(key),
           });
         }
       }

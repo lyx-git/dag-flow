@@ -434,7 +434,7 @@ registerNode({
 ```bash
 npm run typecheck        # TypeScript 类型检查
 npm run build            # 构建 host + client 两个产物
-npm run test:offline     # 离线回归套件（52 个文件）
+npm run test:offline     # 离线回归套件（53 个文件）
 npm run fetch:runtime    # 按需下载内置运行时
 ```
 
@@ -739,7 +739,7 @@ Python / Bash nodes run inside that data root (empty `cwd` = `<DSH_HOME>/.dag-fl
 ```bash
 npm run typecheck        # TypeScript check
 npm run build            # build host + client bundles
-npm run test:offline     # offline regression suite (52 files)
+npm run test:offline     # offline regression suite (53 files)
 npm run fetch:runtime    # download bundled runtime on demand
 ```
 

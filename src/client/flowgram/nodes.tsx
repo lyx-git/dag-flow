@@ -215,7 +215,15 @@ function NodeCardBody({ type }: { type: string }) {
   const rs = useSyncExternalStore(runStatusStore.subscribe, rsSelector, rsSelector);
   const selSelector = () => selectionStore.getSnapshot() === node.id;
   const isSelected = useSyncExternalStore(selectionStore.subscribe, selSelector, selSelector);
-  const statusCls = rs?.status === 'success' ? 'is-ok' : rs?.status === 'failed' ? 'is-err' : rs?.status === 'skipped' ? 'is-skip' : rs?.status === 'running' ? 'is-running' : '';
+  // ★ 2026-10-19 用户拍板（含两轮纠正）：节点按**执行结果**着色——
+  //   成功绿；失败且流程中断（⛔「停止这条支路」/ ↪「失败后跳转」，tolerated=false）红；
+  //   失败但**流程继续**（🛟「忽略失败」/ ⏭「跳过这条支路」，引擎统一标 tolerated=true）**琥珀告警黄**；
+  //   **未运行（含跳过）一律轻微发暗 62%**：`skipped`（被跳过）与 `pending`（还没轮到）都算未运行。
+  //   ★ 只有"有本次运行结果"时才暗 —— 一次都没跑过时 `rs` 是 undefined，画布保持设计态原样（否则整张图发暗）。
+  const statusCls = rs?.status === 'success' ? 'is-ok'
+    : rs?.status === 'failed' ? (rs.tolerated ? 'is-warn' : 'is-err')
+      : rs?.status === 'running' ? 'is-running'
+        : rs ? 'is-skip' : '';
   // ★ 2026-10-04 用户反馈「定时任务自动触发的运行，手动确认节点自动跳过」→ 用户拍板 A：**保持自动通过，但显形**。
   //   判据：manual 节点在非交互运行（定时触发 / 立即运行一次 / CLI / subflow 内部）会直接放行，
   //   结果里带 out.autoPassed=true；画布徽标与悬浮卡都要把它写出来，别让人误以为"确认节点坏了/被跳过了"。
