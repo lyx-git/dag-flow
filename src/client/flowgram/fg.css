@@ -475,6 +475,17 @@
   cursor: default;
 }
 
+/* ★ 2026-10-21 用户要求：「鼠标放上去不要转动，点击之后转动，加载完成后停止转动」。
+   图标＝SVG 双箭头环（见 canvas-chrome 的 dsh-wf-fg-reload）；**只有点击重载期间才旋转**（is-spinning），
+   重载结束即停；悬停**不转**、不做任何动画；尊重 prefers-reduced-motion。 */
+.dsh-wf-fg-reload { display: inline-flex; align-items: center; justify-content: center; }
+.dsh-wf-fg-reload svg { display: block; }
+.dsh-wf-fg-reload.is-spinning svg { animation: dsh-wf-reload-spin 0.9s linear infinite; }
+@keyframes dsh-wf-reload-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .dsh-wf-fg-reload.is-spinning svg { animation: none; }
+}
+
 .dsh-wf-fg-tb-sep {
   width: 1px;
   height: 18px;

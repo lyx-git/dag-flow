@@ -29,7 +29,9 @@ import { Canvas } from './flowgram/FlowGramCanvas';
 import { disposeCanvasNode } from './flowgram/FlowGramCanvas';
 // ★ 2026-10-16 用户拍板方案 B：撤销/重做走**自建快照栈**（FlowGram 自带 history 在本项目恒为空 ——
 //   位移走自建拖拽引擎绕过 operationService，且每次 def→fromJSON 都触发 onReload→clear，详见该文件头注释）
-import { resetUndoPending } from './undo-stack';
+import { resetUndoPending, resetUndo } from './undo-stack';
+import { registerReloadWorkflow } from './flowgram/canvas-chrome';
+import { lastEmittedSig } from './flowgram/canvas-utils';
 // ★ 2026-10-17：撤销/重做的接线（observe/applier/基线/快捷键/诊断钩子）抽到 undo-wiring.ts ——
 //   本文件当时已 1587 行，越过项目 500 行软上限
 import { useUndoWiring } from './undo-wiring';
@@ -160,6 +162,50 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
   // def 是**唯一事实来源**，更新它的地方有 9 处 setDef（画布上抛 / 参数 / 增删节点 / 装饰 / JSON 视图…）
   // ⇒ 与其逐处插桩（易漏），不如在 def 变化处统一 observe（见 undo-wiring.ts 的 ① 与它的注释）。
   useUndoWiring(def, setDef, setDirty);
+
+  // ★ 2026-10-21 用户要求（原话）：「画布里面上部的面板里面整理按钮和放大按钮中间放一个重新加载当前画布工作流的
+  //   按钮，方便磁盘工作流已经变动了，但是画布工作流由于浏览器缓存的缘故，没有及时加载，导致画布工作流和磁盘不一致」。
+  //   实现：读 GET /api/dag-flow/workflows/<名> → 覆盖 def（DefSync 会重建画布）→ 清撤销栈/选中 → 重写缓存 → 顶部提示。
+  //   有未保存改动时**两击确认**（沿用「清空」按钮的既有做法，不弹原生窗）。
+  const reloadArmedAt = useRef(0);
+  const reloadFromDisk = useCallback(async (): Promise<void> => {
+    const name = String(def.name ?? '').trim();
+    if (!name) {
+      setImportMsg({ ok: false, text: '工作流还没有名字——先在名称框起个名字，再点 ⟳ 重新加载' });
+      return;
+    }
+    if (dirty && Date.now() - reloadArmedAt.current > 3000) {
+      reloadArmedAt.current = Date.now();
+      setImportMsg({ ok: false, text: `画布上有未保存的改动：3 秒内再点一次 ⟳ 就会丢弃它们，从磁盘重载「${name}」` });
+      return;
+    }
+    reloadArmedAt.current = 0;
+    try {
+      const r = await fetch(`/api/dag-flow/workflows/${encodeURIComponent(name)}`, { credentials: 'include' });
+      if (!r.ok) { setImportMsg({ ok: false, text: `磁盘上没有「${name}」（HTTP ${r.status}）` }); return; }
+      const j: any = await r.json();
+      const next = (j?.workflow ?? j) as WorkflowDef;
+      if (!next || !Array.isArray(next.nodes)) { setImportMsg({ ok: false, text: '磁盘上的内容不是合法工作流，未加载' }); return; }
+      try { resetUndo(next); } catch { /* 清栈失败不影响重载 */ }
+      resetUndoPending();
+      // ★ 2026-10-21：DefSync 的签名短路（structSigOf 不含 position）会让"只改了位置"的磁盘内容被忽略 ⇒
+      //   清掉签名缓存强制重建一次，保证画布与磁盘完全一致。
+      lastEmittedSig.current = '';
+      setDef(next);
+      setDirty(false);
+      setSelectedNodeId(null);
+      try { onCache?.(next); } catch { /* 缓存写失败不影响 */ }
+      // ★ 2026-10-21 用户要求「加载完成后停止转动，提示加载完成」⇒ 文案以"重新加载完成"开头（按钮同刻停转）
+      setImportMsg({ ok: true, text: `重新加载完成：「${next.name || name}」（${(next.nodes ?? []).length} 个节点）` });
+    } catch (e) {
+      setImportMsg({ ok: false, text: `重新加载失败：${(e as Error).message}` });
+    }
+  }, [def.name, dirty, onCache]);
+  useEffect(() => {
+    // 返回 Promise ⇒ 工具条按钮在整个"读盘 + 重建"期间保持旋转，完成后才停
+    registerReloadWorkflow(async () => { await reloadFromDisk(); });
+    return () => registerReloadWorkflow(null);
+  }, [reloadFromDisk]);
 
   // 自动缓存：def 变化即通过 onCache 上报（供关闭后重开恢复）
   useEffect(() => {

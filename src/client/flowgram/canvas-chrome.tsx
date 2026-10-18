@@ -3,7 +3,7 @@
 // StatusBar 实时节点/连线/问题数（点击联动问题面板）。
 // 2026-10-14 重构轮 5 自 FlowGramCanvas.tsx 纯搬运拆出。
 
-import { createElement, useEffect, useState } from 'react';
+import { createElement, useCallback, useEffect, useState } from 'react';
 import {
   useClientContext,
   usePlaygroundTools,
@@ -17,7 +17,21 @@ import { centerOn, rawFitZoom, readCfg, worldBounds } from './canvas-utils';
 //   def→fromJSON 都触发 onReload→historyService.clear()）
 import { undo, redo, undoCan, redoCan, subscribeUndo } from '../undo-stack';
 
-// ================= 工具条（撤销/重做/整理/适应/缩放） =================
+// ================= 工具条（撤销/重做/整理/重新加载/适应/缩放） =================
+
+/** ★ 2026-10-21 用户要求：工具条加「重新加载当前工作流」——磁盘上的工作流变了、画布因缓存还拿着旧 def 时，
+ *  一键从磁盘重载。Toolbar 在画布内部、拿不到 FlowPanel 的 state ⇒ 用一个模块级桥注册回调
+ *  （与 undo 的 subscribeUndo 同一套路：注册/注销都通知一次，按钮的可用态才会跟着变）。 */
+let reloadWorkflow: (() => Promise<void> | void) | null = null;
+const reloadListeners = new Set<() => void>();
+export function registerReloadWorkflow(fn: (() => Promise<void> | void) | null): void {
+  reloadWorkflow = fn;
+  reloadListeners.forEach((l) => { try { l(); } catch { /* 忽略 */ } });
+}
+function subscribeReload(fn: () => void): () => void {
+  reloadListeners.add(fn);
+  return () => { reloadListeners.delete(fn); };
+}
 
 export function Toolbar() {
   const ctx = useClientContext();
@@ -33,6 +47,16 @@ export function Toolbar() {
     setCanUndo(undoCan());
     setCanRedo(redoCan());
   }), []);
+  const [reloadReady, setReloadReady] = useState(() => !!reloadWorkflow);
+  useEffect(() => subscribeReload(() => setReloadReady(!!reloadWorkflow)), []);
+  // ★ 2026-10-21 用户要求：「重新加载图标换成动态图标，换成上下两个箭头的旋转的那种样式」
+  //   ⇒ SVG 双箭头环（refresh-cw 语汇）+ **点击重载期间持续旋转**，重载完成即停（不常驻旋转打扰）。
+  const [reloading, setReloading] = useState(false);
+  const doReload = useCallback(async (): Promise<void> => {
+    if (!reloadWorkflow) return;
+    setReloading(true);
+    try { await reloadWorkflow(); } catch { /* 失败提示在面板侧 */ } finally { setReloading(false); }
+  }, []);
   const btn = (label: string, title: string, onClick: () => void, disabled?: boolean, primary?: boolean) =>
     createElement('button', { key: label + title, className: `dsh-wf-fg-tb${primary ? ' primary' : ''}`, title, onClick, disabled }, label);
   const zoomPct = Math.round((tools.zoom ?? 1) * 100);
@@ -76,6 +100,28 @@ export function Toolbar() {
     btn('↷', '重做（Ctrl+Shift+Z）', () => { redo(); }, !canRedo),
     createElement('span', { key: 's1', className: 'dsh-wf-fg-tb-sep' }),
     btn('✨ 整理', '自动布局（Dagre 分层）', () => tools.autoLayout()),
+    // ★ 2026-10-21 用户要求：「整理按钮和放大按钮中间放一个重新加载当前画布工作流的按钮」
+    //   （磁盘工作流变了、画布因浏览器缓存还拿着旧 def 时，一键从磁盘重载；有未保存改动会二次确认）
+    createElement('button', {
+      key: 'reload',
+      className: `dsh-wf-fg-tb dsh-wf-fg-reload${reloading ? ' is-spinning' : ''}`,
+      title: reloadReady
+        ? '重新加载当前工作流：从磁盘重新读一遍（磁盘变了、画布还是旧的时用；画布上未保存的改动会丢）'
+        : '重新加载当前工作流（工作流面板还没就绪）',
+      'aria-label': '重新加载当前工作流',
+      onClick: () => { void doReload(); },
+      disabled: !reloadReady,
+    }, createElement('svg', {
+      width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none',
+      stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
+      'aria-hidden': true,
+    },
+    // ★ 2026-10-21 用户第二次反馈「双箭头环换一下，现在这个箭头有点大」⇒ 箭头折线由 6×6 收到 4.4×4.4、
+    //   弧半径略收、整体 15→14px；仍然是"上半圈 + 下半圈各一个箭头"的双箭头环。
+    createElement('path', { d: 'M20.6 12a8.6 8.6 0 0 0-8.6-8.6 9.3 9.3 0 0 0-4.3 1.1' }),
+    createElement('polyline', { points: '20.6 4.6 20.6 9 16.2 9' }),
+    createElement('path', { d: 'M3.4 12a8.6 8.6 0 0 0 8.6 8.6 9.3 9.3 0 0 0 4.3-1.1' }),
+    createElement('polyline', { points: '3.4 19.4 3.4 15 7.8 15' }))),
     btn('⤢', `适应画布（全图可见，缩放下限 ${Math.round(FIT_MIN_ZOOM * 100)}%）`, fitCanvas),
     createElement('span', { key: 's2', className: 'dsh-wf-fg-tb-sep' }),
     // 一键放大缩小：− / 百分比（点它回 100%）/ ＋ / 1:1

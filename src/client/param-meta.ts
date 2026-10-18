@@ -97,7 +97,7 @@ export const PARAM_META: Record<string, Record<string, ParamMeta>> = {
     },
   },
   loop: {
-    count: { label: '跑几次', desc: '固定跑多少轮（留空且不填「遍历数组」时，节点无边界、会被拦下）。', placeholder: '3' },
+    count: { label: '跑几次', desc: '固定跑多少轮（留空且不填「遍历数组」时，节点无边界、会被拦下）。循环在节点内部跑完再交给下游——下游节点只执行一次，拿到的是 out.items 汇总。', placeholder: '3' },
     over: { label: '遍历数组', desc: '上游数组引用（整串），如 {{list1.out.items}}；填了它按数组长度跑（优先级高于「跑几次」）。', placeholder: '{{list1.out.items}}' },
     roundIf: { label: '每轮条件', desc: '可选门禁：为真才执行这一轮的循环体，为假跳过该轮（跳过数记在 out.skipped），不影响后面几轮。', placeholder: 'loopIndex < 3' },
     maxIterations: { label: '最大迭代次数', desc: '上限：留空＝不限（只受引擎 10 万硬上限保护）；填了超过就截断，并在 out 里带 truncated / requested / processed。' },

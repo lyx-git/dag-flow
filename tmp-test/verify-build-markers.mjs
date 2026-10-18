@@ -21,7 +21,17 @@ const hasH = (s) => hTxt.includes(s);
 
 const rows = [
   // ===== A. 版本标记（产物闸门第一道）=====
-  ['client 含标记 v20261021-imgref（图片参数改成模板引用口径）', cTxt.includes('v20261021-imgref')],
+  ['client 含标记 v20261021-noloopmark（移除循环出边的「循环」线标）', cTxt.includes('v20261021-noloopmark')],
+  ['client 反向锁：循环出边的「循环」线标已删（产物里没有 line-label is-loop / line-label.is-loop）', !c.includes('line-label is-loop') && !c.includes('line-label.is-loop')],
+  ['client 重载完成的提示文案在产物里（锚点：重新加载完成）', hasC('重新加载完成')],
+  ['client 反向锁：悬停不再触发旋转（产物里没有 hover…reload-spin 规则）', !c.includes('dsh-wf-fg-reload:hover')],
+  ['client 重载按钮的旋转态类名在产物里（ASCII：is-spinning）', c.includes('is-spinning')],
+  ['client 旋转关键帧在产物里（ASCII：dsh-wf-reload-spin）', c.includes('dsh-wf-reload-spin')],
+  ['client 重载按钮的图标宿主类在产物里（ASCII：dsh-wf-fg-reload）', c.includes('dsh-wf-fg-reload')],
+  ['client 工具条按钮的提示文案在产物里（锚点：从磁盘重新读一遍）', hasC('从磁盘重新读一遍')],
+  // ★ 2026-10-21：不设「registerReloadWorkflow 在产物里」——函数名会被 minify 重命名，
+  //   这类行为只能靠真机/CDP 守；这里只锚字符串字面量（按钮 title / 二次确认文案）。
+  ['client 未保存改动的二次确认文案在产物里（锚点：3 秒内再点一次）', hasC('3 秒内再点一次')],
   ['client 图片参数说明里有「引用上游抽图」', hasC('引用上游抽图')],
   ['client 图片参数给出可直接复制的模板示例（ASCII：doc_img.out.images）', c.includes('doc_img.out.images')],
   ['client 选图「打开图片目录」指向运行目录（ASCII：tmp/ 拼接）', hasC('打开图片目录')],

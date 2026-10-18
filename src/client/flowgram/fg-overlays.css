@@ -171,13 +171,6 @@
 .dsh-wf-fg-line-label.is-true { color: #10b981; border-color: color-mix(in srgb, #10b981 45%, transparent); }
 .dsh-wf-fg-line-label.is-false { color: #f43f5e; border-color: color-mix(in srgb, #f43f5e 45%, transparent); }
 .dsh-wf-fg-line-label.is-case { color: var(--wf-accent, #4f8cff); border-color: color-mix(in srgb, var(--wf-accent, #4f8cff) 45%, transparent); }
-/* 循环节点的出边标记（P3，2026-10-03）：明示这条线来自 loop——下游只执行一次（loop 只产出迭代序列） */
-.dsh-wf-fg-line-label.is-loop {
-  color: #a78bfa;
-  border-color: color-mix(in srgb, #a78bfa 45%, transparent);
-  cursor: default;
-}
-.dsh-wf-fg-line-label.is-loop:hover { border-color: color-mix(in srgb, #a78bfa 70%, transparent); color: #c4b5fd; }
 /* 未设分支键：琥珀警示（这类线运行时恒激活 = 所有分支都会跑） */
 .dsh-wf-fg-line-label.is-warn {
   color: #f59e0b;

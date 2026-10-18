@@ -1,5 +1,5 @@
 // src/client/flowgram/branch-editor.tsx — 分支键显形与就地编辑（连线标签 / 方案 C 编辑器 / switch 新线归属）
-// LineBranchLabel：挂在 free-lines-plugin renderInsideLine 上的线中点标签（loop 标记 / 未设分支警示 / 分支键）；
+// LineBranchLabel：挂在 free-lines-plugin renderInsideLine 上的线中点标签（未设分支警示 / 分支键）；
 // BranchKeyEditor：标签点击后在锚点处弹出的就地编辑器（Portal 到 body）；
 // adoptChipCaseForNewLines：switch 按选中的 chip 给**刚画的**线定分支键（与命中端口无关）。
 // 2026-10-14 重构轮 4 自 FlowGramCanvas.tsx 纯搬运拆出。
@@ -33,14 +33,6 @@ export function LineBranchLabel(props: any) {
   const dst = String(line?.to?.id ?? line?.toPort?.node?.id ?? '');
   const node = graphRef.current.nodes.find((n) => n.id === src);
   const nodeType = String(node?.type ?? '');
-  // ★ 循环标记（P3，2026-10-03 用户拍板）：loop 出边挂「循环」小标——画布上一眼看出这条线来自循环节点。
-  //   与分支标签同一挂载点（线中点），但不可点（循环没有分支键可编辑）。
-  if (nodeType === 'loop') {
-    return createElement('div', {
-      className: 'dsh-wf-fg-line-label is-loop',
-      title: '来自循环节点的连线：loop 只产出迭代序列（out.count / out.items），下游节点只执行一次——需要重复执行请把循环体写成子工作流或放进单个 python/bash 节点',
-    }, '循环');
-  }
   const isBranchNode = nodeType === 'if' || nodeType === 'switch';
   if (!isBranchNode) return null;
   // ★ switch 单点端口（2026-10-03 用户拍板 B）：端口不再是分支键本身——'out' = 「这条线还没选分支键」，
