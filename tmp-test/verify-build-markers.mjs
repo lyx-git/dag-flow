@@ -23,7 +23,7 @@ const rows = [
   // ===== A. 版本标记（产物闸门第一道）=====
   ['client 含标记 v20261019-quietstatus（后台轮询走 quiet=1，控制台不再刷 404）', cTxt.includes('v20261019-quietstatus')],
   ['首屏里程碑钩子在产物里（ASCII：__df_firstPaint，真机读数用）', c.includes('__df_firstPaint')],
-  ['host   含标记 v20261019-jsonout（模板/表达式两侧统一解析 JSON 字符串 out）', hasH('v20261019-jsonout')],
+  ['host   含标记 v20261019-failsub（子工作流/循环体失败带出内部失败节点与原因）', hasH('v20261019-failsub')],
   ['host run/status 静默查询分支存在（ASCII：quiet）', hasH('quiet')],
   ['编辑区问号容器类名（ASCII：dsh-wf-code-keys）', c.includes('dsh-wf-code-keys')],
   ['问号气泡文案：多光标操作（锚点：所有相同项 / 回到单光标）', hasC('所有相同项') && hasC('回到单光标')],

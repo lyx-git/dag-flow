@@ -9,6 +9,25 @@ import { waitForManual } from '../../executor/awaiting.js';
 import { resolveParams } from '../../executor/dataflow.js';
 import { startedEnded, finish } from './shared.js';
 
+/** 从子工作流的 results 里挑第一个失败节点，供父层把「谁失败了、为什么」带上来。
+ *  ★ 2026-10-19（用户原话「父子工作流，如果子工作流失败了，看不到是哪个节点失败了，失败的原因是啥」）：
+ *    此前父层只有「子工作流以 failed 结束」这类整句，用户必须自己翻子工作流的运行记录才知道根因。
+ *    这里只做**摘要**：message 压成单行并截断（429 这类错误会带一整块 JSON，不截会把浮窗撑爆）。
+ *    完整明细仍在子工作流自己的运行记录里（`runs/<子工作流名>/`）。 */
+const firstFailure = (results: Record<string, NodeResult>): { id: string; code: string; message: string } | null => {
+  for (const [id, r] of Object.entries(results ?? {})) {
+    if (r?.status !== 'failed') continue;
+    const code = String(r.error?.code ?? 'UNKNOWN');
+    const flat = String(r.error?.message ?? '').replace(/\s+/g, ' ').trim();
+    return { id, code, message: flat.length > 200 ? `${flat.slice(0, 200)}…` : flat };
+  }
+  return null;
+};
+
+/** 失败原因后缀：`：节点「ai_dir」失败 —— SUBAGENT_UNAVAILABLE：…`；找不到失败节点时返回空串（文案回退原样）。 */
+const failSuffix = (f: ReturnType<typeof firstFailure>): string =>
+  f ? `：节点「${f.id}」失败 —— ${f.code}${f.message ? `：${f.message}` : ''}` : '';
+
 // ---------- 1. start ----------
 export const startDef: NodeDefinition = {
   type: 'start',
@@ -220,13 +239,18 @@ async function runLoop(p: LoopParams, ctx: Context): Promise<NodeResult> {
     const { summary } = await runWorkflow(sub, { logger: createLogger(), cwd: process.cwd(), inputs, _depth: depth + 1, signal: ctx.signal });
     const endIds = sub.nodes.filter((n) => n.type === 'end').map((n) => n.id);
     const endOut = (endIds.map((id) => summary.results[id]?.out).find((v) => v != null) ?? null) as JsonValue;
+    const ff = firstFailure(summary.results);
+    const why = failSuffix(ff);
     if (summary.status !== 'success' && p.onIterationError !== 'continue') {
       // 默认 stop：整节点失败，但把已完成轮次留在 out.items 里便于排查
-      return { ...makeResult('failed', { error: { code: 'LOOP_BODY_FAILED', message: `第 ${i + 1}/${iterations.length} 轮循环体「${sub.name}」以 ${summary.status} 结束——已完成 ${outputs.length} 轮，结果保留在 out.items 里（要跳过失败轮请设 onIterationError: "continue"）` } }), out: loopOut(outputs.length, outputs), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() } as NodeResult;
+      // ★ 2026-10-19：补 failedRound / failedNode（纯加法）—— 父层失败浮窗与运行记录里能直接看到「第几轮、哪个节点、什么码」。
+      const failOut: Record<string, JsonValue> = { ...loopOut(outputs.length, outputs), failedRound: i + 1 };
+      if (ff) failOut.failedNode = ff as unknown as JsonValue;
+      return { ...makeResult('failed', { error: { code: 'LOOP_BODY_FAILED', message: `第 ${i + 1}/${iterations.length} 轮循环体「${sub.name}」以 ${summary.status} 结束${why}——已完成 ${outputs.length} 轮，结果保留在 out.items 里（要跳过失败轮请设 onIterationError: "continue"）` } }), out: failOut, durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() } as NodeResult;
     }
     outputs.push(summary.status === 'success'
       ? endOut
-      : ({ error: { code: 'SUBFLOW_FAILED', message: `第 ${i + 1} 轮失败` }, output: endOut } as JsonValue));
+      : ({ error: { code: 'SUBFLOW_FAILED', message: `第 ${i + 1} 轮失败${why}` }, output: endOut, ...(ff ? { failedNode: ff } : {}) } as unknown as JsonValue));
     lastOutput = outputs[outputs.length - 1];   // 下一轮的 {{vars.lastOutput}} / 每轮条件看的就是它
     // ★ 2026-10-19（用户拍板 A）：子工作流 end 输出里带 `break: true` ⇒ **本轮跑完就停**，剩余轮不再跑。
     //   节点仍算 success（这是正常收敛，不是失败）；out 里补 broken / breakAt（第几轮停的），
@@ -391,10 +415,23 @@ export const subflowDef: NodeDefinition = {
     // 收集子流程 end 节点输出作为本节点输出
     const endIds = sub.nodes.filter((n) => n.type === 'end').map((n) => n.id);
     const endOut = endIds.map((id) => summary.results[id]?.out).find((v) => v != null) ?? null;
-    return finish(t0, startedAt, {
-      out: { workflow: sub.name, status: summary.status, totalDurationMs: summary.totalDurationMs, output: endOut, failedCount: summary.failedCount },
-      ...(summary.status !== 'success' ? { error: { code: 'SUBFLOW_FAILED', message: `子工作流 "${sub.name}" 以 ${summary.status} 状态结束` } } : {}),
-    } as Partial<NodeResult>);
+    // ★ 2026-10-19：子工作流失败时把「哪个节点、什么错误码、说了什么」带到父层（用户原话见文件头 firstFailure 注释）
+    const ff = firstFailure(summary.results);
+    const why = failSuffix(ff);
+    const subOut: Record<string, JsonValue> = {
+      workflow: sub.name, status: summary.status, totalDurationMs: summary.totalDurationMs, output: endOut, failedCount: summary.failedCount,
+      ...(summary.status !== 'success' && ff ? { failedNode: ff as unknown as JsonValue } : {}),
+    };
+    // ★ 2026-10-19 修「子工作流失败了但父层看不出来」：此前本节点用 finish() 返回 ⇒ **status 恒为 success**，
+    //   即使带了 error 字段，执行器（run.ts 只看 r.status === 'failed'）也不会把下游停掉、整图还会算成功。
+    //   现在子工作流非 success 就返回 failed ⇒ 失败能正常向上传播（下游 skipped、整图 failed）。
+    if (summary.status !== 'success') {
+      return {
+        ...makeResult('failed', { out: subOut, error: { code: 'SUBFLOW_FAILED', message: `子工作流「${sub.name}」以 ${summary.status} 结束${why}` } }),
+        durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString(),
+      } as NodeResult;
+    }
+    return finish(t0, startedAt, { out: subOut });
   },
   describe: () => ({ label: '子工作流', category: 'control' }),
 };

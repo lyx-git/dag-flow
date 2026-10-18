@@ -361,6 +361,27 @@ console.log('\n== G. 循环体 = 子工作流（方案 A，2026-10-03 用户拍�
   t('G6. 失败时 out.items 保留已完成轮次（便于排查）', Array.isArray(r4.results.lp?.out?.items) && r4.results.lp?.out?.count === 0, JSON.stringify(r4.results.lp?.out)?.slice(0, 160));
   const r5 = await run(mkBad({ onIterationError: 'continue' }));
   t('G7. continue：失败轮写占位并继续跑完', r5.results.lp?.status === 'success' && r5.results.lp?.out?.count === 2 && r5.results.lp?.out?.items?.[0]?.error?.code === 'SUBFLOW_FAILED', JSON.stringify(r5.results.lp?.out)?.slice(0, 240));
+
+  // ⑤ ★ 2026-10-19（用户原话：「父子工作流，如果子工作流失败了，看不到是哪个节点失败了，失败的原因是啥」）
+  //    父层必须带出「第几轮 / 哪个节点 / 什么错误码 / 说了什么」；out 里同时给结构化字段（纯加法，不动 count/items）。
+  const msg4 = String(r4.results.lp?.error?.message ?? '');
+  t('G8. 默认 stop：message 带出子工作流里失败的节点与错误码', /节点「boom」失败 —— PYTHON_EXIT/.test(msg4), msg4.slice(0, 220));
+  t('G9. 默认 stop：out 带 failedRound / failedNode，原 count/items 不变', r4.results.lp?.out?.failedRound === 1 && r4.results.lp?.out?.failedNode?.id === 'boom' && r4.results.lp?.out?.count === 0, JSON.stringify(r4.results.lp?.out)?.slice(0, 220));
+  const it0 = r5.results.lp?.out?.items?.[0];
+  t('G10. continue：失败轮占位同样带 failedNode 与节点明细', it0?.failedNode?.id === 'boom' && /节点「boom」失败/.test(String(it0?.error?.message ?? '')), JSON.stringify(it0)?.slice(0, 220));
+
+  // subflow 节点（非循环）走同一条路：子工作流内部失败 → 父层一句话说清
+  const subBad = {
+    name: 'subflow-bad-run', version: 1,
+    nodes: [
+      { id: 'start', type: 'start', next: 'sf' },
+      { id: 'sf', type: 'subflow', params: { workflowName: 'loop-body-bad', inputs: {} }, next: 'end' },
+      { id: 'end', type: 'end' },
+    ],
+  };
+  const r6 = await run(subBad);
+  t('G11. subflow：message 带出子工作流内部失败节点与错误码', r6.results.sf?.status === 'failed' && /节点「boom」失败 —— PYTHON_EXIT/.test(String(r6.results.sf?.error?.message ?? '')), String(r6.results.sf?.error?.message ?? '').slice(0, 220));
+  t('G12. subflow：out.failedNode 结构化保留（供面板/日志）', r6.results.sf?.out?.failedNode?.id === 'boom' && r6.results.sf?.out?.failedNode?.code === 'PYTHON_EXIT', JSON.stringify(r6.results.sf?.out)?.slice(0, 220));
 }
 
 // ★ 2026-10-19（用户拍板：while 条件循环整条移除）：原 C3 段「while 引用上一轮输出 / 轮次序号」的 ①~④ 已删除。
