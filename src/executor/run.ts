@@ -2,6 +2,8 @@
 // 调度：start → 推进（next string / array parallel / {true,false} / loop 内部 next 推进 / 终止）
 
 import type { Context, Node, NodeResult, WorkflowDef, JsonValue } from '../types.js';
+import { promises as fs } from 'node:fs';
+import * as path from 'node:path';
 import { parseAndValidate, nodeTag } from './parse.js';
 import { WorkflowNodeRegistry } from '../registry/external.js';
 import { makeResult, safeNodeRun } from '../registry/external.js';
@@ -80,6 +82,11 @@ export interface RunOptions {
   _depth?: number;
   /** 运行 id（缺省自生成）。★ API 层必须在运行结束前拿到它——awaiting 响应要带上 */
   runId?: string;
+  /** ★ 2026-10-18 用户要求：本次运行独占的临时目录 `tmp/<顶层工作流名>/<runId>/`。
+   *  · 顶层入口不传 ⇒ 执行器按「def.name + runId」自建（并 mkdir）；
+   *  · 子工作流（subflow / loop 循环体）必须**原样传下来**，否则它写的产物顶层读不到。
+   *  进去后作为 python/bash 节点的默认 cwd，并注入环境变量 `DAGFLOW_RUN_DIR`。 */
+  runDir?: string;
   /** 交互式运行：只由 HTTP POST /run 传 true。
    *  manual 节点据此决定「挂起等人确认」还是「无人可点 → 自动通过 + warning」（2026-10-03 用户拍板） */
   interactive?: boolean;
@@ -125,6 +132,24 @@ export async function runWorkflow(defInput: unknown, opts: RunOptions): Promise<
   return runDag(norm.def, opts);
 }
 
+/** ★ 2026-10-18：把每次日志额外追加一份到本次运行目录。**纯增强**：写盘失败一律静默，绝不拖累运行。 */
+export function wrapLoggerForRun(base: DshLogger, runDir: string): DshLogger {
+  const dir = path.join(runDir, 'logs');
+  const file = path.join(dir, 'run.log');
+  const append = (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>): void => {
+    const tail = meta && Object.keys(meta).length ? ' ' + JSON.stringify(meta) : '';
+    const line = new Date().toISOString() + ' [' + level.toUpperCase() + '] ' + msg + tail + '\n';
+    void fs.mkdir(dir, { recursive: true })
+      .then(() => fs.appendFile(file, line, 'utf8'))
+      .catch(() => { /* 日志落盘失败不影响运行 */ });
+  };
+  return {
+    info(msg, meta) { append('info', msg, meta); base.info(msg, meta); },
+    warn(msg, meta) { append('warn', msg, meta); base.warn(msg, meta); },
+    error(msg, meta) { append('error', msg, meta); base.error(msg, meta); },
+  };
+}
+
 /**
  * DAG 模式执行器：拓扑分层并行。
  * 前置：def.edges 存在（DAG 唯一连接表示）。
@@ -135,6 +160,35 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
   const runId = opts.runId ?? newRunId();
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
+  /** ★ 2026-10-20：顶层运行才写运行记录。子工作流（subflow / loop 循环体）沿用父 runId+runDir，
+   *  若它也写记录就会落到 `tmp/<子名>/<父runId>/` ⇒ 与「运行前只清顶层目录」冲突、还会被另一个父运行的清理误删。 */
+  const isTopRun = !opts._depth;
+
+  // ★ 2026-10-18 用户要求：每次执行独占一个临时目录，本次运行的所有中间产物都落这里，
+  //   节点之间也只在这个目录里互相读 —— 不可能读到别的执行留下的文件。
+  //   子工作流把父运行的 runDir 原样传下来（见 control.ts），全树共用一个目录。
+  let runDir = String(opts.runDir ?? '').trim();
+  if (!runDir) {
+    // ★ 2026-10-21 用户口径：「隐式调用（父→子，含多级）一律以父传下来的目录为准，都放父工作流；
+    //   不是隐式调用才按自己的工作流名建目录」。
+    //   子工作流（_depth>0）正常情况下一定拿到父的 runDir —— 万一没拿到（老调用方/新节点忘了传），
+    //   **绝不自己建 tmp/<子名>/**（那正是用户看到"子工作流目录"的来源），退回旧 cwd 语义并记一条 warn。
+    if (opts._depth) {
+      try { opts.logger?.warn?.('subflow 未拿到父运行目录，退回 cwd（不会新建子工作流目录）', { name: def.name, depth: opts._depth }); } catch { /* 日志失败不影响运行 */ }
+    } else {
+      try {
+        const { dagFlowRunTmpDir } = await import('../dsh-gate/paths.js');
+        runDir = dagFlowRunTmpDir(def.name, runId);
+      } catch { runDir = ''; }
+    }
+  }
+  if (runDir) {
+    try { await fs.mkdir(runDir, { recursive: true }); } catch { runDir = ''; /* 建不出来就退回旧 cwd 语义 */ }
+  }
+
+  // ★ 2026-10-18 用户要求：本次运行的日志也进运行目录（<runDir>/logs/run.log），随运行目录一起清；
+  //   全局 tmp/logs/ 行为不变（没有 runDir 时连包装都不做）。
+  const runLogger = runDir ? wrapLoggerForRun(opts.logger, runDir) : opts.logger;
 
   const ctx: Context = {
     inputs: { ...(def.inputs ?? {}), ...(opts.inputs ?? {}) },
@@ -142,12 +196,13 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
     results: {},
     signal: opts.signal,
     runId,
+    runDir: runDir || undefined,
     // ★ 2026-10-19 用户要求「每个工作流产生的文件都要以 .dag-flow/**\/工作流名称/文件 的方式存放」：
     //   节点需要知道自己属于哪个工作流，才能把产物落到自己的子目录（images/<名>、tmp/<名>）。
     workflowName: def.name,
     interactive: opts.interactive === true,
     onAwaiting: opts.onAwaiting,
-    logger: opts.logger,
+    logger: runLogger,
   };
   const nodeById = new Map(def.nodes.map((n) => [n.id, n]));
 
@@ -474,8 +529,12 @@ async function runDag(def: WorkflowDef, opts: RunOptions): Promise<{ summary: Ru
     totalDurationMs: Date.now() - t0, startedAt, endedAt, results: ctx.results,
     ...(firstError ? { error: firstError } : {}),
   };
-  opts.logger.info('workflow done (dag)', { runId, name: def.name, status: summary.status, totalMs: summary.totalDurationMs });
-  try { await writeRunRecord(summary); } catch (e) { opts.logger.warn('run record write failed', { error: (e as Error).message }); }
+  // ★ 2026-10-18：走 runLogger ⇒ 这条"运行结束"的汇总也会进 <runDir>/logs/run.log
+  //   （否则一次没打日志的运行根本不会有 run.log —— python/bash 这种安静的运行就是如此）
+  runLogger.info('workflow done (dag)', { runId, name: def.name, status: summary.status, totalMs: summary.totalDurationMs });
+  if (isTopRun) {
+    try { await writeRunRecord(summary); } catch (e) { runLogger.warn('run record write failed', { error: (e as Error).message }); }
+  }
   return { summary, record: summary };
 }
 

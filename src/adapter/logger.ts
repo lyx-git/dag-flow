@@ -2,13 +2,11 @@
 // ★ 唯一允许调 DSH logger 的地方
 //
 // 2026-09-06 修订：真实 ctx 直接有 logger（ctx.logger.info/warn/error）。
-// 2026-09-26 新增：同时落文件到 <DSH_HOME>/.dag-flow/logs/dag-flow-YYYY-MM-DD.log
-//   （fire-and-forget 追加写，失败静默——文件日志是增强，绝不能影响主流程）。
+// ★ 2026-10-21 用户拍板（重启后仍报「tmp 还是会自动创建 logs」）⇒ **不再落文件日志**：
+//   日志只走宿主 logger + console，「.dag-flow/tmp/logs/」这个目录从此不会由插件创建。
+//   （历史：2026-09-26 曾写 .dag-flow/logs/，2026-10-18 挪到 tmp/logs/ 并按 20 份滚动，现整体取消。）
 
-import { appendFile } from 'node:fs/promises';
-import * as path from 'node:path';
 import { hostService } from './safety.js';
-import { dagFlowLogsDir } from './workspace.js';
 
 export interface DshLogger {
   info(msg: string, meta?: Record<string, unknown>): void;
@@ -23,29 +21,6 @@ function consoleOut(level: 'info' | 'warn' | 'error', msg: string, meta?: Record
   console[level](`${tag} ${line}`);
 }
 
-function todayLogPath(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `dag-flow-${y}-${m}-${day}.log`;
-}
-
-/** 东八区（UTC+8）可读时间戳：2026-10-02 07:07:45.247（不依赖机器时区，显式 +8h 换算）。
- *  2026-10-02 用户要求：日志时间从 UTC ISO（…T…Z）改为东八区格式 */
-function cstStamp(d = new Date()): string {
-  const t = new Date(d.getTime() + 8 * 3600 * 1000);
-  return t.toISOString().replace('T', ' ').replace('Z', '');
-}
-
-/** 追加一行到当天日志文件（fire-and-forget：目录/磁盘失败静默，绝不阻塞主流程） */
-function appendToLogFile(level: string, line: string): void {
-  const stamp = cstStamp();
-  const text = `${stamp} [${level.toUpperCase()}] ${line}\n`;
-  void dagFlowLogsDir()
-    .then((dir) => appendFile(path.join(dir, todayLogPath()), text, 'utf8'))
-    .catch(() => { /* 文件日志失败静默（工作区不可写等场景） */ });
-}
 
 export function createLogger(): DshLogger {
   // logger 是 cordis ctx 的自有属性（context.ts L27-28: this.logger = new LoggerService(self)），
@@ -62,7 +37,6 @@ export function createLogger(): DshLogger {
     meta?: Record<string, unknown>,
   ): void => {
     const line = meta && Object.keys(meta).length ? `${msg} ${JSON.stringify(meta)}` : msg;
-    appendToLogFile(level, line);
     if (!hostFn) {
       consoleOut(level, msg, meta);
       return;

@@ -3,7 +3,7 @@
 //   <DSH_HOME>/.dag-flow/workflow/    工作流定义（storage.ts 管）
 //   <DSH_HOME>/.dag-flow/runs/        运行记录（storage.ts 管）
 //   <DSH_HOME>/.dag-flow/tmp/         执行临时文件（下载中间产物等，可随时清空）
-//   <DSH_HOME>/.dag-flow/logs/        运行日志（logger.ts 按天写 dag-flow-YYYY-MM-DD.log）
+//   <DSH_HOME>/.dag-flow/tmp/logs/    运行日志（logger.ts 按天写 dag-flow-YYYY-MM-DD.log；2026-10-18 起挪进 tmp）
 //   <DSH_HOME>/.dag-flow/scripts/     python/bash codePath 相对路径的锚定根
 //   <DSH_HOME>/.dag-flow/             最终产出（file_save/image/video 的结果文件直接放这里，不建专门子目录）
 // （工作区时代的 <工作区>/.dag-flow/ 由 storage.ts 一次性**补缺复制**到新根，旧目录原样保留不删。）
@@ -47,16 +47,17 @@ export function resolveDagFlowSub(dir: string, sub?: string | null): string | nu
 
 let ensured: Promise<void> | null = null;
 
-/** 确保 .dag-flow/tmp、.dag-flow/logs 与 .dag-flow/scripts 目录存在（进程内只创建一次） */
+/** ★ 2026-10-21 用户要求：**别再自动创建**用不上的目录（「还是会自动创建 images / tmp/logs / 子工作流名称」）。
+ *  这里只保证**定义目录** `workflow/` 存在（存工作流与版本必需）；其它一律按需——
+ *  · `tmp/<名>/<runId>/`：由执行器在真的开跑时建；
+ *  · `tmp/logs/`：由 logger 在真的写第一条日志时建；
+ *  · `images/`：由真的落图时建（image-library / 产出节点）；
+ *  · `workflow/scripts/`：由真的写脚本文件时建。 */
 export async function ensureDagFlowDirs(): Promise<void> {
   if (!ensured) {
     ensured = (async () => {
       const root = await dagFlowDir();
-      await fs.mkdir(path.join(root, 'tmp'), { recursive: true });
-      await fs.mkdir(path.join(root, 'logs'), { recursive: true });
-      // scripts/：代码文件目录（python/bash 节点 codePath 相对路径的锚定根；2026-10-02 用户需求：
-      // 「有个地方写格式化的代码，然后引入执行」——在 .dag-flow/scripts/ 写 .py/.sh，节点填文件名引用）
-      await fs.mkdir(path.join(root, 'scripts'), { recursive: true });
+      await fs.mkdir(path.join(root, 'workflow'), { recursive: true });
     })().catch(() => { /* 目录创建失败时调用方各自降级（如 logger 只走 console） */ });
   }
   return ensured;
@@ -65,7 +66,7 @@ export async function ensureDagFlowDirs(): Promise<void> {
 /** 代码文件目录：<DSH_HOME>/.dag-flow/scripts（python/bash codePath 相对路径锚定根） */
 export async function dagFlowScriptsDir(): Promise<string> {
   await ensureDagFlowDirs();
-  return path.join(await dagFlowDir(), 'scripts');
+  return path.join(await dagFlowDir(), 'workflow', 'scripts');
 }
 
 /** 临时文件目录：`<DSH_HOME>/.dag-flow/tmp/[<工作流名>/]`
@@ -76,10 +77,4 @@ export async function dagFlowTmpDir(wfName?: string): Promise<string> {
   const dir = dagFlowScopedPath('tmp', wfName);
   try { await fs.mkdir(dir, { recursive: true }); } catch { /* 建不出来就退回根（调用方会再报错） */ }
   return dir;
-}
-
-/** 日志目录：<DSH_HOME>/.dag-flow/logs */
-export async function dagFlowLogsDir(): Promise<string> {
-  await ensureDagFlowDirs();
-  return path.join(await dagFlowDir(), 'logs');
 }

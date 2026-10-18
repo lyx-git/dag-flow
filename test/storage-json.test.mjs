@@ -78,13 +78,14 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 {
   const root = resolve(info.dir, '..');           // <DSH_HOME>/.dag-flow
   const wf = 'demo-flow';
-  // ① 运行记录落在 runs/<工作流名>/ 下
-  const runInOwnDir = existsSync(join(root, 'runs', wf, 'run-abc-1.json'));
-  console.log('[8a] 运行记录落在 runs/<工作流名>/ =', runInOwnDir);
-  if (!runInOwnDir) throw new Error(`期望 runs/${wf}/run-abc-1.json 存在`);
+  // ① 运行记录随本次运行目录走（2026-10-18 用户要求）⇒ tmp/<工作流名>/<runId>/run.json
+  const runInOwnDir = existsSync(join(root, 'tmp', wf, 'run-abc-1', 'run.json'));
+  console.log('[8a] 运行记录落在 tmp/<工作流名>/<runId>/run.json =', runInOwnDir);
+  if (!runInOwnDir) throw new Error(`期望 tmp/${wf}/run-abc-1/run.json 存在`);
 
   // ② 造齐该工作流的各类专属目录（模拟它跑过：代码 / 抽图 / 中间产物 / 版本）
-  for (const rel of [join('scripts', wf), join('images', wf), join('tmp', wf), join('workflow', 'versions', wf)]) {
+  //    ★ 2026-10-18：脚本目录已挂到 workflow/scripts/<名>（工作流层面不能随意删的都搬进 workflow/）
+  for (const rel of [join('workflow', 'scripts', wf), join('images', wf), join('tmp', wf), join('workflow', 'versions', wf)]) {
     mkdirSync(join(root, rel), { recursive: true });
     writeFileSync(join(root, rel, 'keep.bin'), 'x');
   }
@@ -92,7 +93,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
   await storage.deleteWorkflow(wf);
   const leftovers = [
     join(info.dir, `${wf}.json`),
-    join(root, 'scripts', wf), join(root, 'images', wf), join(root, 'tmp', wf),
+    join(root, 'workflow', 'scripts', wf), join(root, 'images', wf), join(root, 'tmp', wf),
     join(root, 'runs', wf), join(root, 'workflow', 'versions', wf),
   ].filter((p) => existsSync(p));
   console.log('[8b] 删除后残留 =', JSON.stringify(leftovers));
@@ -119,7 +120,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
   await storage.writeWorkflow(OLD, { name: OLD, version: 1, nodes: [] });
   const kinds = [
     join('workflow', 'versions', OLD),
-    join('scripts', OLD), join('runs', OLD), join('images', OLD), join('tmp', OLD),
+    join('workflow', 'scripts', OLD), join('runs', OLD), join('images', OLD), join('tmp', OLD),
   ];
   for (const rel of kinds) {
     mkdirSync(join(root, rel), { recursive: true });

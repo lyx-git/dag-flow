@@ -79,13 +79,14 @@ export function ImagePickerDialog({ current, workflowName = '', onClose, onConfi
       return next;
     });
   }, []);
-  /** 用系统文件管理器打开**本工作流的**图片目录（复用既有路由，sub='images/<工作流名>'）——方便往里丢新图 */
+  /** 用系统文件管理器打开**本工作流各次运行**的图片目录（sub='tmp/<工作流名>'）——想看/清理某次运行产出的图 */
   const openFolder = (): void => {
     void fetch('/api/dag-flow/open-folder', {
       method: 'POST', credentials: 'include',
       headers: { 'content-type': 'application/json' },
       // ★ 2026-10-19：图片按工作流分目录 ⇒ 打开的就是 images/<当前工作流>/
-      body: JSON.stringify({ sub: workflowName ? `images/${workflowName}` : 'images' }),
+      // ★ 2026-10-20：图片只在各次运行目录里 ⇒ 打开 tmp/<名>（能看到所有运行产出的图）
+      body: JSON.stringify({ sub: workflowName ? `tmp/${workflowName}` : 'tmp' }),
     }).catch(() => { /* 打开失败不影响选图 */ });
   };
 

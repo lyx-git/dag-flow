@@ -6,7 +6,7 @@ import { useHomeAs } from './_isolate-home.mjs';   // ★ 2026-10-11：存储根
 // 覆盖：节点列表 / 保存 / 列表 / 读取 / 404 / ai-models CRUD / sessions / run 真实执行。
 // 跑法：node test/api-e2e.test.mjs
 import * as http from 'node:http';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -451,7 +451,10 @@ const del = async (p, body) => { const r = await fetch(url(p), { method: 'DELETE
   // file_save：文本落盘 + URL 下载落盘 + 路径穿越拒绝
   const fs1 = await post('/run-node', { nodeType: 'file_save', params: { source: 'text', content: 'hello dag-flow asset', filename: 'notes/hello.txt' } });
   const f1 = fs1.body?.summary?.results?.target?.out;
-  t('file_save(text) → 200 且写入子目录（.dag-flow/ 下）', fs1.status === 200 && f1?.path === '.dag-flow/notes/hello.txt', JSON.stringify(f1));
+  // ★ 2026-10-18：产出类节点写文件也落本次运行目录 ⇒ .dag-flow/tmp/<名>/<runId>/notes/hello.txt
+  t('file_save(text) → 200 且写入本次运行目录（.dag-flow/tmp/…）',
+    fs1.status === 200 && /^\.dag-flow\/tmp\/node-testrun\/run-[^/]+\/notes\/hello\.txt$/.test(String(f1?.path ?? '')),
+    JSON.stringify(f1));
   t('文本资产真实存在', existsSync(join(fakeWorkspace, f1?.path ?? 'none')));
   const fs2 = await post('/run-node', { nodeType: 'file_save', params: { source: 'url', url: `http://127.0.0.1:${mediaPort}/files/test-video.mp4`, filename: 'download.mp4' } });
   t('file_save(url) → 200 下载落盘', fs2.status === 200 && fs2.body?.summary?.results?.target?.out?.bytes > 0, JSON.stringify(fs2.body)?.slice(0, 160));
@@ -654,7 +657,11 @@ const del = async (p, body) => { const r = await fetch(url(p), { method: 'DELETE
   const outOf = (b) => String(b && b.summary && b.summary.results && b.summary.results.target && b.summary.results.target.out || '').trim();
 
   const py = await post('/run-node', { nodeType: 'python', params: { code: 'import os\nprint(os.getcwd())' } });
-  t('15.1 python 默认 cwd = <DSH_HOME>/.dag-flow（不再继承宿主启动目录）', outOf(py.body) === dataRoot, outOf(py.body));
+  // ★ 2026-10-18 用户要求：每次执行独占一个临时目录 ⇒ 默认 cwd = 本次运行目录 `tmp/<名>/<runId>/`
+  //   （仍锚在 <DSH_HOME>/.dag-flow 下，不继承宿主启动目录）
+  const runCwd = outOf(py.body);
+  const runCwdOk = runCwd.startsWith(dataRoot) && /[\\/]tmp[\\/]node-testrun[\\/]run-[^\\/]+$/.test(runCwd);
+  t('15.1 python 默认 cwd = 本次运行目录（.dag-flow/tmp/<名>/<runId>/）', runCwdOk, runCwd);
 
   const py2 = await post('/run-node', { nodeType: 'python', params: { code: 'import os\nprint(os.getcwd())', cwd: fakeWorkspace } });
   t('15.2 显式 params.cwd 完全覆盖默认值', outOf(py2.body) === fakeWorkspace, outOf(py2.body));
@@ -665,12 +672,27 @@ const del = async (p, body) => { const r = await fetch(url(p), { method: 'DELETE
 
   // bash 用"相对路径产物落在哪"来断言（不依赖 MSYS 的 /c/... 路径格式）
   const bs = await post('/run-node', { nodeType: 'bash', params: { code: 'echo hello-from-bash > cwd-probe.txt' } });
-  t('15.3 bash 的相对路径产物落在 <DSH_HOME>/.dag-flow', bs.status === 200 && existsSync(join(dataRoot, 'cwd-probe.txt')), JSON.stringify(bs.body) && JSON.stringify(bs.body).slice(0, 160));
-  try { rmSync(join(dataRoot, 'cwd-probe.txt')); } catch { /* 清理失败不影响断言 */ }
+  // ★ 2026-10-18：相对路径产物落在**本次运行目录**里（同一次 run-node 会新建自己的 runId，所以按 tmp/<名>/ 扫）
+  const bashLanded = (() => {
+    try {
+      const base = join(dataRoot, 'tmp', 'node-testrun');
+      return readdirSync(base).some((d) => existsSync(join(base, d, 'cwd-probe.txt')));
+    } catch { return false; }
+  })();
+  t('15.3 bash 的相对路径产物落在本次运行目录（.dag-flow/tmp/<名>/<runId>/）', bs.status === 200 && bashLanded, String(bs.status));
 
   const bs2 = await post('/run-node', { nodeType: 'bash', params: { code: 'echo x > cwd-probe2.txt', cwd: fakeWorkspace } });
   t('15.4 bash 显式 cwd 覆盖生效（产物落在指定目录）', bs2.status === 200 && existsSync(join(fakeWorkspace, 'cwd-probe2.txt')));
   try { rmSync(join(fakeWorkspace, 'cwd-probe2.txt')); } catch { /* 同上 */ }
+
+  // ★ 2026-10-18 用户要求：runs/ images/ tmp/logs/ 都归到「一次运行一个目录」规则下 ——
+  //   真实跑过若干次 /run-node 之后，运行目录里必须能看到这三样东西。
+  const runBase = join(dataRoot, 'tmp', 'node-testrun');
+  const runDirs = (() => { try { return readdirSync(runBase); } catch { return []; } })();
+  const inSomeRunDir = (rel) => runDirs.some((d) => existsSync(join(runBase, d, rel)));
+  t('15.5 运行记录落 tmp/<名>/<runId>/run.json', inSomeRunDir('run.json'));
+  t('15.6 本次运行的日志落 tmp/<名>/<runId>/logs/run.log', inSomeRunDir(join('logs', 'run.log')));
+  t('15.7 脚本节点 stdout 落 tmp/<名>/<runId>/nodes/<节点id>.out', inSomeRunDir(join('nodes', 'target.out')));
 }
 
 // ===== 16. ★ 2026-10-19 用户问「改成自己的原名会不会自己和自己比较」=====

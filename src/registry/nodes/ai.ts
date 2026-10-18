@@ -91,10 +91,10 @@ async function runImageGen(p: ImageGenParams, ctx: Context): Promise<NodeResult>
       const it = items[i]!;
       const fname = `${prefix}-${Date.now()}-${i}.png`;
       if (it.url) {
-        const saved = await downloadAsset(it.url, fname);
+        const saved = await downloadAsset(it.url, fname, undefined, ctx.runDir);
         images.push({ url: it.url, path: saved.relativePath, bytes: saved.bytes });
       } else if (it.b64_json) {
-        const saved = await saveAsset(fname, it.b64_json, 'base64');
+        const saved = await saveAsset(fname, it.b64_json, 'base64', ctx.runDir);
         images.push({ path: saved.relativePath, bytes: saved.bytes });
       }
     }
@@ -177,7 +177,7 @@ async function runVideoGen(p: VideoGenParams, ctx: Context): Promise<NodeResult>
       return { ...makeResult('failed', { error: { code: 'VIDEO_NOT_READY', message: `轮询 ${Math.round(maxWait / 1000)}s 后仍未完成（最后状态：${lastStatus || 'unknown'}）。增大 maxWaitMs 或检查任务状态` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
     }
     // 3. 下载视频到 .dag-flow/ 产出目录
-    const saved = await downloadAsset(videoUrl, p.filename ?? `video-${Date.now()}.mp4`);
+    const saved = await downloadAsset(videoUrl, p.filename ?? `video-${Date.now()}.mp4`, undefined, ctx.runDir);
     return finish(t0, startedAt, {
       out: { taskId, videoUrl, path: saved.relativePath, bytes: saved.bytes, waitedMs: Date.now() - t0 },
     });

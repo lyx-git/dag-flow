@@ -99,18 +99,18 @@ export const fileSaveDef: NodeDefinition<FileSaveParams> = {
       filename: { type: 'string', minLength: 1 },
     },
   },
-  run: async (_ctx, p) => {
+  run: async (ctx, p) => {
     const { startedAt, t0 } = startedEnded();
     const source = p.source ?? (p.url ? 'url' : 'text');
     try {
       if (source === 'url') {
         if (!p.url?.trim()) return { ...makeResult('failed', { error: { code: 'FILE_NO_URL', message: 'url 为空——填要下载的文件地址（可引用上游 {{u.out.url}}）' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
-        const saved = await downloadAsset(p.url, p.filename);
+        const saved = await downloadAsset(p.url, p.filename, undefined, ctx.runDir);
         return finish(t0, startedAt, { out: { path: saved.relativePath, ...saved, source: 'url' } });
       }
       if (source === 'base64' && !p.content) return { ...makeResult('failed', { error: { code: 'FILE_NO_CONTENT', message: 'base64 内容为空' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
       if (source === 'text' && !p.content?.trim()) return { ...makeResult('failed', { error: { code: 'FILE_NO_CONTENT', message: 'content 为空——填文件内容（可引用上游 {{u.out.xxx}}）' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
-      const saved = await saveAsset(p.filename, p.content ?? '', source === 'base64' ? 'base64' : 'utf8');
+      const saved = await saveAsset(p.filename, p.content ?? '', source === 'base64' ? 'base64' : 'utf8', ctx.runDir);
       return finish(t0, startedAt, { out: { path: saved.relativePath, ...saved, source, ...(source === 'text' ? { preview: String(p.content).slice(0, 200) } : {}) } });
     } catch (e) {
       return { ...makeResult('failed', { error: { code: 'FILE_SAVE_ERROR', message: `${(e as Error).message}（检查 filename 是否含非法字符）` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };

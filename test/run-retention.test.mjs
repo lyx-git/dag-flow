@@ -1,147 +1,82 @@
-// test/run-retention.test.mjs — 运行记录保留策略（2026-10-11 用户选「策略 A」）
-//   口径：每个工作流保留**最近 200 条** + **超过 30 天**的删除（谁先满足按谁）；只删 runs/run-*.json，
-//   不动 *.json.tmp、不动其它文件、更不动 workflow/ 与版本快照。
-//   ★ 第一行必须 import './_isolate-home.mjs'：storage 模块级会读 dshHome()，否则会写进真机数据根。
+// test/run-retention.test.mjs — 运行记录的**唯一落点**与随运行目录清理（2026-10-20 用户拍板「不用兼容旧位置数据，都删了」）
+//
+// 口径：
+//   ① 运行记录只写 `<数据根>/tmp/<工作流名>/<runId>/run.json`，**不再建 runs/ 目录**；
+//   ② `listRunRecords` / `readRunRecord` 只认运行目录 —— 手工塞进 `runs/` 的旧记录**查不到**（无兼容）；
+//   ③ 每个工作流只留最新 20 个运行目录 ⇒ 旧运行的 run.json 随之消失（`pruneRunTmpDirs`）。
 //   跑法：node test/run-retention.test.mjs
 import { tmpRoot } from './_tmp-root.mjs';
-import './_isolate-home.mjs';
+import { useHomeAs } from './_isolate-home.mjs';
 import { build } from 'esbuild';
-import { mkdirSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, readdirSync, utimesSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 let pass = 0, fail = 0;
-const assert = (cond, msg) => { if (cond) { pass++; console.log(`  ✓ ${msg}`); } else { fail++; console.error(`  ✗ ${msg}`); } };
-
-const ROOT = resolve(import.meta.dirname, '..');
-const tmp = tmpRoot('df-retention-');
-const OUT = join(tmp, 'storage.mjs');
-await build({ entryPoints: [join(ROOT, 'src/adapter/storage.ts')], bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent' });
-const { createStorage, RUN_KEEP_MAX_PER_WORKFLOW, RUN_KEEP_MAX_AGE_DAYS } = await import(pathToFileURL(OUT).href);
-
-const st = createStorage();
-const runsDir = await st.runsDir();
-const DAY = 86_400_000;
-const list = () => readdirSync(runsDir).sort();
-/** 直接落一条记录（不经 writeRunRecord，避免写入时的自动清理干扰受控场景） */
-const put = (msAgo, wf, tag) => {
-  const id = `run-${Date.now() - msAgo}-${tag}`;
-  writeFileSync(join(runsDir, `${id}.json`), JSON.stringify({ runId: id, workflowName: wf, status: 'success', finishedAt: new Date(Date.now() - msAgo).toISOString() }, null, 2), 'utf8');
-  return `${id}.json`;
+const assert = (cond, msg, detail = '') => {
+  if (cond) { pass++; console.log(`  ✓ ${msg}`); }
+  else { fail++; console.error(`  ✗ ${msg}${detail ? '  —  ' + detail : ''}`); }
 };
 
-console.log('== A. 默认阈值 ==');
-assert(RUN_KEEP_MAX_PER_WORKFLOW === 200 && RUN_KEEP_MAX_AGE_DAYS === 30, `默认＝每工作流 ${RUN_KEEP_MAX_PER_WORKFLOW} 条 / ${RUN_KEEP_MAX_AGE_DAYS} 天`);
+const ROOT = resolve(import.meta.dirname, '..');
+const HOME = useHomeAs(tmpRoot('df-runrecords-'));      // ★ 无条件隔离，绝不写进真机数据根
+const DF = join(HOME, '.dag-flow');
+const OUT = join(tmpRoot('df-runrecords-b-'), 'storage.mjs');
+await build({ entryPoints: [join(ROOT, 'src/adapter/storage.ts')], bundle: true, format: 'esm', platform: 'node', outfile: OUT, logLevel: 'silent' });
+const { createStorage, TMP_KEEP_MAX_RUNS } = await import(pathToFileURL(OUT).href);
+const st = createStorage();
 
-console.log('== B. 每工作流保留最近 200 条（第 201 条起淘汰最旧的）==');
+console.log('== A. 写入只落运行目录（不再建 runs/） ==');
 {
-  const made = [];
-  for (let i = 0; i < 205; i++) made.push(put(DAY + (205 - i) * 1000, 'many', `m${i}`));   // i 越大越新
-  const r = await st.pruneRunRecords();
-  assert(r.kept === 200 && r.deleted.length === 5, `删 5 留 200（实际 删 ${r.deleted.length} / 留 ${r.kept}）`);
-  assert(r.deleted.join(',') === made.slice(0, 5).sort().join(','), `删的正是最旧的 5 条：${r.deleted.join(', ')}`);
-  const left = list().filter((f) => /-m\d+\.json$/.test(f));
-  assert(left.length === 200 && !left.includes(made[0]) && left.includes(made[204]), '磁盘上最旧 5 条已消失、最新一条还在');
+  await st.writeRunRecord('run-201-hi', { runId: 'run-201-hi', workflowName: '工作流A', status: 'success' });
+  assert(existsSync(join(DF, 'tmp', '工作流A', 'run-201-hi', 'run.json')), '记录写在 tmp/<名>/<runId>/run.json');
+  assert(!existsSync(join(DF, 'runs')), '没有新建 runs/ 目录');
+  assert(!existsSync(join(DF, 'tmp', '工作流A', 'run-201-hi', 'run-201-hi.json')), '不再写成 <runId>.json');
 }
 
-console.log('== C. 超过 30 天即删（哪怕只有几条）==');
+console.log('\n== B. 列表/读取只认运行目录 ==');
 {
-  const a = put(40 * DAY, 'aged', 'o1');
-  const b = put(31 * DAY, 'aged', 'o2');
-  const c = put(10 * DAY, 'aged', 'o3');
-  const r = await st.pruneRunRecords();
-  assert(r.deleted.includes(a) && r.deleted.includes(b), `40/31 天前的两条被删：${r.deleted.join(', ')}`);
-  assert(!r.deleted.includes(c) && existsSync(join(runsDir, c)), '10 天前的那条保留');
+  const ids = await st.listRunRecords('工作流A');
+  assert(ids.includes('run-201-hi'), '按工作流列得到它', ids.join(','));
+  assert((await st.listRunRecords()).includes('run-201-hi'), '全量列表也含它');
+  const rec = await st.readRunRecord('run-201-hi');
+  assert(rec?.status === 'success', '按 runId 读得到', JSON.stringify(rec ?? null).slice(0, 60));
 }
 
-console.log('== D. 只碰 run-*.json：其它文件与 workflow/ 一律不碰 ==');
+console.log('\n== C. 旧 runs/ 里的记录不再兼容（查不到） ==');
 {
-  writeFileSync(join(runsDir, 'index.json'), '{"note":"不是运行记录"}', 'utf8');
-  writeFileSync(join(runsDir, 'notes.txt'), 'hi', 'utf8');
-  writeFileSync(join(runsDir, 'run-half.json.tmp'), 'partial', 'utf8');
-  const wfDir = resolve(runsDir, '..', 'workflow');
-  mkdirSync(wfDir, { recursive: true });
-  writeFileSync(join(wfDir, 'keep-me.json'), '{"name":"keep-me","version":1,"nodes":[]}', 'utf8');
-  await st.pruneRunRecords({ maxPerWorkflow: 0, maxAgeDays: 0 });   // 最激进：所有 run-*.json 都该删
-  assert(existsSync(join(runsDir, 'index.json')) && existsSync(join(runsDir, 'notes.txt')), '非 run-*.json 的文件保留');
-  assert(existsSync(join(runsDir, 'run-half.json.tmp')), '*.json.tmp 半成品保留（不被当成运行记录）');
-  assert(existsSync(join(wfDir, 'keep-me.json')), 'workflow/ 下的工作流定义未被波及');
-  assert(list().filter((f) => /^run-.*\.json$/.test(f)).length === 0, '激进口径下运行记录确实清空（证明上一条不是"什么都没删"）');
+  const legacyDir = join(DF, 'runs', '工作流B');
+  mkdirSync(legacyDir, { recursive: true });
+  writeFileSync(join(legacyDir, 'run-001-old.json'), JSON.stringify({ runId: 'run-001-old', workflowName: '工作流B', status: 'failed' }), 'utf8');
+  const ids = await st.listRunRecords('工作流B');
+  assert(!ids.includes('run-001-old'), '列表里不出现旧记录', ids.join(','));
+  assert((await st.readRunRecord('run-001-old')) === null, '按 runId 也读不到旧记录');
 }
 
-console.log('== E. 边界：正好 200 条不删；201 条只删 1 ==');
+console.log('\n== D. 保留最新 20 个运行目录 ⇒ 旧记录随之清理 ==');
 {
-  for (let i = 0; i < 200; i++) put(DAY + (200 - i) * 1000, 'edge', `e${i}`);   // e0 最旧
-  await st.pruneRunRecords();
-  assert(list().filter((f) => /-e\d+\.json$/.test(f)).length === 200, '正好 200 条：一条不删');
-  put(1000, 'edge', 'extra');                                                    // 最新一条
-  await st.pruneRunRecords();
-  const left = list().filter((f) => /-e\d+\.json$/.test(f));
-  const extraAlive = list().some((f) => /-extra\.json$/.test(f));
-  // 201 条里淘汰最旧的 1 条（e0）⇒ e* 剩 199，加上新写入的 extra 正好 200
-  assert(left.length === 199 && extraAlive && !left.some((f) => /-e0\.json$/.test(f)), `201 条 → 留 200（含最新写入的那条），删掉的是最旧的 e0；e* 剩 ${left.length}`);
-}
-
-console.log('== F. dryRun 只算不删 ==');
-{
-  const before = list().length;
-  const plan = await st.pruneRunRecords({ dryRun: true, maxPerWorkflow: 0, maxAgeDays: 0 });
-  const runCount = list().filter((f) => /^run-.*\.json$/.test(f)).length;
-  assert(plan.deleted.length === runCount && runCount > 0, `dryRun 报告 ${plan.deleted.length} 条待删（与磁盘上 ${runCount} 条一致）`);
-  assert(list().length === before, 'dryRun 之后文件一个没少');
-}
-
-console.log('== G. 触发点：writeRunRecord 落盘后自动清理 ==');
-{
-  for (let i = 0; i < 201; i++) put(DAY + (201 - i) * 1000, 'hook', `h${i}`);    // 1 天前，不触发年龄规则
-  const id = `run-${Date.now()}-hooknew`;
-  await st.writeRunRecord(id, { runId: id, workflowName: 'hook', status: 'success', finishedAt: new Date().toISOString() });
-  let n = 0;
-  for (let k = 0; k < 50; k++) {
-    n = list().filter((f) => /-h\d+\.json$/.test(f)).length;
-    if (n <= 199) break;
-    await new Promise((r) => setTimeout(r, 100));
+  const wf = '工作流C';
+  const base = join(DF, 'tmp', wf);
+  const ids = [];
+  for (let i = 0; i < 22; i++) {
+    const id = `run-${1000 + i}-c${i}`;
+    const dir = join(base, id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'run.json'), JSON.stringify({ runId: id, workflowName: wf, status: 'success' }), 'utf8');
+    const t = (Date.now() - (30 - i) * 60_000) / 1000;   // i 越大越新
+    utimesSync(dir, t, t);
+    ids.push(id);
   }
-  // 201 条旧的 + 刚写入的 1 条 = 202 → 淘汰最旧 2 条 ⇒ 旧记录剩 199，加新记录正好 200
-  assert(n === 199, `自动清理把该工作流压回 200 条（旧记录剩 ${n} + 新写入 1 条）——清理是"写入后顺手做"`);
-  // ★ 2026-10-19：运行记录按工作流分目录后，新写入的落在 runs/<工作流名>/ 下；
-  //   而上面 put() 造的"历史平铺"记录仍在 runs/ 根 —— 清理必须能同时看到两级，且不误删新记录。
-  assert(existsSync(join(runsDir, 'hook', `${id}.json`)), '★刚写入的这条落在 runs/<工作流名>/ 下且一定还在（不会把自己清掉）');
+  assert(TMP_KEEP_MAX_RUNS === 20, `默认保留 ${TMP_KEEP_MAX_RUNS} 个运行目录`);
+  await st.pruneRunTmpDirs([wf]);
+  const left = readdirSync(base).sort();
+  // 清理发生在「本次运行开始前」⇒ 只留 19 个旧目录，本次再新建 1 个，合计 20
+  assert(left.length === TMP_KEEP_MAX_RUNS - 1, `旧目录留 ${TMP_KEEP_MAX_RUNS - 1} 个（实际 ${left.length}，本次运行还会新建 1 个 ⇒ 合计 ${TMP_KEEP_MAX_RUNS}）`);
+  assert(!left.includes(ids[0]) && left.includes(ids[21]), '删的是最旧的、最新的一定在');
+  const listed = await st.listRunRecords(wf);
+  assert(listed.length === TMP_KEEP_MAX_RUNS - 1, `列表同口径（实际 ${listed.length} 条）`);
+  assert(listed[0] === ids[21], `列表第一条是最新那次（${listed[0]}）`);
 }
 
-// ★ 2026-10-19 全量自检补的两条：prune 按工作流隔离 + listRunRecords 顺序正确（枚举改成零 stat 后必须仍有序）
-console.log('== H. pruneRunRecords({workflowName}) 只扫本工作流目录 ==');
-{
-  const A = join(runsDir, 'wfA');
-  const B = join(runsDir, 'wfB');
-  mkdirSync(A, { recursive: true });
-  mkdirSync(B, { recursive: true });
-  for (let i = 0; i < 201; i++) {
-    const ms = Date.now() - DAY - (201 - i) * 1000;
-    const rec = (wf) => JSON.stringify({ workflowName: wf, status: 'success', finishedAt: new Date(ms).toISOString() });
-    writeFileSync(join(A, `run-${ms}-a${i}.json`), rec('wfA'), 'utf8');
-    writeFileSync(join(B, `run-${ms}-b${i}.json`), rec('wfB'), 'utf8');
-  }
-  const r = await st.pruneRunRecords({ workflowName: 'wfA' });
-  const aLeft = readdirSync(A).filter((f) => f.endsWith('.json')).length;
-  const bLeft = readdirSync(B).filter((f) => f.endsWith('.json')).length;
-  assert(aLeft === 200, `A 目录被压回 200 条（实际 ${aLeft}）`);
-  assert(bLeft === 201, `★B 目录一条没动（实际 ${bLeft}）—— 按工作流隔离生效（写入后只扫自己那棵树）`);
-  assert(!r.deleted.some((f) => /-b\d+\.json$/.test(f)), '删除清单里没有 B 的任何记录');
-}
-
-console.log('== I. listRunRecords 顺序＝新→旧（零 stat 按文件名排序也必须有序） ==');
-{
-  const D = join(runsDir, 'wfC');
-  mkdirSync(D, { recursive: true });
-  const base = Date.now();
-  const ids = [base - 3000, base - 2000, base - 1000].map((ms, i) => `run-${ms}-c${i}`);
-  for (const id of ids) writeFileSync(join(D, `${id}.json`), JSON.stringify({ workflowName: 'wfC', status: 'success' }), 'utf8');
-  const got = await st.listRunRecords('wfC');
-  const pos = ids.map((id) => got.indexOf(id));
-  assert(pos.every((v) => v >= 0), '三条都在返回里');
-  assert(pos[2] < pos[1] && pos[1] < pos[0], `顺序新→旧：${got.filter((x) => /-c\d/.test(x)).join(' > ')}`);
-}
-
-console.log(`\n=== 运行记录保留策略：${pass} passed, ${fail} failed ===`);
+console.log(`\n=== 运行记录落点与清理：${pass} passed, ${fail} failed ===`);
 process.exit(fail ? 1 : 0);

@@ -254,13 +254,12 @@ let s1 = null;   // 场景 2 要拿它的 effect disposer 模拟 fiber 卸载
   t('加载日志同时报告 tool / api 的注册结果', /dagflow tool registered/.test(infoLine) && /api registered/.test(infoLine), infoLine);
   t('加载日志不再声称 safe mode', !/safe mode active/.test(infoLine), infoLine);
 
-  // 文件日志（<DSH_HOME>/.dag-flow/logs/）——修复前这条证据完全缺失
+  // ★ 2026-10-21 用户拍板「不要再自动创建 tmp/logs」⇒ 文件日志已关闭，这里改成反向锁：
+  //   写完日志后 <DSH_HOME>/.dag-flow/tmp/logs/ 仍不该存在（日志只走宿主 logger + console）。
   await sleep(400);
-  const logDir = join(WS, '.dag-flow', 'logs');
-  const logFiles = existsSync(logDir) ? readdirSync(logDir).filter((f) => f.endsWith('.log')) : [];
-  t('dag-flow 自己的文件日志已落盘', logFiles.length === 1, logFiles.join(','));
-  const logText = logFiles.length ? readFileSync(join(logDir, logFiles[0]), 'utf8') : '';
-  t('文件日志含路由注册条数与 loaded 行', /API routes registered: 22/.test(logText) && /\[dag-flow\] loaded/.test(logText), logText.slice(-300));
+  const logDir = join(WS, '.dag-flow', 'tmp', 'logs');
+  t('★ 不再落文件日志（tmp/logs/ 不存在）', !existsSync(logDir), logDir);
+  t('加载日志仍报告 tool / api 注册结果（走宿主 logger，不依赖文件）', /dagflow tool registered/.test(infoLine) && /api registered/.test(infoLine), infoLine);
 
   // 存储根固定 <DSH_HOME>/.dag-flow（2026-10-11 起与工作区无关；本测试把 DSH_HOME 指向临时工作区）
   t('storage 根落在 <DSH_HOME>/.dag-flow', existsSync(join(WS, '.dag-flow', 'workflow')), join(WS, '.dag-flow'));

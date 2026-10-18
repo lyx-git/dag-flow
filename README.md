@@ -294,10 +294,15 @@ dsh plugin --profile web add github:lyx-git/dag-flow#6bab0245a5ab5655cb5d2d63f55
 ├── workflow/                  ← 工作流定义（每个工作流一个 .json）
 │   ├── config/                ← 节点配置文件（如 mail.json 邮件凭据）
 │   └── versions/              ← 历史版本快照
-├── runs/                      ← 运行记录
-├── logs/                      ← 按天日志
-├── tmp/                       ← 临时文件
-├── scripts/                   ← 节点用的脚本文件（codePath 指向这里）
+├── tmp/<名>/<runId>/          ← 一次运行一个目录（每个工作流只留最新 20 次）
+│                                 （父工作流调子工作流时共用父的这一层，不会另建子工作流目录）
+│   ├── run.json               ← 本次运行记录
+│   ├── logs/run.log           ← 本次运行的日志
+│   ├── nodes/<节点id>.out|.err← 脚本节点的 stdout / stderr
+│   ├── images/                ← 本次抽图 / 生图
+│   └── documents/ …           ← 文档解析等其它中间产物
+├── tmp/logs/                  ← 全局按天日志（只留最新 20 份）
+├── workflow/scripts/<名>/     ← 节点用的脚本文件（codePath 指向这里）
 └── schedules.json             ← 定时任务配置
 ```
 
@@ -305,7 +310,7 @@ dsh plugin --profile web add github:lyx-git/dag-flow#6bab0245a5ab5655cb5d2d63f55
 - 工作流定义是**纯 JSON**，可以进 git、可以手改、可以复制给别人。
 - `file_save` 的产出落在 `.dag-flow/` 下（`filename` 里带子目录就会建子目录，如 `reports/日报.md`）。
 - 同名文件**不会覆盖**，会自动改名为 `报告-2.md`。
-- Python / Bash 节点默认就在这个数据根里执行（`cwd` 留空 = `<DSH_HOME>/.dag-flow`），所以脚本里的相对路径产物也落在这儿；节点参数填 `cwd` 可完全覆盖。
+- Python / Bash 节点默认在**本次运行目录**执行（`cwd` 留空 = `.dag-flow/tmp/<工作流名>/<runId>/`），脚本里写相对路径就会落在这个独占目录里，绝不会读到别的执行留下的文件；节点参数填 `cwd` 可完全覆盖。
 
 ---
 
@@ -434,7 +439,7 @@ registerNode({
 ```bash
 npm run typecheck        # TypeScript 类型检查
 npm run build            # 构建 host + client 两个产物
-npm run test:offline     # 离线回归套件（53 个文件）
+npm run test:offline     # 离线回归套件（56 个文件）
 npm run fetch:runtime    # 按需下载内置运行时
 ```
 
@@ -696,17 +701,22 @@ Everything lives under `<DSH_HOME>/.dag-flow/` — independent of the current wo
 ├── workflow/                  # workflow definitions (one .json each)
 │   ├── config/                # node config files (e.g. mail.json credentials)
 │   └── versions/              # version snapshots
-├── runs/                      # run records
-├── logs/                      # daily logs
-├── tmp/                       # temp files
-├── scripts/                   # script files used by nodes (codePath)
+├── tmp/<name>/<runId>/        # one directory per run (newest 20 kept per workflow)
+│                                # (sub-workflows share the parent's directory — no dir of their own)
+│   ├── run.json               # this run's record
+│   ├── logs/run.log           # this run's log
+│   ├── nodes/<nodeId>.out|.err# script node stdout / stderr
+│   ├── images/                # images this run extracted / generated
+│   └── documents/ …           # other intermediate artifacts
+├── tmp/logs/                  # global daily logs (newest 20 files kept)
+├── workflow/scripts/<name>/   # script files used by nodes (codePath)
 └── schedules.json             # schedules
 ```
 
 The root comes from the `DSH_HOME` env var (portable installs can point it elsewhere) and falls back to `~/.dsh`; open a different workspace and your workflows are still there.
 Definitions are plain JSON — diffable, hand-editable, shareable.
 `file_save` outputs land under `.dag-flow/`; identical filenames are **never overwritten** (they become `report-2.md`).
-Python / Bash nodes run inside that data root (empty `cwd` = `<DSH_HOME>/.dag-flow`), so relative paths in scripts land there too; the node's `cwd` param overrides it entirely.
+Python / Bash nodes run inside **this run's directory** (empty `cwd` = `.dag-flow/tmp/<workflowName>/<runId>/`), so relative paths in scripts land in that isolated directory and can never read another run's files; the node's `cwd` param overrides it entirely.
 
 ---
 
@@ -739,7 +749,7 @@ Python / Bash nodes run inside that data root (empty `cwd` = `<DSH_HOME>/.dag-fl
 ```bash
 npm run typecheck        # TypeScript check
 npm run build            # build host + client bundles
-npm run test:offline     # offline regression suite (53 files)
+npm run test:offline     # offline regression suite (56 files)
 npm run fetch:runtime    # download bundled runtime on demand
 ```
 

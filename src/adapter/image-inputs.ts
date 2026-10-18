@@ -18,7 +18,7 @@
 // ★ 非法项**明确报错**，绝不静默丢图——用户会以为图已经发出去了。
 //
 // 依赖：只用 node 内置（插件 R3 零依赖约定）；路径走防腐层 `dsh-gate/paths.ts`。
-import { promises as fs } from 'node:fs';
+import { promises as fs, readdirSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import { dagFlowScopedPath, dshHome } from '../dsh-gate/paths.js';
 
@@ -97,10 +97,32 @@ export function parseImageList(value: unknown): ImageSpec[] {
   });
 }
 
-/** 本地路径 → 绝对路径。★ 相对路径锚定**本工作流的图片目录** `images/<工作流名>/`
+/** 本工作流各次运行目录里的 images/（新的在前；数量受「每个工作流保留 20 个运行目录」限制，所以很轻）。
+ *  ★ 2026-10-21 修：排序优先用**运行目录名里的毫秒时间戳**（`run-<ms>-<rand>`），取不到才退回目录 mtime。
+ *    只按目录 mtime 会误判——往旧目录里补一个文件就把它的 mtime 顶到最新，"取最新那份"会挑错。 */
+function runImageDirsNewestFirst(wfName?: string): string[] {
+  const base = dagFlowScopedPath('tmp', wfName);
+  let subs: DirEntry[] = [];
+  try { subs = readdirSync(base, { withFileTypes: true }) as unknown as DirEntry[]; } catch { return []; }
+  const rows: { dir: string; t: number }[] = [];
+  for (const d of subs) {
+    if (typeof d?.isDirectory === 'function' && !d.isDirectory()) continue;
+    const name = String(d.name);
+    const dir = path.join(base, name, 'images');
+    let t = Number((/^run-(\d{10,})/.exec(name) ?? [])[1]) || 0;   // 目录名里的毫秒时间戳
+    if (!t) { try { t = statSync(dir).mtimeMs; } catch { continue; } }
+    try { statSync(dir); } catch { continue; }                      // 这次运行没产出图（没有 images/）
+    rows.push({ dir, t });
+  }
+  return rows.sort((a, b) => b.t - a.t).map((r) => r.dir);
+}
+
+/** 本地路径 → 绝对路径。★ 相对路径锚定**本工作流最近一次运行**的图片目录
  *  （写 `chart.png` 即可）；绝对路径原样使用。 */
 export function resolveImagePath(p: string, wfName?: string): string {
-  return path.isAbsolute(p) ? p : path.resolve(imageDir(wfName), p);
+  if (path.isAbsolute(p)) return p;
+  const first = runImageDirsNewestFirst(wfName)[0];
+  return path.resolve(first ?? path.join(dagFlowScopedPath('tmp', wfName), 'images'), p);
 }
 
 /** ★ 相对路径的**候选探测顺序**：① 绝对路径 = 唯一候选；② 本工作流的图片目录（官方基准，写裸名）；
@@ -109,7 +131,12 @@ export function resolveImagePath(p: string, wfName?: string): string {
  *  ★ 2026-10-19 用户口径「全部严格按照要求做，不做兼容」⇒ **已去掉 `images/` 根目录兜底**。 */
 export function imagePathCandidates(p: string, wfName?: string): string[] {
   if (path.isAbsolute(p)) return [p];
-  return [...new Set([path.resolve(imageDir(wfName), p), path.resolve(dshHome(), p)])];
+  // ★ 2026-10-20：各次运行的 images/ 依次探（新的在前）+ <DSH_HOME> 相对兜底（接上游节点写出的
+  //   `.dag-flow/tmp/.../images/x.png` 这类形态）。旧 `images/<名>/` 不再参与。
+  return [...new Set([
+    ...runImageDirsNewestFirst(wfName).map((d) => path.resolve(d, p)),
+    path.resolve(dshHome(), p),
+  ])];
 }
 
 /** 展示名（basename；URL 取 pathname 且去掉 query/hash） */
@@ -133,7 +160,7 @@ export async function loadImageInput(spec: ImageSpec, wfName?: string): Promise<
       try { stat = await fs.stat(c); abs = c; break; } catch { /* 试下一个候选 */ }
     }
     if (!stat) {
-      throw new ImageInputError('IMAGE_NOT_FOUND', `图片文件不存在或不可读，已尝试：${cands.join(' 与 ')}（相对路径以**当前工作流的图片目录** <DSH_HOME>/.dag-flow/images/${wfName || '<工作流名>'}/ 为基准、写文件名即可；也兼容 .dag-flow/images/… 这类相对 <DSH_HOME> 的写法）`);
+      throw new ImageInputError('IMAGE_NOT_FOUND', `图片文件不存在或不可读，已尝试：${cands.join(' 与 ')}（相对路径以**本次运行产出的图片目录** <DSH_HOME>/.dag-flow/tmp/${wfName || '<工作流名>'}/<runId>/images/ 为基准、写文件名即可；也兼容 .dag-flow/… 这类相对 <DSH_HOME> 的写法）`);
     }
     if (!stat.isFile()) throw new ImageInputError('IMAGE_NOT_FOUND', `不是文件：${abs}`);
     if (stat.size > IMAGE_MAX_BYTES) {
@@ -179,14 +206,34 @@ export interface ImageFileInfo {
   mtime: number;
 }
 
-/** 列目录用到的结构化类型（省去 import Dirent：只需 name/isFile 两个成员） */
-type DirEntry = { name: string; isFile(): boolean };
+/** 列目录用到的结构化类型（省去 import Dirent：只需 name/isFile/isDirectory 三个成员） */
+type DirEntry = { name: string; isFile(): boolean; isDirectory?(): boolean };
 
-/** 列出**本工作流**图片目录里的图片（**只读**）：只该目录、跳过隐藏文件、只认白名单扩展名、按修改时间倒序。
+/** 列出**本工作流各次运行**产出的图片（**只读**）：跳过隐藏文件、只认白名单扩展名、按修改时间倒序。
  *  ★ 2026-10-16 用户需求「多张图片一个一个复制名称有点麻烦」⇒ 「🖼 选图」弹窗从这里取清单让用户勾选。
- *  ★ 2026-10-19 按工作流分目录后，清单跟着当前工作流走（用户口径：不做兼容，不列别的工作流的图）。 */
+ *  ★ 2026-10-20 用户拍板「不用兼容旧位置数据，都删了」⇒ 只扫 `tmp/<名>/<runId>/images/`，
+ *    旧 `images/<名>/` 历史库**不再参与**（同名取 mtime 较新的那份，整体按 mtime 倒序）。 */
 export async function listImageFiles(wfName?: string): Promise<ImageFileInfo[]> {
-  const dir = imageDir(wfName);
+  const dirs: string[] = [];
+  try {
+    const tmpBase = dagFlowScopedPath('tmp', wfName);
+    for (const d of (await fs.readdir(tmpBase, { withFileTypes: true })) as unknown as DirEntry[]) {
+      if (typeof d?.isDirectory === 'function' && !d.isDirectory()) continue;
+      dirs.push(path.join(tmpBase, String(d.name), 'images'));
+    }
+  } catch { /* 还没跑过任何一次 */ }
+  const byName = new Map<string, ImageFileInfo>();
+  for (const dir of dirs) {
+    for (const it of await scanImageDir(dir)) {
+      const old = byName.get(it.name);
+      if (!old || it.mtime > old.mtime) byName.set(it.name, it);
+    }
+  }
+  return [...byName.values()].sort((a, b) => b.mtime - a.mtime);
+}
+
+/** 扫单个目录里的图片（隐藏文件 / 子目录 / 非白名单扩展名一律跳过；单文件失败不影响整份清单） */
+async function scanImageDir(dir: string): Promise<ImageFileInfo[]> {
   let entries: DirEntry[];
   try {
     entries = (await fs.readdir(dir, { withFileTypes: true })) as unknown as DirEntry[];
@@ -196,13 +243,13 @@ export async function listImageFiles(wfName?: string): Promise<ImageFileInfo[]> 
   const out: ImageFileInfo[] = [];
   for (const e of entries) {
     const name = String(e?.name ?? '');
-    if (!name || name.startsWith('.')) continue;          // 隐藏文件不收
-    if (typeof e?.isFile === 'function' && !e.isFile()) continue;   // 子目录 / 符号链接不收
-    if (!mediaTypeOf(name)) continue;                     // 只认 png/jpg/jpeg/webp/gif
+    if (!name || name.startsWith('.')) continue;
+    if (typeof e?.isFile === 'function' && !e.isFile()) continue;
+    if (!mediaTypeOf(name)) continue;
     try {
       const st = await fs.stat(path.join(dir, name));
       out.push({ name, bytes: st.size, mtime: st.mtimeMs });
-    } catch { /* 单个文件读不到就跳过，不影响整份清单 */ }
+    } catch { /* 单个文件读不到就跳过 */ }
   }
-  return out.sort((a, b) => b.mtime - a.mtime);
+  return out;
 }

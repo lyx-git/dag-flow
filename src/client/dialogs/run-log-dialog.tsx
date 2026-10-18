@@ -18,6 +18,9 @@ export function useRunLogDialog({ def, running }: { def: WorkflowDef; running: b
   const [logMeta, setLogMeta] = useState<{ runId?: string; live?: boolean; runStatus?: string; error?: string; at?: number } | null>(null);
   /** 运行记录落盘目录（服务端 /run/log 响应带 dir = …/runs）——弹窗里标注并点击打开 */
   const [logDir, setLogDir] = useState('');
+  /** ★ 2026-10-18：本次运行目录相对 .dag-flow 的子路径（'tmp/<名>/<runId>'）——「打开文件夹」用；
+   *  运行记录改落运行目录后，旧值 'runs' 只在服务端算不出来时兜底 */
+  const [logSub, setLogSub] = useState('runs');
   const [logBusy, setLogBusy] = useState(false);
   const [logFilter, setLogFilter] = useState('');
   const [logScope, setLogScope] = useState<'all' | 'problem'>('all');
@@ -42,6 +45,7 @@ export function useRunLogDialog({ def, running }: { def: WorkflowDef; running: b
       }
       const entries: any[] = Array.isArray(j?.entries) ? j.entries : [];
       setLogDir(String(j?.dir ?? ''));   // 落盘目录（每次拉取都写，值不变时 React 自动跳过重渲染）
+      setLogSub(String(j?.dirSub ?? 'runs'));
       const live = !!j?.live;
       const sig = `${live}|${j?.runStatus ?? ''}|${entries.map((e) => `${e?.id}:${e?.status}:${e?.durationMs ?? ''}`).join(',')}`;
       logLiveRef.current = live;
@@ -96,7 +100,7 @@ export function useRunLogDialog({ def, running }: { def: WorkflowDef; running: b
     () => logEntries.filter((e) => e?.status === 'failed' || e?.status === 'skipped').length,
     [logEntries],
   );
-  return { logOpen, setLogOpen, logEntries, logMeta, logDir, logBusy, logFilter, setLogFilter, logScope, setLogScope, logExpanded, setLogExpanded, fetchRunLog, logView, logProblemCount };
+  return { logOpen, setLogOpen, logEntries, logMeta, logDir, logSub, logBusy, logFilter, setLogFilter, logScope, setLogScope, logExpanded, setLogExpanded, fetchRunLog, logView, logProblemCount };
 }
 
 export function RunLogDialogView({ d, def, setSelectedNodeId, setImportMsg }: {
@@ -128,10 +132,11 @@ export function RunLogDialogView({ d, def, setSelectedNodeId, setImportMsg }: {
                 ? ` · 已过滤：只看失败/跳过（显示 ${d.logView.length} 条，隐藏 ${Math.max(0, d.logEntries.length - d.logView.length)} 条）`
                 : '')),
         // ★ 2026-10-11 用户需求：运行日志弹窗也要标记数据存放位置 + 点击打开文件夹
-        //   运行记录落盘在 .dag-flow/runs/<runId>.json（画布节点的入参/出参就是从这些记录读的）
+        //   ★ 2026-10-18：运行记录随本次运行目录走 ⇒ .dag-flow/tmp/<名>/<runId>/run.json
+        //   （画布节点的入参/出参就是从这条记录 + 同目录的 nodes/ 读的）
         dataPathRow(
-          d.logDir ? joinDisplay(d.logDir, `${d.logMeta?.runId ?? '<runId>'}.json`) : '<DSH_HOME>/.dag-flow/runs/<runId>.json',
-          'runs',
+          d.logDir ? joinDisplay(d.logDir, 'run.json') : '<DSH_HOME>/.dag-flow/tmp/<名>/<runId>/run.json',
+          d.logSub || 'runs',
           (m: string) => setImportMsg({ ok: false, text: m }),
         ),
         createElement('div', { className: 'dsh-wf-log-toolbar' },

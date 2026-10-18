@@ -4,7 +4,7 @@ import './_isolate-home.mjs';   // ★ 2026-10-11：隔离 DSH_HOME（存储根 
 // 可独立执行节点走 /run-node；依赖上游数据的节点（merge/loop.over 等）已在 api-e2e 覆盖。
 // 跑法：node test/node-matrix.test.mjs
 import * as http from 'node:http';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -191,7 +191,10 @@ const target = (r) => r.body?.summary?.results?.target;
 {
   const r = await runNode('file_save', { source: 'text', content: 'node-matrix', filename: 'matrix/nm.txt' });
   const out = target(r)?.out;
-  t('16. file_save text → success 且落盘（.dag-flow/ 根下）', target(r)?.status === 'success' && out?.path === '.dag-flow/matrix/nm.txt', JSON.stringify(out));
+  // ★ 2026-10-18：产出类节点写文件也落本次运行目录 ⇒ .dag-flow/tmp/<名>/<runId>/matrix/nm.txt
+  t('16. file_save text → success 且落本次运行目录（.dag-flow/tmp/…）',
+    target(r)?.status === 'success' && /^\.dag-flow\/tmp\/node-testrun\/run-[^/]+\/matrix\/nm\.txt$/.test(String(out?.path ?? '')),
+    JSON.stringify(out));
 }
 // 17. start / 18. end（组合已有覆盖，这里补独立语义：start 输出 params）
 {
@@ -318,12 +321,23 @@ const target = (r) => r.body?.summary?.results?.target;
   const oImg = target(rImg)?.out;
   t('21g2. ★ doc_parse 抽图：文本里就地标注真实文件名', target(rImg)?.status === 'success' && /\[图片：matrix-with-image-1\.png\]/.test(String(oImg?.text)), JSON.stringify(oImg?.text)?.slice(0, 200));
   // ★ 2026-10-19 图片按工作流分目录（用户拍板「全部严格按照要求做，不做兼容」）：
-  //   `/run-node` 里临时定义的名固定为 `node-testrun` ⇒ 抽出的图必须落在 `.dag-flow/images/node-testrun/`，
-  //   而**不再**落在根 `.dag-flow/images/`。imgRoot 单独留着，用来锁"根目录不该再出现文件"。
+  //   ★ 2026-10-18 更新：抽出的图进一步落**本次运行目录** `.dag-flow/tmp/node-testrun/<runId>/images/`
+  //   （用户要求「执行过程中产生的临时数据都要放到 tmp 下面」+「每次执行独占一个目录」）。
+  //   每次 /run-node 都是新的 runId ⇒ 按目录扫，只认「本工作流运行目录」里那份。
   const imgRoot = join(ISOLATED_HOME, '.dag-flow', 'images');
-  const imgDir = join(imgRoot, 'node-testrun');
-  const landed = existsSync(join(imgDir, 'matrix-with-image-1.png'));
-  t('21g3. ★ 抽出的图落进本工作流的图片目录（.dag-flow/images/node-testrun/）', landed && !existsSync(join(imgRoot, 'matrix-with-image-1.png')) && Number(oImg?.meta?.imageCount) === 1, `landed=${landed} meta=${JSON.stringify(oImg?.meta)?.slice(0, 160)}`);
+  const runImgBase = join(ISOLATED_HOME, '.dag-flow', 'tmp', 'node-testrun');
+  /** 在本次/最近一次运行目录的 images/ 下找抽出的图（找不到返回 ''） */
+  const findExtracted = (name) => {
+    try {
+      for (const d of readdirSync(runImgBase)) {
+        const p = join(runImgBase, d, 'images', name);
+        if (existsSync(p)) return p;
+      }
+    } catch { /* 还没跑过 */ }
+    return '';
+  };
+  const landed = !!findExtracted('matrix-with-image-1.png');
+  t('21g3. ★ 抽出的图落进本次运行目录的 images/（.dag-flow/tmp/<名>/<runId>/images/）', landed && !existsSync(join(imgRoot, 'matrix-with-image-1.png')) && Number(oImg?.meta?.imageCount) === 1, `landed=${landed} meta=${JSON.stringify(oImg?.meta)?.slice(0, 160)}`);
   t('21g4. out.images 结构（name/mediaType/bytes/source）', oImg?.images?.[0]?.name === 'matrix-with-image-1.png' && oImg?.images?.[0]?.mediaType === 'image/png' && oImg?.images?.[0]?.source === 'word/media/pic.png' && Number(oImg?.images?.[0]?.bytes) === 11, JSON.stringify(oImg?.images)?.slice(0, 200));
   const rOff = await runNode('doc_parse', { path: docxPath, extractImages: 'off' });
   const oOff = target(rOff)?.out;
@@ -331,7 +345,9 @@ const target = (r) => r.body?.summary?.results?.target;
   //   按"有没有抽到图"无条件插入，而 off 会把 images 清空 ⇒ 留着就是"指向不存在文件的假地址"（还会进下游 prompt）
   t('21g5. extractImages:off → 只解析文本（★洗净 [图片 #1] 占位、不落盘）', target(rOff)?.status === 'success' && !String(oOff?.text).includes('[图片 #') && Array.isArray(oOff?.images) && oOff.images.length === 0, JSON.stringify(oOff?.text)?.slice(0, 160));
   const rAgain = await runNode('doc_parse', { path: docxPath });
-  t('21g6. 重复解析幂等（同名同内容不重写，reused=true）', target(rAgain)?.status === 'success' && target(rAgain)?.out?.images?.[0]?.reused === true, JSON.stringify(target(rAgain)?.out?.images)?.slice(0, 160));
+  // ★ 2026-10-18：每次运行独占目录 ⇒ 跨运行不再复用同一个文件（幂等只在同一次运行内成立），
+  //   这里锁的是「重复解析照样成功、图照样落在它自己的运行目录里」。
+  t('21g6. 重复解析照样成功（图落本次运行目录，跨运行不复用旧文件）', target(rAgain)?.status === 'success' && !!findExtracted('matrix-with-image-1.png'), JSON.stringify(target(rAgain)?.out?.images)?.slice(0, 160));
 
   // ★ 21g7–21g10（2026-10-16 第二轮：PDF 抽图）：含 DCTDecode(JPEG) 图的最小 PDF ⇒ 端到端跑通
   //   「抽图 → 落统一图片目录 → 文本就地标注真实文件名 → 幂等」。
@@ -358,11 +374,11 @@ const target = (r) => r.body?.summary?.results?.target;
   const rPdf = await runNode('doc_parse', { path: pdfPath });
   const oPdf = target(rPdf)?.out;
   t('21g7. ★ PDF 抽图：文本里就地标注真实文件名（且在该页文本之后）', target(rPdf)?.status === 'success' && /PDF figure\n\[图片：matrix-with-image-1\.jpg\]/.test(String(oPdf?.text)), JSON.stringify(oPdf?.text)?.slice(0, 200));
-  const pdfLanded = existsSync(join(imgDir, 'matrix-with-image-1.jpg'));
-  t('21g8. ★ PDF 抽出的图落进本工作流的图片目录（.dag-flow/images/node-testrun/）', pdfLanded && Number(oPdf?.meta?.imageCount) === 1, `landed=${pdfLanded} meta=${JSON.stringify(oPdf?.meta)?.slice(0, 160)}`);
+  const pdfLanded = !!findExtracted('matrix-with-image-1.jpg');
+  t('21g8. ★ PDF 抽出的图落进本次运行目录的 images/', pdfLanded && Number(oPdf?.meta?.imageCount) === 1, `landed=${pdfLanded} meta=${JSON.stringify(oPdf?.meta)?.slice(0, 160)}`);
   t('21g9. PDF out.images：JPEG 原样落盘（字节数一致）+ source 注明页码', oPdf?.images?.[0]?.mediaType === 'image/jpeg' && Number(oPdf?.images?.[0]?.bytes) === pdfWithImage.jpeg.length && /第 1 页/.test(String(oPdf?.images?.[0]?.source)), JSON.stringify(oPdf?.images)?.slice(0, 200));
   const rPdfAgain = await runNode('doc_parse', { path: pdfPath });
-  t('21g10. PDF 重复解析幂等（reused=true）', target(rPdfAgain)?.status === 'success' && target(rPdfAgain)?.out?.images?.[0]?.reused === true, JSON.stringify(target(rPdfAgain)?.out?.images)?.slice(0, 160));
+  t('21g10. PDF 重复解析照样成功（各自落在自己的运行目录）', target(rPdfAgain)?.status === 'success' && !!findExtracted('matrix-with-image-1.jpg'), JSON.stringify(target(rPdfAgain)?.out?.images)?.slice(0, 160));
 
   // ★ 21g11–21g13（2026-10-16 第二轮·用户追加：「只有图没有文字的，text 里面说明抽出来的图片地址就行」）：
   //   扫描件（无文本层 + 整页图片）+ OCR **显式关** ⇒ **不再报错**，文本给出抽出的图片名（落盘后的真实地址）。
@@ -389,7 +405,7 @@ const target = (r) => r.body?.summary?.results?.target;
   const rOnly = await runNode('doc_parse', { path: scanImgPath, ocr: 'off' });
   const oOnly = target(rOnly)?.out;
   t('21g11. ★ 纯图 PDF（无文本层）+ OCR 显式关 ⇒ 成功返回、文本给出图片地址', target(rOnly)?.status === 'success' && /\[图片：matrix-scan-img-1\.jpg\]/.test(String(oOnly?.text)) && oOnly?.meta?.imagesOnly === true, JSON.stringify(oOnly?.text)?.slice(0, 200) + ' / ' + String(target(rOnly)?.error?.code));
-  t('21g12. 纯图 PDF 抽出的图落进本工作流的图片目录（且字节原样）', existsSync(join(imgDir, 'matrix-scan-img-1.jpg')) && !existsSync(join(imgRoot, 'matrix-scan-img-1.jpg')) && Number(oOnly?.meta?.imageCount) === 1 && Number(oOnly?.images?.[0]?.bytes) === scanImgPdf.jpeg.length, JSON.stringify(oOnly?.meta) + ' ' + JSON.stringify(oOnly?.images)?.slice(0, 160));
+  t('21g12. 纯图 PDF 抽出的图落进本次运行目录的 images/（且字节原样）', !!findExtracted('matrix-scan-img-1.jpg') && !existsSync(join(imgRoot, 'matrix-scan-img-1.jpg')) && Number(oOnly?.meta?.imageCount) === 1 && Number(oOnly?.images?.[0]?.bytes) === scanImgPdf.jpeg.length, JSON.stringify(oOnly?.meta) + ' ' + JSON.stringify(oOnly?.images)?.slice(0, 160));
   const rOnlyOff = await runNode('doc_parse', { path: scanImgPath, extractImages: 'off', ocr: 'off' });
   t('21g13. 纯图 PDF + extractImages:off ⇒ 保持原报错（契约不变）', target(rOnlyOff)?.error?.code === 'DOC_NO_TEXT_LAYER', String(target(rOnlyOff)?.error?.code));
 

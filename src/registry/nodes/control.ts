@@ -109,6 +109,23 @@ export const switchDef: NodeDefinition<SwitchParams> = {
 
 // ---------- 10. loop ----------
 /** 循环体规格（2026-10-03 用户拍板方案 A：子工作流当循环体） */
+/** ★ 2026-10-20 用户要求「子工作流如果被多个父工作流并发执行了，需要解决一下这个问题」：
+ *  同一个**运行目录**里并发调用**同一个子工作流** ⇒ 按 `<runDir>|<子工作流名>` 串行排队。
+ *  · 为什么不换目录：一次运行内整棵树共用父 runDir（父节点的 python 就是靠 glob 这个目录读子工作流产物的），
+ *    换成子目录会直接切断既有数据流；
+ *  · 为什么不按工作流名全局排队：不同父运行各有自己的 runDir，本来就互不影响，全局排队只会白白串行；
+ *  · 只在内存排队、进程重启即清空；排队不改变任何产物路径与语义，只是不并发写同一批文件。
+ *  · 运行记录（run.json）只有顶层运行写 ⇒ 并发子工作流不会在 `tmp/<子名>/` 互相覆盖。 */
+const subflowQueues = new Map<string, Promise<unknown>>();
+export function runSubflowSerialized<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = subflowQueues.get(key) ?? Promise.resolve();
+  const task = prev.then(fn, fn);
+  const tail: Promise<unknown> = task.then(() => undefined, () => undefined);
+  subflowQueues.set(key, tail);
+  void tail.then(() => { if (subflowQueues.get(key) === tail) subflowQueues.delete(key); });
+  return task;
+}
+
 interface LoopBodySpec { workflowName?: string; inputs?: Record<string, JsonValue> }
 interface LoopParams {
   count?: number; over?: JsonValue[]; maxIterations?: number;
@@ -236,7 +253,10 @@ async function runLoop(p: LoopParams, ctx: Context): Promise<NodeResult> {
     } catch (e) {
       return { ...makeResult('failed', { error: { code: 'DATAFLOW_REF', message: `循环体第 ${i + 1} 轮输入解析失败: ${(e as Error).message}` } }), out: loopOut(outputs.length, outputs), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() } as NodeResult;
     }
-    const { summary } = await runWorkflow(sub, { logger: createLogger(), cwd: process.cwd(), inputs, _depth: depth + 1, signal: ctx.signal });
+    const { summary } = await runSubflowSerialized(
+      `${ctx.runDir ?? ''}|${sub.name}`,
+      () => runWorkflow(sub, { logger: createLogger(), cwd: process.cwd(), inputs, _depth: depth + 1, signal: ctx.signal, runId: ctx.runId, runDir: ctx.runDir }),
+    );
     const endIds = sub.nodes.filter((n) => n.type === 'end').map((n) => n.id);
     const endOut = (endIds.map((id) => summary.results[id]?.out).find((v) => v != null) ?? null) as JsonValue;
     const ff = firstFailure(summary.results);
@@ -402,7 +422,7 @@ export const subflowDef: NodeDefinition = {
     if (!sub) {
       return { ...makeResult('failed', { error: { code: 'WORKFLOW_NOT_FOUND', message: `子工作流不存在: ${q.workflowName}（先在工作流面板保存，或检查名称）` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
     }
-    const { summary } = await runWorkflow(sub, {
+    const { summary } = await runSubflowSerialized(`${ctx.runDir ?? ''}|${sub.name}`, () => runWorkflow(sub, {
       logger: createLogger(),
       cwd: process.cwd(),
       // ★ 模板解析由**执行器统一**负责（run.ts 对每个节点的 params 走 resolveParams），
@@ -411,7 +431,10 @@ export const subflowDef: NodeDefinition = {
       inputs: (q.inputs ?? {}) as Record<string, JsonValue>,
       _depth: depth + 1,
       signal: ctx.signal,
-    });
+      // ★ 2026-10-18：沿用父运行的 runId + 临时目录（子工作流的产物要能被上层节点读到）
+      runId: ctx.runId,
+      runDir: ctx.runDir,
+    }));
     // 收集子流程 end 节点输出作为本节点输出
     const endIds = sub.nodes.filter((n) => n.type === 'end').map((n) => n.id);
     const endOut = endIds.map((id) => summary.results[id]?.out).find((v) => v != null) ?? null;

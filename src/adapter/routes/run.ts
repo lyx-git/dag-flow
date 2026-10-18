@@ -16,6 +16,7 @@ import { markRunning, unmarkRunning } from '../running.js';
 import { registerRun, finishRun, getRunByName, getRunById, getLastCompleted, nodeResultOf, mergeNodeLog, getLogTarget, type ActiveRun } from '../runRegistry.js';
 import { createStorage } from '../storage.js';
 import { dagFlowDir, resolveDagFlowSub } from '../workspace.js';
+import { dagFlowRunTmpDir, dagFlowRunTmpSubDir } from '../../dsh-gate/paths.js';
 import { resolveLlmEndpoint } from '../subagent.js';
 import { listSchedules } from '../schedules.js';
 import type { ApiRouteDeps } from './helpers.js';
@@ -50,6 +51,15 @@ async function runSelfcheck(def: WorkflowDef): Promise<SelfcheckResult> {
     if (Array.isArray(sc.items)) deps.hasSchedule = sc.items.some((it) => it.workflow === def.name);
   } catch { /* 拿不到定时配置 → 跳过这项 */ }
   return selfcheck(def, deps);
+}
+
+/** 本次运行的落盘目录（算不出来就退回旧的 runs/ 目录，绝不 500） */
+function runDirOf(name: unknown, runId: unknown): string {
+  try { return dagFlowRunTmpDir(String(name ?? ''), String(runId ?? '')); } catch { return ''; }
+}
+/** 本次运行目录相对 .dag-flow 的子路径（「打开文件夹」用） */
+function runSubOf(name: unknown, runId: unknown): string {
+  try { return dagFlowRunTmpSubDir(String(name ?? ''), String(runId ?? '')); } catch { return 'runs'; }
 }
 
 export function registerRunRoutes({ route, sendJson, readJsonBody, storage, logger }: ApiRouteDeps): void {
@@ -124,6 +134,14 @@ export function registerRunRoutes({ route, sendJson, readJsonBody, storage, logg
             return;
           }
         }
+        // ★ 2026-10-18 用户要求：运行前清空本次会用到的工作流 tmp 目录（自身 + subflow + loop 循环体），
+        //   否则节点代码「扫目录取最新」会读到上一次运行留下的产物（用户报的"读错文件"），且越积越多。
+        //   只在这里（顶层入口）清；子工作流内部调用不清，否则上层节点读不到刚写出的东西。
+        try {
+          // ★ 2026-10-20：只清**本次顶层工作流**自己的运行目录。子工作流不再有独立的 tmp 目录
+          //   （运行记录与产物都在父运行目录里），递归收集子名反而会误删另一个父运行刚写下的东西。
+          await storage.pruneRunTmpDirs?.([body.def.name ?? '']);
+        } catch { /* 清理失败不影响运行 */ }
         const ac = new AbortController();
         const runId = newRunId();
         const resultsAcc: ActiveRun['results'] = {};
@@ -327,8 +345,10 @@ export function registerRunRoutes({ route, sendJson, readJsonBody, storage, logg
           finishedAt: target.finishedAt,
           nodeCount: entries.length,
           entries,
-          /** ★ 2026-10-11：运行记录落盘目录（弹窗里标注「数据存于 …」+ 点击打开用） */
-          dir: await storage.runsDir(),
+          /** ★ 2026-10-18 用户要求：运行记录随本次运行目录走 ⇒ 标注/打开的是 `tmp/<名>/<runId>/`
+           *  （记录文件固定叫 run.json；旧 `runs/` 只在算不出运行目录时兜底展示） */
+          dir: runDirOf(target.name, target.runId),
+          dirSub: runSubOf(target.name, target.runId),
         });
       } catch (e) {
         sendJson(res, 500, { error: `读取运行日志失败: ${(e as Error).message}` });

@@ -8,6 +8,7 @@
 //   两者都落在纯函数上，故在此直接锁住（无 IO/无 React/无 CDP）。
 import { tmpRoot } from './_tmp-root.mjs';
 import { build } from 'esbuild';
+import { mkdirSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -27,18 +28,27 @@ await build({ entryPoints: ['src/registry/doc-extract.ts'], bundle: true, format
 const { imagePathCandidates, imageDir } = await import(pathToFileURL(outInputs).href);
 const { stripImageMarks } = await import(pathToFileURL(outDoc).href);
 
-console.log('== A. imagePathCandidates：相对路径的候选顺序（修 ①）==');
+console.log('== A. imagePathCandidates：相对路径的候选顺序（2026-10-20 起按运行目录）==');
 {
-  const imgDir = imageDir();
-  ok(imgDir.endsWith(join('.dag-flow', 'images')), `A0. 统一图片目录 = ${imgDir}`);
-  const bare = imagePathCandidates('chart.png');
-  eq(bare[0], join(imgDir, 'chart.png'), 'A1. 裸文件名 ⇒ 首选统一图片目录');
-  eq(bare.length, 2, 'A2. 裸文件名还有 <DSH_HOME> 兜底候选（去重后共 2 个）');
+  // ★ 2026-10-20 用户拍板「不用兼容旧位置数据，都删了」⇒ 图片只在各次运行目录里：
+  //   相对路径的基准 = 「tmp/<工作流名>/<runId>/images/」（新的在前），外加一条相对 <DSH_HOME> 的兜底。
+  const WF = '路径测试流';
+  const runNew = join(HOME, '.dag-flow', 'tmp', WF, 'run-2', 'images');
+  const runOld = join(HOME, '.dag-flow', 'tmp', WF, 'run-1', 'images');
+  for (const [d, t] of [[runOld, 1000], [runNew, 2000]]) {
+    mkdirSync(d, { recursive: true });
+    utimesSync(d, new Date(t), new Date(t));
+  }
+  ok(imageDir().endsWith(join('.dag-flow', 'images')), 'A0. 旧图片目录常量仍可求值（仅作历史常量）');
+  const bare = imagePathCandidates('chart.png', WF);
+  eq(bare[0], join(runNew, 'chart.png'), 'A1. ★裸文件名 ⇒ 首选**最近一次运行**的 images/');
+  eq(bare[1], join(runOld, 'chart.png'), 'A2. 其次按运行目录新→旧依次探测');
+  ok(bare.includes(join(HOME, 'chart.png')), 'A2b. 仍保留一条相对 <DSH_HOME> 的兜底候选');
 
-  // ★ 修复点：上游产物形态 —— 第二个候选必须正好指向真实文件
-  const up = imagePathCandidates('.dag-flow/images/x.png');
-  eq(up[1], join(HOME, '.dag-flow', 'images', 'x.png'), 'A3. ★`.dag-flow/images/x.png`（上游产物 relativePath）⇒ 候选里有正确路径（不再双层化）');
-  eq(up[0], join(imgDir, '.dag-flow', 'images', 'x.png'), 'A4. 且它仍是第一候选之外的兜底——首选会 miss、第二个命中');
+  // ★ 上游产物形态：relativePath = 「.dag-flow/tmp/<名>/<runId>/images/x.png」（相对 DSH_HOME）
+  const up = imagePathCandidates('.dag-flow/tmp/' + WF + '/run-2/images/x.png', WF);
+  ok(up.includes(join(HOME, '.dag-flow', 'tmp', WF, 'run-2', 'images', 'x.png')), 'A3. ★上游产物 relativePath 能落到真实文件（不再双层化）');
+  ok(up.indexOf(join(HOME, '.dag-flow', 'tmp', WF, 'run-2', 'images', 'x.png')) > 0, 'A4. 且它是兜底候选（首选会 miss、后面命中）');
 
   eq(imagePathCandidates('/tmp/a.png'), ['/tmp/a.png'], 'A5. 绝对路径 ⇒ 原样唯一候选');
   const win = imagePathCandidates('C:\\pics\\a.png');

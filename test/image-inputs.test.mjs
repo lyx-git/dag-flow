@@ -73,17 +73,20 @@ console.log('== D. parseImageList：归一化 + 非法项明确报错 ==');
   ok(!!badExt && badExt.message.includes('note.txt') && badExt.message.includes('png'), 'D9. 报错文案带上"是哪一条"与允许的格式（用户能自己改）');
 }
 
-console.log('== E. resolveImagePath：相对路径锚定统一图片目录 <DSH_HOME>/.dag-flow/images/ ==');
+console.log('== E. resolveImagePath：相对路径锚定本工作流最近一次运行的 images/ ==');
 {
   const home = process.env.DSH_HOME;
   ok(!!home, 'E1. 隔离 home 已就绪（_isolate-home）');
-  const abs = resolveImagePath('sub/a.png');
-  // ★ 2026-10-16 用户拍板「读取图片的位置放在统一的位置」⇒ 基准从 .dag-flow/ 收窄到 .dag-flow/images/
-  eq(abs, join(home, '.dag-flow', 'images', 'sub', 'a.png'), `E2. ★相对路径以统一图片目录 .dag-flow/images/ 为基准（${abs}）`);
-  eq(resolveImagePath('chart.png'), join(home, '.dag-flow', 'images', 'chart.png'), 'E2b. 裸文件名 ⇒ 图片目录下直接找（用户最省事的写法）');
-  eq(imageDir(), join(home, '.dag-flow', 'images'), 'E2c. imageDir() 与实际基准同源（别处拼 images 会漂）');
+  // ★ 2026-10-20 用户拍板「不用兼容旧位置数据」⇒ 图片只在运行目录里，基准 = 最近一次运行的 images/
+  const WF = '解析测试流';
+  const runImg = join(home, '.dag-flow', 'tmp', WF, 'run-77', 'images');
+  mkdirSync(runImg, { recursive: true });
+  const abs = resolveImagePath('sub/a.png', WF);
+  eq(abs, join(runImg, 'sub', 'a.png'), 'E2. ★相对路径以本次运行产出的 images/ 为基准');
+  eq(resolveImagePath('chart.png', WF), join(runImg, 'chart.png'), 'E2b. 裸文件名 ⇒ 运行目录的 images/ 下直接找（用户最省事的写法）');
+  eq(imageDir(), join(home, '.dag-flow', 'images'), 'E2c. imageDir() 仍是旧图片目录常量（只作历史常量保留，不再写入）');
   const winAbs = join(home, 'abs.png');
-  eq(resolveImagePath(winAbs), winAbs, 'E3. 绝对路径原样使用');
+  eq(resolveImagePath(winAbs, WF), winAbs, 'E3. 绝对路径原样使用');
 }
 
 console.log('== F. loadImageInput：本地读 / 不存在 / 超限 ==');
@@ -111,10 +114,12 @@ console.log('== F. loadImageInput：本地读 / 不存在 / 超限 ==');
 
 console.log('== G. listImageFiles：统一图片目录清单（「🖼 选图」弹窗的数据源）==');
 {
-  const dir = imageDir();
-  eq((await listImageFiles()).length, 0, 'G1. 目录还不存在 ⇒ 空清单（不是错误）');
+  // ★ 2026-10-20：清单只扫「tmp/<工作流名>/<runId>/images/」（旧 images/<名>/ 不再参与）
+  const WF = '清单测试流';
+  eq((await listImageFiles(WF)).length, 0, 'G1. 还没跑过 ⇒ 空清单（不是错误）');
+  const dir = join(process.env.DSH_HOME, '.dag-flow', 'tmp', WF, 'run-1', 'images');
   mkdirSync(dir, { recursive: true });
-  eq((await listImageFiles()).length, 0, 'G1b. 空目录 ⇒ 空清单');
+  eq((await listImageFiles(WF)).length, 0, 'G1b. 空目录 ⇒ 空清单');
   writeFileSync(join(dir, 'a.png'), Buffer.from([1, 2, 3]));
   writeFileSync(join(dir, 'b.JPG'), Buffer.alloc(2048));       // 扩展名大小写不敏感
   writeFileSync(join(dir, 'note.txt'), Buffer.from('x'));      // 非图片：不收
@@ -123,7 +128,7 @@ console.log('== G. listImageFiles：统一图片目录清单（「🖼 选图」
   writeFileSync(join(dir, 'sub', 'c.png'), Buffer.from('x'));
   utimesSync(join(dir, 'a.png'), new Date(1000), new Date(1000));
   utimesSync(join(dir, 'b.JPG'), new Date(2000), new Date(2000));
-  const list = await listImageFiles();
+  const list = await listImageFiles(WF);
   eq(list.map((i) => i.name), ['b.JPG', 'a.png'], 'G2. ★只收白名单扩展名、跳过隐藏文件与子目录，且按修改时间倒序（新图排最前）');
   eq(list[1].bytes, 3, 'G3. 带文件字节数（弹窗显示大小）');
   ok(typeof list[1].mtime === 'number' && list[1].mtime > 0, 'G4. 带 mtime（弹窗显示时间 + 排序依据）');

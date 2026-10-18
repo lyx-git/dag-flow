@@ -33,8 +33,19 @@ interface Pending {
 const pendings = new Map<string, Pending>();
 
 /** 生成运行 id（API 层需要在运行结束前就拿到它——awaiting 响应要带上） */
+/** ★ 2026-10-20 用户问「runid 是怎么命名的」+「子工作流被多个父工作流并发执行」：
+ *  格式仍是 `run-<毫秒时间戳>-<6~10 位 36 进制随机>`（按名排序≡时间序），但**进程内保证不重复**：
+ *  同毫秒多次调用会重新抽随机（原来的 6 位随机在极端并发下理论上可能撞，撞了就是两个运行写同一个目录）。 */
+const issuedRunIds = new Set<string>();
 export function newRunId(): string {
-  return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const ms = Date.now();
+  for (let i = 0; i < 12; i++) {
+    const id = `run-${ms}-${Math.random().toString(36).slice(2, 10)}`;
+    if (!issuedRunIds.has(id)) { issuedRunIds.add(id); return id; }
+  }
+  const id = `run-${ms}-${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 6)}`;
+  issuedRunIds.add(id);
+  return id;
 }
 
 /** manual 节点调用：登记等待并返回未决 promise。

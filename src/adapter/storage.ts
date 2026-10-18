@@ -18,7 +18,7 @@
 
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { dagFlowHome, dagFlowImagesDir, dagFlowScopedPath } from '../dsh-gate/paths.js';
+import { dagFlowHome, dagFlowImagesDir, dagFlowRunTmpDir, dagFlowScopedPath } from '../dsh-gate/paths.js';
 import { migrateFromLegacyRoots, migrateFallbackWorkflows, migrateLegacyDirs, migrateLegacySqlite, migrateRunRecords } from './storage-migrate.js';
 import { isValidWorkflowName } from '../name-rule.js';
 import type { WorkflowDef } from '../types.js';
@@ -46,6 +46,15 @@ export interface DshStorage {
   pruneRunRecords(opts?: { maxPerWorkflow?: number; maxAgeDays?: number; dryRun?: boolean; workflowName?: string }): Promise<{ deleted: string[]; kept: number }>;
   listRunRecords(workflowName?: string): Promise<string[]>;
   readRunRecord(runId: string): Promise<unknown | null>;
+  /** ★ 2026-10-18（用户要求）：运行前清空这些工作流的 `tmp/<名>/` —— 同一工作流多次执行不串文件 */
+  pruneRunTmp?(names: string[]): Promise<{ dirs: string[]; deleted: number }>;
+  /** ★ 2026-10-18（用户要求「每个工作流保持最新的 5 条执行产生的临时数据」）：
+   *  只保留最新 `keep` 个运行目录 `tmp/<名>/<runId>/`，运行前顺带清理 */
+  pruneRunTmpDirs?(names: string[], keep?: number): Promise<{ removed: string[] }>;
+  /** ★ 2026-10-18：从 def 递归收集本次运行会用到的工作流名（自身 + subflow + loop 循环体） */
+  collectRunWorkflows?(def: WorkflowDef, depth?: number): Promise<string[]>;
+  /** ★ 2026-10-18（用户要求）：日志按天保留（默认 30 天），过期即删；dryRun 只算不删 */
+  pruneLogs?(opts?: { maxFiles?: number; dryRun?: boolean }): Promise<{ deleted: string[]; kept: number }>;
 }
 
 // ★ 2026-10-11 用户选定的「策略 A」——运行记录保留口径（此前 runs/ 只增不减，实测 252 文件/16.44 MB）：
@@ -54,8 +63,20 @@ export interface DshStorage {
 //   正在跑的运行**结束时才落盘**，所以不存在"删掉在跑的"；清理失败只记不报，绝不影响本次运行。
 export const RUN_KEEP_MAX_PER_WORKFLOW = 200;
 export const RUN_KEEP_MAX_AGE_DAYS = 30;
+// ★ 2026-10-18 用户要求（原话）：「同一个工作流执行多次生成多份文件，导致每次执行读错文件的问题，读到其他执行
+//   生成的文件上去了，每次执行过后要及时清理生成的文件，否则会越积越多，每次执行的日志也要定时清理」。
+//   ⇒ ①每次运行**开始前**清空本次会用到的工作流 tmp 目录（含它调用的子工作流 / loop 循环体），
+//      这样运行期间「扫目录取最新」只会命中本次写出的产物，不可能读到上一次的；
+//      ②日志保留最近 30 天（与运行记录同一口径），每天首次写日志时顺手清。
+// ★ 2026-10-18 用户要求：「日志也要挪进 tmp 目录下，留这个日志没啥用，都是已经执行过的过去式了」
+//   ⇒ 日志跟着临时数据一起清：只保留最新 N 份，不再按天数。
+// ★ 2026-10-18 用户要求：「只保留最近 20 次的文件夹，超过 20 次的，下次执行的时候，自动删除最早的文件夹」
+//   ⇒ 运行目录与日志统一口径：各保留最新 20 份。
+export const LOG_KEEP_MAX_FILES = 20;
+/** 每个工作流保留最近 20 个运行目录（tmp/<名>/<runId>/），下次执行时自动删最早的 */
+export const TMP_KEEP_MAX_RUNS = 20;
 // ★ 2026-10-11 起：所有运行数据锚定 **<DSH_HOME>/.dag-flow/**（与工作区无关）——
-//   工作流定义 .dag-flow/workflow/、运行记录 .dag-flow/runs/、临时 .dag-flow/tmp/、日志 .dag-flow/logs/。
+//   工作流定义 .dag-flow/workflow/、运行记录 .dag-flow/runs/、临时 .dag-flow/tmp/、日志 .dag-flow/tmp/logs/。
 //   （原 `DIR_NAME = '.dag-flow/workflow'` 常量随四级解析链一起废弃：路径现在由 dagFlowHome() 拼。
 //   LEGACY_DIR_NAMES 已随迁移函数族搬至 ./storage-migrate.ts，2026-10-14 重构轮 3。）
 
@@ -72,9 +93,8 @@ async function resolveRoot(): Promise<StorageInfo> {
   // ★ 2026-10-11：**不再依赖工作区/cwd** —— 根固定在 <DSH_HOME>/.dag-flow/（用户拍板，原话见文件头）。
   _info = { dir: path.join(dagFlowHome(), 'workflow'), source: 'dsh-home' };
   await fs.mkdir(_info.dir, { recursive: true });
-  // ★ 2026-10-16（用户拍板）：统一图片目录启动即建好——AI 节点 `images` 写文件名就能读，
-  //   文档解析节点将来抽出的图片也落这里。fail-soft：建不出来不影响其它功能（读取侧会给出确切路径）。
-  try { await fs.mkdir(dagFlowImagesDir(), { recursive: true }); } catch { /* fail-soft */ }
+  // ★ 2026-10-21 用户要求「别再自动创建 images」：启动时**不预建**图片目录。
+  //   真正落图时由 image-library / 产出节点自己 mkdir（读侧只给路径、不建目录）。
   if (!_migrated) {
     _migrated = true;
     await migrateFromLegacyRoots(_info);   // ① 工作区时代的 <旧工作区>/.dag-flow/ → 新根（补缺复制）
@@ -82,7 +102,7 @@ async function resolveRoot(): Promise<StorageInfo> {
     await migrateLegacyDirs(_info);        // ③ 旧目录名
     await migrateLegacySqlite(_info.dir);  // ④ 旧 SQLite
     // ⑤ 2026-10-19：运行记录按工作流分目录（runs/run-*.json → runs/<工作流名>/run-*.json）
-    await migrateRunRecords(_info).catch(() => { /* 迁移失败不影响运行 */ });
+    // ★ 2026-10-20：运行记录不再有 runs/ 落点 ⇒ 不再做 runs 迁移（用户已删除旧数据）。
   }
   return _info;
 }
@@ -102,6 +122,37 @@ function safeName(name: string): string {
     throw new Error(`工作流名称不合法（需中文/字母/数字开头，仅中文/字母/数字/下划线/连字符，≤64 字符）: ${name}`);
   }
   return name;
+}
+
+/** ★ 2026-10-18：运行记录落 `tmp/<名>/<runId>/run.json`（目录名即 runId）。
+ *  给 wfName 只扫该工作流；不给则扫全部工作流（`GET /runs` 全量列表用）。
+ *  返回 [runId, 记录所在目录]：列表拿来合并，读取拿来记「id → 目录」缓存。 */
+async function listRunRecordsInTmp(wfName?: string): Promise<Array<[string, string]>> {
+  type DirLike = { name: string; isDirectory(): boolean };
+  const tmpRoot = dagFlowScopedPath('tmp');
+  let wfDirs: string[] = [];
+  if (wfName) {
+    wfDirs = [dagFlowScopedPath('tmp', wfName)];
+  } else {
+    try {
+      const subs = (await fs.readdir(tmpRoot, { withFileTypes: true })) as unknown as DirLike[];
+      for (const d of subs) {
+        if (typeof d.isDirectory === 'function' && !d.isDirectory()) continue;
+        wfDirs.push(path.join(tmpRoot, String(d.name)));
+      }
+    } catch { return []; }   // 还没跑过任何工作流
+  }
+  const out: Array<[string, string]> = [];
+  for (const root of wfDirs) {
+    let subs: DirLike[] = [];
+    try { subs = (await fs.readdir(root, { withFileTypes: true })) as unknown as DirLike[]; } catch { continue; }
+    for (const d of subs) {
+      if (typeof d.isDirectory === 'function' && !d.isDirectory()) continue;
+      const dir = path.join(root, String(d.name));
+      try { await fs.access(path.join(dir, 'run.json')); out.push([String(d.name), dir]); } catch { /* 该次运行没写记录 */ }
+    }
+  }
+  return out;
 }
 
 /**
@@ -235,7 +286,7 @@ export function createStorage(): DshStorage {
           // versions 在 workflow/ 之下；其余四个在 .dag-flow/ 之下——分开拼
           const pairs: [string, string][] = [
             [path.join(dir, 'versions', oldSafe), path.join(dir, 'versions', safe)],
-            [path.join(root, 'scripts', oldSafe), path.join(root, 'scripts', safe)],
+            [path.join(root, 'workflow', 'scripts', oldSafe), path.join(root, 'workflow', 'scripts', safe)],
             [path.join(root, 'runs', oldSafe), path.join(root, 'runs', safe)],
             [path.join(root, 'images', oldSafe), path.join(root, 'images', safe)],
             [path.join(root, 'tmp', oldSafe), path.join(root, 'tmp', safe)],
@@ -265,7 +316,7 @@ export function createStorage(): DshStorage {
       //   这里按"每个工作流一个专属子目录"的布局逐个清；单个失败不阻塞其它（force 也不报缺失）。
       const ownedDirs = [
         path.join(dir, 'versions', safe),          // 历史版本
-        path.join(root, 'scripts', safe),          // python/bash 代码
+        path.join(root, 'workflow', 'scripts', safe),   // python/bash 代码（2026-10-18 起挂 workflow/ 下）
         path.join(root, 'runs', safe),             // 运行记录
         path.join(root, 'images', safe),           // 抽图 / 生成的图片
         path.join(root, 'tmp', safe),              // 中间产物
@@ -301,18 +352,17 @@ export function createStorage(): DshStorage {
       return listJsonNames(await this.workflowsDir());
     },
     async writeRunRecord(runId, summary) {
-      // ★ 2026-10-19：按工作流分目录 `runs/<工作流名>/`（记录里本来就带 workflowName）
-      const wfName = String((summary as { workflowName?: unknown } | null)?.workflowName ?? '');
-      const dir = await this.runsDir(wfName);
-      const file = path.join(dir, `${path.basename(runId)}.json`);
+      // ★ 2026-10-18 用户要求：运行记录也随本次运行目录走 —— `tmp/<工作流名>/<runId>/run.json`，
+      //   由「每个工作流只保留最新 20 个运行目录」统一清理；旧 `runs/<名>/` 里的历史记录仍可读（见 listRunRecords）。
+      const wfName = String((summary as { workflowName?: unknown } | null)?.workflowName ?? '') || '__anonymous__';
+      const dir = dagFlowRunTmpDir(wfName, runId);
+      await fs.mkdir(dir, { recursive: true });
+      const file = path.join(dir, 'run.json');
       const tmp = `${file}.tmp`;
       await fs.writeFile(tmp, JSON.stringify(summary, null, 2), 'utf8');
       await fs.rename(tmp, file);
-      // ★ 2026-10-11（策略 A）：新记录落盘后顺手清理旧记录。**不 await**——不让清理拖慢/拖垮本次运行。
-      // ★ 2026-10-19 自检修正：清理**只扫本工作流目录**（+ 根里的历史平铺）。
-      //   原来无参调用 ⇒ 每次都 readdir 全部工作流目录 + 逐文件 open/read 判组；
-      //   用户机器 343 条记录时约 40~80ms 后台 IO，且随记录数线性增长（每次运行都付一次）。
-      void this.pruneRunRecords({ workflowName: wfName }).catch(() => { /* 清理失败不影响运行 */ });
+      // ★ 2026-10-20：记录已经住在运行目录里，由「每个工作流保留最新 20 个运行目录」统一清理 ⇒
+      //   原来这次 fire-and-forget 的 runs/ 清理已无对象（用户已删掉旧 runs/ 数据），去掉以免再建目录。
     },
     async pruneRunRecords(opts) {
       const maxPer = opts?.maxPerWorkflow ?? RUN_KEEP_MAX_PER_WORKFLOW;
@@ -383,68 +433,134 @@ export function createStorage(): DshStorage {
       }
       return { deleted: doomed.map((e) => e.name).sort(), kept: entries.length - doomed.length };
     },
+    /** ★ 2026-10-18：收集本次运行会用到的工作流名（自身 + subflow + loop 循环体，递归 2 层）。
+     *  读不到子工作流定义时**也把名字带上**（可能是已改名/已删的旧目录，照样该清）。 */
+    async collectRunWorkflows(def, depth = 2) {
+      const out = new Set<string>();
+      const walk = async (d: WorkflowDef | null, left: number): Promise<void> => {
+        if (!d) return;
+        const name = String((d as { name?: unknown }).name ?? '').trim();
+        if (name) out.add(name);
+        if (left <= 0) return;
+        const subs: string[] = [];
+        for (const n of (d.nodes ?? []) as { type?: string; params?: Record<string, unknown> }[]) {
+          const p = (n.params ?? {}) as Record<string, unknown>;
+          if (n.type === 'subflow' && typeof p.workflowName === 'string' && p.workflowName.trim()) subs.push(p.workflowName.trim());
+          if (n.type === 'loop') {
+            const body = p.body as { workflowName?: unknown } | undefined;
+            if (body && typeof body.workflowName === 'string' && body.workflowName.trim()) subs.push(body.workflowName.trim());
+          }
+        }
+        for (const s of subs) {
+          if (out.has(s)) continue;
+          let sub: WorkflowDef | null = null;
+          try { sub = await this.readWorkflow(s); } catch { /* 读不到就只清目录 */ }
+          if (sub) await walk(sub, left - 1);
+          else out.add(s);
+        }
+      };
+      await walk(def, depth);
+      return [...out];
+    },
+    /** ★ 2026-10-18（用户要求「每执行一次产生一个独立文件夹…只保留最近 20 次，下次执行时自动删最早的」）：
+     *  按 mtime 只留最新 `keep-1` 个运行目录（本次运行还会新建一个 ⇒ 跑完正好 keep 条）。
+     *  · 只认 `tmp/<名>/` 下的**子目录**（= 运行目录）；历史平铺的散文件不碰（交给 pruneRunTmp）；
+     *  · 单个目录删失败不影响其它，也不抛给调用方。 */
+    async pruneRunTmpDirs(names, keep = TMP_KEEP_MAX_RUNS) {
+      const removed: string[] = [];
+      const limit = Math.max(0, Math.trunc(keep) - 1);
+      for (const raw of names ?? []) {
+        const name = String(raw ?? '').trim();
+        if (!name) continue;
+        const dir = dagFlowScopedPath('tmp', name);
+        let entries: { name: string; isDirectory(): boolean }[] = [];
+        try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { continue; }
+        const subs: { name: string; t: number }[] = [];
+        for (const e of entries) {
+          if (typeof e.isDirectory === 'function' && !e.isDirectory()) {
+            // 历史平铺文件（旧结构把产物直接放在 `tmp/<名>/` 下）：一并清掉，
+            // 否则新旧结构混在一层，节点的「扫目录取最新」又可能读到旧的。
+            try { await fs.rm(path.join(dir, e.name), { force: true }); removed.push(e.name); } catch { /* 忽略 */ }
+            continue;
+          }
+          let t = 0;
+          try { t = (await fs.stat(path.join(dir, e.name))).mtimeMs; } catch { t = 0; }
+          subs.push({ name: e.name, t });
+        }
+        subs.sort((a, b) => b.t - a.t);                 // 新的在前
+        for (const s of subs.slice(limit)) {
+          try { await fs.rm(path.join(dir, s.name), { recursive: true, force: true }); removed.push(s.name); } catch { /* 忽略 */ }
+        }
+      }
+      return { removed };
+    },
+    /** ★ 2026-10-18：清空这些工作流的 tmp 目录内容（目录本身保留）。
+     *  只在本工作流的**顶层运行入口**调用（用户手动 / 定时 / CLI）——
+     *  子工作流内部调用（control.ts 的 subflow / loop 体）绝不能清，否则上层节点读不到刚写出的产物。
+     *  单个文件删失败不影响其它，也不抛给调用方。 */
+    async pruneRunTmp(names) {
+      const dirs: string[] = [];
+      let deleted = 0;
+      for (const raw of names ?? []) {
+        const name = String(raw ?? '').trim();
+        if (!name) continue;
+        const dir = dagFlowScopedPath('tmp', name);
+        let entries: { name: string }[] = [];
+        try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { continue; }
+        if (entries.length) dirs.push(dir);
+        for (const e of entries) {
+          try { await fs.rm(path.join(dir, e.name), { recursive: true, force: true }); deleted += 1; } catch { /* 单个失败忽略 */ }
+        }
+      }
+      return { dirs, deleted };
+    },
+    /** ★ 2026-10-18：清理过期日志（默认保留 30 天）。判据优先用**文件名里的日期**（与日志分天口径一致），
+     *  读不到再退 mtime；只删 `dag-flow-YYYY-MM-DD.log`，目录里其它文件一律不碰。 */
+    /** ★ 2026-10-18 用户要求「日志也要挪进 tmp 目录下…都是已经执行过的过去式了」：
+     *  日志改落 `tmp/logs/`，只保留最新 `maxFiles`（默认 5）份，与临时数据同一口径。
+     *  · 只认 `dag-flow-YYYY-MM-DD.log`（文件名日期即字典序），其它文件一律不算也不碰；
+     *  · dryRun 只算不删。 */
+    async pruneLogs(opts) {
+      const maxFiles = Math.max(1, Math.trunc(opts?.maxFiles ?? LOG_KEEP_MAX_FILES));
+      const dir = path.join(dagFlowHome(), 'tmp', 'logs');
+      let names: string[] = [];
+      try { names = await fs.readdir(dir); } catch { return { deleted: [], kept: 0 }; }
+      const logs = names.filter((f) => /^dag-flow-\d{4}-\d{2}-\d{2}\.log$/.test(f)).sort();
+      const keep = new Set(logs.slice(Math.max(0, logs.length - maxFiles)));
+      const deleted: string[] = [];
+      let kept = names.length - logs.length;
+      for (const f of logs) {
+        if (keep.has(f)) { kept += 1; continue; }
+        if (opts?.dryRun !== true) {
+          try { await fs.rm(path.join(dir, f), { force: true }); } catch { kept += 1; continue; }
+        }
+        deleted.push(f);
+      }
+      return { deleted: deleted.sort(), kept };
+    },
     async listRunRecords(workflowName) {
-      // ★ 2026-10-19：分目录后 —— 给了名字读 `runs/<名>/`，并并上 `runs/` 根里属于它的历史平铺记录；
-      //   不给名字则遍历根 + 全部子目录。
-      // ★ 2026-10-19 自检性能修正：①按**文件名**排序（零 stat，run-<ms>-* 字典序≡时间序）；
-      //   ②子目录**并行**读。实测 343 条 / 23 目录：串行+stat 23.22ms → 0.68ms。
-      const root = await this.runsDir();
-      if (!workflowName) {
-        let subDirs: string[] = [];
-        try {
-          subDirs = (await fs.readdir(root, { withFileTypes: true }))
-            .filter((d) => d.isDirectory())
-            .map((d) => path.join(root, d.name));
-        } catch { /* 读不到就只返回根 */ }
-        const chunks = await Promise.all([...subDirs, root].map(async (d) => {
-          const ids = await listJsonNames(d, 'name');
-          // 顺手记住每条记录在哪个目录（readRunRecord 直接用，省掉逐目录试读）
-          for (const id of ids) _runLoc.set(id, d);
-          return ids;
-        }));
-        return chunks.flat();
-      }
-      const ownDir = dagFlowScopedPath('runs', workflowName);
-      const out: string[] = await listJsonNames(ownDir, 'name');
-      for (const id of out) _runLoc.set(id, ownDir);
-      // runs 根里属于它的历史平铺记录（根里通常为空，有才读）
-      for (const id of await listJsonNames(root, 'name')) {
-        try {
-          const buf = await fs.readFile(path.join(root, `${id}.json`), 'utf8');
-          const r = JSON.parse(buf) as { workflowName?: string };
-          if (r.workflowName === workflowName) { out.push(id); _runLoc.set(id, root); }
-        } catch { /* skip */ }
-      }
-      return out;
+      // ★ 2026-10-20 用户拍板「不用兼容旧位置数据，都删了」⇒ 运行记录只在
+      //   `tmp/<名>/<runId>/run.json`，旧 `runs/` 不再参与列表。
+      //   排序与 listJsonNames('name') 同口径：按名**倒序**（run-<ms>-* 字典序≡时间序，最新在前）。
+      const recs = await listRunRecordsInTmp(workflowName);
+      for (const [id, dir] of recs) _runLoc.set(id, dir);
+      return recs.map(([id]) => id).sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
     },
     async readRunRecord(runId) {
-      // ★ 2026-10-19：记录现在在 `runs/<工作流名>/` 下，调用方只给 runId。
-      // ★ 2026-10-19 自检性能修正：优先用 `listRunRecords` 记下的「id → 目录」**精确读**，
-      //   只有缓存未命中才回退逐目录试（原来每次都逐目录试，`GET /runs` 读 20 条 = 最坏 480 次 fs）。
+      // ★ 2026-10-20：记录只在运行目录里（`tmp/<名>/<runId>/run.json`），旧 `runs/` 不再兜底。
+      //   优先用 `listRunRecords` 记下的「id → 目录」精确读，未命中才扫一遍运行目录（数量受「最新 20 个」限制）。
       const base = path.basename(runId);
       const cached = _runLoc.get(base);
       if (cached) {
-        try {
-          const buf = await fs.readFile(path.join(cached, `${base}.json`), 'utf8');
-          return JSON.parse(buf) as unknown;
-        } catch {
-          _runLoc.delete(base);   // 文件被删/搬走：清缓存，下面的回退路径兜底
-        }
+        try { return JSON.parse(await fs.readFile(path.join(cached, 'run.json'), 'utf8')) as unknown; }
+        catch { _runLoc.delete(base); }   // 文件被删/搬走：清缓存，下面重新扫
       }
-      const root = await this.runsDir();
-      const dirs: string[] = [root];
-      try {
-        for (const d of await fs.readdir(root, { withFileTypes: true })) {
-          if (d.isDirectory()) dirs.push(path.join(root, d.name));
-        }
-      } catch { /* 仅有根 */ }
-      for (const dir of dirs) {
+      for (const [id, dir] of await listRunRecordsInTmp()) {
+        if (id !== base) continue;
         try {
-          const buf = await fs.readFile(path.join(dir, `${base}.json`), 'utf8');
-          const rec = JSON.parse(buf) as unknown;
-          _runLoc.set(base, dir);   // 回退命中也记住，下次直接命中
-          return rec;
-        } catch { /* 下一个目录 */ }
+          _runLoc.set(base, dir);
+          return JSON.parse(await fs.readFile(path.join(dir, 'run.json'), 'utf8')) as unknown;
+        } catch { /* 这条坏掉就看下一条 */ }
       }
       return null;
     },

@@ -38,7 +38,7 @@ export function credentialsYamlPath(): string {
 
 /** ★ dag-flow 自己的数据根（**与 DSH 工作区无关**，2026-10-11 用户拍板）：
  *  「dag-flow 创建的文件，不依赖于 dsh 的工作区，默认放在 <DSH_HOME>\.dag-flow 文件夹下，
- *    避免工作区没选择的问题」—— 所有落盘路径（workflow/ runs/ logs/ tmp/ scripts/ 产出/ schedules.json）
+ *    避免工作区没选择的问题」—— 所有落盘路径（workflow/ runs/ tmp/ tmp/logs/ scripts/ 产出/ schedules.json）
  *  都锚定到这里。改布局只改本函数。 */
 export function dagFlowHome(): string {
   return path.join(dshHome(), '.dag-flow');
@@ -61,10 +61,38 @@ export function dagFlowImagesDir(): string {
  *  · 只算路径**不建目录**——建目录由调用方按需 `fs.mkdir(..., {recursive:true})`。
  *  · kind 的取值与数据根下的目录一一对应：images / tmp / runs / scripts。 */
 export function dagFlowScopedPath(kind: 'images' | 'tmp' | 'runs' | 'scripts', wfName?: string): string {
-  const base = path.join(dagFlowHome(), kind);
+  // ★ 2026-10-18 用户要求：「工作流层面不能随意删除的，都搬到 .dsh/.dag-flow/workflow 文件夹下，
+  //   比如 scripts 的脚本（python/bash 节点脚本存放的位置）」——scripts 属于**持久**数据，
+  //   改挂到 workflow/scripts 下；images / tmp / runs 仍在数据根同级。
+  const base = kind === 'scripts'
+    ? path.join(dagFlowHome(), 'workflow', 'scripts')
+    : path.join(dagFlowHome(), kind);
   const name = String(wfName ?? '').trim();
   if (!name || !isValidWorkflowName(name)) return base;
   return path.join(base, name);
+}
+
+/** ★ 2026-10-18 用户要求（原话）：「同一个工作流每次执行的时候，在 tmp 目录下新建一个新的目录，
+ *  保证本次运行的文件都在此处，节点之间相互读取数据的时候，也在这个临时目录下读取，
+ *  保证不会读取到其他执行的数据，每个工作流保持最新的 5 条执行产生的临时数据」。
+ *  ⇒ **一次运行独占的临时目录**：`<数据根>/tmp/<顶层工作流名>/<runId>/`。
+ *  · runId 做字符白名单（防 `../` 之类跑出 tmp 根）；空 runId 退回 `<数据根>/tmp/<名>`（兼容旧行为）；
+ *  · 只算路径**不建目录**——建目录由执行器在运行时做。 */
+export function dagFlowRunTmpDir(wfName: string, runId: string): string {
+  const base = dagFlowScopedPath('tmp', wfName);
+  const id = String(runId ?? '').trim().replace(/[^\w.-]/g, '_');
+  return id ? path.join(base, id) : base;
+}
+
+/** ★ 2026-10-18：运行目录**相对数据根**的子路径（'tmp/<名>/<runId>'，一律 `/` 分隔）。
+ *  给「📁 数据存于 … → 打开文件夹」用：服务端算好，客户端不必自己拼（工作流名会做白名单）。 */
+export function dagFlowRunTmpSubDir(wfName: string, runId: string): string {
+  const parts = ['tmp'];
+  const name = String(wfName ?? '').trim();
+  if (name && isValidWorkflowName(name)) parts.push(name);
+  const id = String(runId ?? '').trim().replace(/[^\w.-]/g, '_');
+  if (id) parts.push(id);
+  return parts.join('/');
 }
 
 /** profile 目录根（0.2.0 的配置持久层 profiles/<name>/cordis.patch.yml） */

@@ -3,7 +3,7 @@
 // ★ 参数形态坑：面板 blur / 模板解析给出的 maxChars/timeoutMs 可能是字符串——节点侧一律 Number() 强转再判。
 // 拆分自 builtin.ts（2026-10-14 重构轮 1，纯搬运）。
 
-import { readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Context, NodeDefinition, NodeResult } from '../../types.js';
 import { makeResult, safeNodeRun } from '../external.js';
@@ -84,9 +84,15 @@ async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeRes
   // OCR 引擎只吃**磁盘上的文件**：本地路径直接用；url 下载来的先落临时文件，用完删掉
   const localPathForOcr = async (suffix: string): Promise<string> => {
     if (!url) return await resolveCodePath(rel);
-    // ★ 2026-10-19：临时文件落到**当前工作流自己的** tmp 子目录（用户要求"每个工作流产生的文件
-    //   按工作流名分目录"）；没有工作流上下文时退回公共 tmp。
-    const tmpDir = await dagFlowTmpDir(ctx.workflowName);
+    // ★ 2026-10-21 用户口径：隐式调用（父→子）一律用**父传下来的运行目录**，不再按工作流名建目录。
+    //   有 ctx.runDir（正常运行）就落它下面的 tmp/；只有本地直跑/无运行上下文才退回公共 tmp。
+    const tmpDir = ctx.runDir
+      ? await (async () => {
+        const d = join(ctx.runDir as string, 'tmp');
+        try { await mkdir(d, { recursive: true }); } catch { /* 建不出来就退回公共 tmp */ }
+        return d;
+      })()
+      : await dagFlowTmpDir();
     tmpPath = join(tmpDir, `ocr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${suffix}`);
     await writeFile(tmpPath, buf);
     return tmpPath;
@@ -172,10 +178,10 @@ async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeRes
         const meta0 = wantImages ? r.meta : { ...r.meta, images: undefined };
         return finish(t0, startedAt, { out: { ...r, text, chars: text.length, images: [], meta: meta0 } as never });
       }
-      const landed = await landImages(name, r.text, r.images, ctx.workflowName);
+      const landed = await landImages(name, r.text, r.images, ctx.workflowName, imgDirOf(ctx));
       const meta = {
         ...r.meta,
-        ...(landed.images.length ? { imageCount: landed.images.length, imageDir: dagFlowScopedPath('images', ctx.workflowName) } : {}),
+        ...(landed.images.length ? { imageCount: landed.images.length, imageDir: imgDirOf(ctx) ?? dagFlowScopedPath('images', ctx.workflowName) } : {}),
         ...(landed.imageError ? { imageError: landed.imageError } : {}),
       };
       return finish(t0, startedAt, {
@@ -199,7 +205,7 @@ async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeRes
               source: im.page > 0 ? `第 ${im.page} 页 (对象 ${im.objNum})` : `未引用对象 ${im.objNum}`,
             }));
             const outline = `（本 PDF 没有文字层，整页内容都是图片；下面是抽出的图片）\n${refs.map((r) => `[图片 #${r.index}]`).join('\n')}`;
-            const landed = await landImages(name, outline, refs, ctx.workflowName);
+            const landed = await landImages(name, outline, refs, ctx.workflowName, imgDirOf(ctx));
             // ★ 2026-10-17 修：这条通路的**全部价值**就是那份"图片地址清单"（用户原话：「只有图没有文字的，
             //   text 里面说明抽出来的图片地址就行」）⇒ 落盘全失败时清单是空的，不能算成功（否则用户拿到一堆
             //   指向不存在文件的 `[图片 #N]`）。
@@ -208,7 +214,7 @@ async function runDocParseNode(p: DocParseParams, ctx: Context): Promise<NodeRes
             }
             const meta: Record<string, string | number | boolean> = {
               file: name.replace(/^.*[\\/]/, ''), bytes: buf.length, imagesOnly: true,
-              ...(landed.images.length ? { imageCount: landed.images.length, imageDir: dagFlowScopedPath('images', ctx.workflowName) } : {}),
+              ...(landed.images.length ? { imageCount: landed.images.length, imageDir: imgDirOf(ctx) ?? dagFlowScopedPath('images', ctx.workflowName) } : {}),
               ...(only.skipped > 0 ? { skippedImages: only.skipped } : {}),
               ...(landed.imageError ? { imageError: landed.imageError } : {}),
             };
@@ -242,6 +248,12 @@ interface LandedImages {
   /** 落盘失败原因（fail-soft：只记不抛，文本保留占位） */
   imageError: string;
 }
+/** ★ 2026-10-18：本次运行目录下的图片子目录（有 runDir 才用；没有就返回 undefined → 退回旧位置） */
+function imgDirOf(ctx: { runDir?: string }): string | undefined {
+  const rd = String(ctx?.runDir ?? '').trim();
+  return rd ? `${rd}/images` : undefined;
+}
+
 /**
  * 把文档内嵌图片落进统一图片目录，并把文本里的 `[图片 #N]` 占位换成真实文件名。
  * 主流程（有文本层的文档）与「纯图 PDF」两条路径共用，避免两份落盘代码分叉。
@@ -251,6 +263,7 @@ async function landImages(
   text: string,
   refs: readonly { index: number; bytes: Buffer; mediaType: string; source: string }[],
   wfName?: string,
+  dirOverride?: string,
 ): Promise<LandedImages> {
   let outText = text;
   let saved: Awaited<ReturnType<typeof saveImagesToLibrary>> = [];
@@ -258,7 +271,7 @@ async function landImages(
   try {
     saved = await saveImagesToLibrary(refs.map((im) => ({
       name: libraryNameFor(docName, im.index, im.mediaType), bytes: im.bytes, mediaType: im.mediaType,
-    })), wfName);
+    })), wfName, dirOverride);
     for (let i = 0; i < saved.length; i++) {
       const ref = refs[i];
       if (!ref) continue;
@@ -285,7 +298,7 @@ export const docParseDef: NodeDefinition<DocParseParams> = {
       ocr: { type: 'string', enum: ['off', 'auto', 'force'], description: '图片 OCR：auto 自动（默认）—— 图片与扫描版 PDF 自动识别 / off 关 / force 强制（连有文本层的 PDF 也重识别）' },
       ocrMaxPages: { type: 'integer', minimum: 1, maximum: 200 },
       ocrTimeoutMs: { type: 'integer', minimum: 1000, maximum: 1_800_000 },
-      extractImages: { type: 'string', enum: ['auto', 'off'], description: '抽取文档内嵌图片：auto 自动（抽到就存进本工作流的图片目录 .dag-flow/images/<工作流名>/，并在文本相应位置标注文件名）/ off 只解析文本' },
+      extractImages: { type: 'string', enum: ['auto', 'off'], description: '抽取文档内嵌图片：auto 自动（抽到就存进**本次运行目录** .dag-flow/tmp/<工作流名>/<runId>/images/，并在文本相应位置标注文件名；下游用 {{节点id.out.images}} 引用）/ off 只解析文本' },
     },
   },
   run: async (ctx, p) => safeNodeRun(() => runDocParseNode(p as never, ctx)),

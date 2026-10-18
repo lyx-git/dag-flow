@@ -68,9 +68,11 @@ export interface LibraryImageSaved {
  *   并明确"全部严格按照要求做，不做兼容" ⇒ 抽出的图落各自工作流的子目录，不再平铺到 images/ 根。
  * 单个文件写失败会**直接抛出**（由调用方决定是 fail-soft 还是失败整节点——doc_parse 选择 fail-soft）。
  */
-export async function saveImagesToLibrary(items: LibraryImageInput[], wfName?: string): Promise<LibraryImageSaved[]> {
+export async function saveImagesToLibrary(items: LibraryImageInput[], wfName?: string, dirOverride?: string): Promise<LibraryImageSaved[]> {
   if (!items.length) return [];
-  const dir = dagFlowScopedPath('images', wfName);
+  // ★ 2026-10-18 用户要求：运行产物（文档里抽出的图）落本次运行目录 `<runDir>/images/`，随「最新 5 条」清理；
+  //   没有 runDir（CLI/直跑）时退回 <数据根>/images/<工作流名>/。
+  const dir = String(dirOverride ?? '').trim() || dagFlowScopedPath('images', wfName);
   await fs.mkdir(dir, { recursive: true });
   const out: LibraryImageSaved[] = [];
   for (const it of items) {

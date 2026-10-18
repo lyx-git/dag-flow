@@ -82,7 +82,7 @@ export function apply(ctx: any, config?: any): void {
     // 2. 注册内置节点（幂等）
     registerNodesOnce();
 
-    // logger 用 dag-flow 自己的：emit 会同时写 .dag-flow/logs/*.log 并转发给宿主 logger，
+    // logger 用 dag-flow 自己的：emit 会同时写 .dag-flow/tmp/logs/*.log 并转发给宿主 logger，
     // 避免只依赖 ctx.logger 时文件日志完全缺失（2026-10-01）。
     const logger = createLogger();
 
@@ -117,7 +117,7 @@ export function apply(ctx: any, config?: any): void {
     const status = (r: AttachResult) => (r.registered ? 'registered' : `skipped${r.reason ? ` (${r.reason})` : ''}`);
     try {
       logger.info(
-        `[dag-flow] loaded (host v20261019-failsub), ${WorkflowNodeRegistry.list().length} nodes, dagflow tool ${status(toolResult)}, api ${status(apiResult)}, scheduler ${status(schedResult)}, ${driftMsg}`
+        `[dag-flow] loaded (host v20261021-nologfile), ${WorkflowNodeRegistry.list().length} nodes, dagflow tool ${status(toolResult)}, api ${status(apiResult)}, scheduler ${status(schedResult)}, ${driftMsg}`
       );
       // ★ 2026-10-15 多模态 Step 0：**只读诊断**宿主附件服务是否可用 + 图片限制。
       //   打得出 `attachments ok (...)` ⇒ 多模态传图的宿主通路（saveImage → ImageReference →

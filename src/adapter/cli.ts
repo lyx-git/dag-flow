@@ -84,6 +84,11 @@ export function buildWorkflowTool() {
     } catch (e) {
       return `校验失败: ${name}\n${(e as Error).message}`;
     }
+    // ★ 2026-10-18 用户要求：运行前清空本次会用到的工作流 tmp 目录（含 subflow / loop 循环体）
+    try {
+      // ★ 2026-10-20：只清本次顶层工作流的运行目录（子工作流不再有自己的 tmp 目录）
+      await storage.pruneRunTmpDirs?.([name]);
+    } catch { /* 清理失败不影响运行 */ }
     const result = await runWorkflow(def, { logger, cwd });
     return JSON.stringify(result.summary, null, 2);
   };

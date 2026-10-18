@@ -156,6 +156,12 @@ export async function tickScheduler(deps: SchedulerDeps = {}, opts: { catchUp?: 
       //   定时运行也要登记到**与手动运行同一张表**（runRegistry）——否则 GET /run/status?name= 查不到，
       //   客户端画布既不会点亮「运行中/完成」，头部也不会显示运行态。ac 一并建好，
       //   这样「⏹ 取消」对定时运行同样有效（DELETE /run?name= 走同一张表）。
+      // ★ 2026-10-18 用户要求：定时运行前同样清空 tmp（与手动运行同一口径）
+      try {
+        const st = createStorage();
+        // ★ 2026-10-20：只清本次顶层工作流的运行目录（子工作流不再有自己的 tmp 目录）
+        await st.pruneRunTmpDirs?.([it.workflow]);
+      } catch { /* 清理失败不影响运行 */ }
       const ac = new AbortController();
       const rec: ActiveRun = {
         name: it.workflow, runId, ac, status: 'running', origin: 'schedule',

@@ -4,8 +4,8 @@
 
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import type { NodeDefinition, NodeResult } from '../../types.js';
 import { makeResult, safeNodeRun } from '../external.js';
 import { resolvePython, resolveBash } from '../../adapter/runtime.js';
@@ -39,15 +39,42 @@ function scriptEnv(exe: string): NodeJS.ProcessEnv {
  *  绝不因为取不到目录就让节点跑不起来。
  *  ★ 注意：`dagFlowDir` 是**函数内动态 import**（见 shared.ts 的 resolveCodePath，同款做法）——
  *  避免模块级循环依赖，运行时才取。 */
-async function scriptCwd(p: { cwd?: string }): Promise<string | undefined> {
+async function scriptCwd(p: { cwd?: string }, runDir?: string): Promise<string | undefined> {
   if (p.cwd) return p.cwd;
+  // ★ 2026-10-18 用户要求「本次运行的文件都在 tmp 下的独立目录、节点之间也在那儿互相读」：
+  //   本次运行的临时目录优先于数据根（显式 params.cwd 仍然完全覆盖）。
+  const rd = String(runDir ?? '').trim();
+  if (rd) return rd;
   try {
     const { dagFlowDir } = await import('../../adapter/workspace.js');
     return await dagFlowDir();
   } catch { return undefined; }
 }
 
-async function runPython(p: PythonParams, signal?: AbortSignal): Promise<NodeResult> {
+/** ★ 2026-10-18：把本次运行的临时目录注入子进程环境（脚本里 `os.environ['DAGFLOW_RUN_DIR']` 可直接取） */
+function withRunDir(env: NodeJS.ProcessEnv, runDir?: string): NodeJS.ProcessEnv {
+  const rd = String(runDir ?? '').trim();
+  if (rd) env.DAGFLOW_RUN_DIR = rd;
+  return env;
+}
+
+/** ★ 2026-10-18 用户选择「全部落盘」：python/bash 的 stdout/stderr 各存一份到
+ *  `<runDir>/nodes/<节点id>.out|.err`（失败也落）。运行记录里节点输出有长度裁剪（约 1200 字），
+ *  完整输出只有这里能看到；这些文件随「最新 5 条运行目录」一起被清。
+ *  写失败一律静默——落盘是增强，绝不能影响节点结果。 */
+async function dumpNodeOutput(runDir?: string, nodeId?: string, out?: string, err?: string): Promise<void> {
+  const rd = String(runDir ?? '').trim();
+  if (!rd) return;
+  const id = String(nodeId ?? '').trim().replace(/[^\w.-]/g, '_') || 'node';
+  try {
+    const dir = join(rd, 'nodes');
+    await mkdir(dir, { recursive: true });
+    if (typeof out === 'string' && out.length > 0) await writeFile(join(dir, `${id}.out`), out, 'utf8');
+    if (typeof err === 'string' && err.length > 0) await writeFile(join(dir, `${id}.err`), err, 'utf8');
+  } catch { /* 落盘失败不影响节点结果 */ }
+}
+
+async function runPython(p: PythonParams, signal?: AbortSignal, runDir?: string, nodeId?: string): Promise<NodeResult> {
   const { startedAt, t0 } = startedEnded();
   // ★ codePath（文件引用）优先于内联 code——明确引用了文件就以文件为准（内联 code 是
   //   另一录入途径的残留，不应悄悄压过文件引用；2026-10-02 语义定档）
@@ -68,11 +95,19 @@ async function runPython(p: PythonParams, signal?: AbortSignal): Promise<NodeRes
     return { ...makeResult('failed', { error: { code: 'PYTHON_UNAVAILABLE', message: 'Python 运行时未找到，且自动下载失败' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
   }
   const timeoutMs = p.timeoutMs ?? 30_000;
-  const workDir = await scriptCwd(p);   // ★ 默认 <DSH_HOME>/.dag-flow（见 scriptCwd 注释）
+  const workDir = await scriptCwd(p, runDir);   // ★ 本次运行的临时目录优先（见 scriptCwd 注释）
 
   return new Promise<NodeResult>((resolve) => {
     let settled = false;
-    const settle = (r: NodeResult) => { if (!settled) { settled = true; resolve(r); } };
+    let out = ''; let err = '';
+    const settle = (r: NodeResult) => {
+      if (!settled) {
+        settled = true;
+        // 等落盘完成再 resolve：调用方（含测试）拿到结果时 <runDir>/nodes/<id>.out 一定已就绪；
+        // dumpNodeOutput 内部吞异常，finally 保证一定 resolve，绝不让落盘拖垮节点。
+        void dumpNodeOutput(runDir, nodeId, out, err).finally(() => resolve(r));
+      }
+    };
     let child: ChildProcess;
     try {
       child = spawn(exe, ['-c', code], {
@@ -81,13 +116,12 @@ async function runPython(p: PythonParams, signal?: AbortSignal): Promise<NodeRes
         windowsHide: true,
         // ★ 强制 Python 以 UTF-8 写 stdout/stderr——中文 Windows 下管道默认用系统代码页（GBK），
         //   Node 按 UTF-8 解码会得到乱码（2026-10-02 用户实测「你好」变乱码）
-        env: { ...scriptEnv(exe), PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+        env: withRunDir({ ...scriptEnv(exe), PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }, runDir),
       });
     } catch (e) {
       settle({ ...makeResult('failed', { error: { code: 'PYTHON_SPAWN', message: `${exe}: ${(e as Error).message}` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() });
       return;
     }
-    let out = ''; let err = '';
     child.stdout!.on('data', (b) => { out += b.toString(); });
     child.stderr!.on('data', (b) => { err += b.toString(); });
     const t = setTimeout(() => { child.kill('SIGKILL'); settle({ ...makeResult('failed', { error: { code: 'PYTHON_TIMEOUT', message: `执行超时（${timeoutMs}ms）` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() }); }, timeoutMs);
@@ -138,7 +172,7 @@ const pythonDef: NodeDefinition<PythonParams> = {
     },
     anyOf: [{ required: ['code'] }, { required: ['codePath'] }],
   },
-  run: async (ctx, p) => safeNodeRun(() => runPython(p, ctx.signal)),
+  run: async (ctx, p) => safeNodeRun(() => runPython(p, ctx.signal, ctx.runDir, ctx.currentNodeId)),
   describe: () => ({ label: 'Python', category: 'script' }),
 };
 
@@ -147,7 +181,7 @@ interface BashParams { code?: string; codePath?: string; timeoutMs?: number; cwd
 
 const DESTRUCTIVE = /(^|\s|;|&&|\|\|)(rm\s+-rf\s+\/|mkfs|dd\s+if=|format\s+)/;
 
-async function runBash(p: BashParams, signal?: AbortSignal): Promise<NodeResult> {
+async function runBash(p: BashParams, signal?: AbortSignal, runDir?: string, nodeId?: string): Promise<NodeResult> {
   const { startedAt, t0 } = startedEnded();
   // ★ codePath 优先于内联 code（与 python 同语义，2026-10-02 定档）
   const code = p.codePath ? await readFile(await resolveCodePath(p.codePath), 'utf8') : (p.code ?? '');
@@ -169,18 +203,25 @@ async function runBash(p: BashParams, signal?: AbortSignal): Promise<NodeResult>
     return { ...makeResult('failed', { error: { code: 'BASH_UNAVAILABLE', message: 'bash 运行时未找到，且自动下载失败' } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() };
   }
   const timeoutMs = p.timeoutMs ?? 30_000;
-  const workDir = await scriptCwd(p);   // ★ 默认 <DSH_HOME>/.dag-flow（见 scriptCwd 注释）
+  const workDir = await scriptCwd(p, runDir);   // ★ 本次运行的临时目录优先（见 scriptCwd 注释）
   return new Promise<NodeResult>((resolve) => {
     let settled = false;
-    const settle = (r: NodeResult) => { if (!settled) { settled = true; resolve(r); } };
+    let out = ''; let err = '';
+    const settle = (r: NodeResult) => {
+      if (!settled) {
+        settled = true;
+        // 等落盘完成再 resolve：调用方（含测试）拿到结果时 <runDir>/nodes/<id>.out 一定已就绪；
+        // dumpNodeOutput 内部吞异常，finally 保证一定 resolve，绝不让落盘拖垮节点。
+        void dumpNodeOutput(runDir, nodeId, out, err).finally(() => resolve(r));
+      }
+    };
     let child: ChildProcess;
     try {
-      child = spawn(exe, ['-c', code], { cwd: workDir, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: scriptEnv(exe) });
+      child = spawn(exe, ['-c', code], { cwd: workDir, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: withRunDir(scriptEnv(exe), runDir) });
     } catch (e) {
       settle({ ...makeResult('failed', { error: { code: 'BASH_SPAWN', message: `${exe}: ${(e as Error).message}` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() });
       return;
     }
-    let out = ''; let err = '';
     child.stdout!.on('data', (b) => { out += b.toString(); });
     child.stderr!.on('data', (b) => { err += b.toString(); });
     const t = setTimeout(() => { child.kill('SIGKILL'); settle({ ...makeResult('failed', { error: { code: 'BASH_TIMEOUT', message: `执行超时（${timeoutMs}ms）` } }), durationMs: Date.now() - t0, startedAt, endedAt: new Date().toISOString() }); }, timeoutMs);
@@ -222,7 +263,7 @@ const bashDef: NodeDefinition<BashParams> = {
     },
     anyOf: [{ required: ['code'] }, { required: ['codePath'] }],
   },
-  run: async (ctx, p) => safeNodeRun(() => runBash(p, ctx.signal)),
+  run: async (ctx, p) => safeNodeRun(() => runBash(p, ctx.signal, ctx.runDir, ctx.currentNodeId)),
   describe: () => ({ label: 'Bash', category: 'script' }),
 };
 

@@ -6,7 +6,8 @@ import type { ApiRouteDeps } from './helpers.js';
 import { WorkflowNodeRegistry } from '../../registry/external.js';
 import { listAllEndpoints } from '../subagent.js';
 import { listSessions, readSessionContent } from '../sessions.js';
-import { imageDir, listImageFiles } from '../image-inputs.js';
+import { listImageFiles } from '../image-inputs.js';
+import { dagFlowScopedPath } from '../../dsh-gate/paths.js';
 
 export function registerMetaRoutes({ route, sendJson, readJsonBody }: ApiRouteDeps): void {
   // 1. 节点列表
@@ -60,7 +61,9 @@ export function registerMetaRoutes({ route, sendJson, readJsonBody }: ApiRouteDe
       try {
         const url = new URL(req.url ?? '', 'http://localhost');
         const wf = url.searchParams.get('workflow') ?? '';
-        sendJson(res, 200, { dir: imageDir(wf), images: await listImageFiles(wf), workflow: wf });
+        // ★ 2026-10-20 用户拍板「不用兼容旧位置数据」⇒ 图片只在 tmp/<名>/<runId>/images/，
+        //   dir 报本次工作流的 tmp 根（点「打开图片目录」落这里，能看到各次运行的图）。
+        sendJson(res, 200, { dir: dagFlowScopedPath('tmp', wf), images: await listImageFiles(wf), workflow: wf });
       } catch (e) {
         sendJson(res, 500, { error: (e as Error).message });
       }

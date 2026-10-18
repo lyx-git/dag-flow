@@ -948,7 +948,7 @@ export function NodeInspector({ node, defNodes = [], edges = [], inputs = {}, ru
       handledKeys: paramHandledKeys.length ? paramHandledKeys : undefined,
       fieldHints: (node.type === 'python' || node.type === 'bash')
         ? {
-            codePath: `约定路径 scripts/${workflowName || '工作流名'}/xxx.py（📁 工作流文件夹按钮可达，按工作流分目录）；相对路径锚定 .dag-flow/，也支持绝对路径。★填了代码文件时优先于内联代码。`,
+            codePath: `约定路径 workflow/scripts/${workflowName || '工作流名'}/xxx.py（📁 工作流文件夹按钮可达，按工作流分目录，2026-10-18 起挂在 workflow/ 下）；相对路径锚定 .dag-flow/，也支持绝对路径。★填了代码文件时优先于内联代码。`,
           }
         // ★ 2026-10-16 P1（多模态传图）：`images` 是"节点默认参数里没有、但要能填"的可选参数 ——
         //   在 fieldHints 里登记 ⇒ 参数弹窗会自动补出这一行（多行框），留空则不写进 def。

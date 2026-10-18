@@ -69,8 +69,11 @@ export async function saveAsset(
   filename: string,
   content: string | Uint8Array,
   encoding?: 'utf8' | 'base64',
+  dirOverride?: string,
 ): Promise<SavedAsset> {
-  const dir = await outputDir();
+  // ★ 2026-10-18 用户要求（选「只搬产出类」）：file_save / 图片生成 / 视频生成的产出落**本次运行的临时目录**
+  //   本次运行的临时目录「tmp/<名>/<runId>/」，随「最新 5 条运行目录」一起清理；没有 runDir（CLI/直跑）时退回 .dag-flow 根。
+  const dir = String(dirOverride ?? '').trim() || await outputDir();
   const file = uniqueOutputPath(safeOutputPath(dir, filename));
   await fs.mkdir(path.dirname(file), { recursive: true });
   const buf = typeof content === 'string'
@@ -90,8 +93,9 @@ export async function saveAsset(
  * 流式写 <DSH_HOME>/.dag-flow/tmp/download-<随机>.part → 完成后 rename 到最终位置：
  * 大文件不占内存；下载中断时残留只在 tmp，不会在最终目录留半成品。
  */
-export async function downloadAsset(url: string, filename: string, timeoutMs = 300_000): Promise<SavedAsset> {
-  const dir = await outputDir();
+export async function downloadAsset(url: string, filename: string, timeoutMs = 300_000, dirOverride?: string): Promise<SavedAsset> {
+  // ★ 2026-10-18：与 saveAsset 同一口径（落本次运行目录，无 runDir 时退回根）
+  const dir = String(dirOverride ?? '').trim() || await outputDir();
   const file = uniqueOutputPath(safeOutputPath(dir, filename));   // ★ 同名自动改名（方案 A）
   await fs.mkdir(path.dirname(file), { recursive: true });
   const ac = new AbortController();
