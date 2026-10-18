@@ -14,6 +14,7 @@
 // 校验时机：解析时若引用不合法（节点不存在/未执行/字段缺失）→ 抛 DataflowError。
 
 import type { Context, JsonValue, NodeResult } from '../types.js';
+import { maybeParseJsonish } from '../jsonish.js';
 
 export class DataflowError extends Error {
   constructor(msg: string) {
@@ -65,6 +66,11 @@ function resolveRefToken(token: string, ctx: Context, nodeId: string): { ok: boo
   // parts[1] === 'out' → 取 out；否则视为直接取 out（兼容 nodeId 即 out）
   let cur: JsonValue = nodeResult.out ?? null;
   const start = parts[1] === 'out' ? 2 : 1;
+  // ★ 2026-10-19 与表达式侧（src/registry/external.ts ctxToScope）统一口径：
+  //   python/bash 的 out 是原始 stdout 字符串、file_read 是文件正文、log 是消息文本，
+  //   直接往里取字段必然「不是对象/数组」报 DATAFLOW_REF。规则见 src/jsonish.ts。
+  //   只在「确实还要往下取一层」时才解析——`{{py.out}}` 仍原样返回字符串，不改变既有整串拼接。
+  if (start < parts.length) cur = maybeParseJsonish(cur) as JsonValue;
   for (let i = start; i < parts.length; i++) {
     const step = stepInto(cur, parts[i], parts.slice(1).join('.'), nodeId, nodeRef);
     if ('error' in step) return { ok: false, error: step.error };

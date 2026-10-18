@@ -71,5 +71,45 @@ let okResult = false;
 try { okResult = evaluateBool('Number(py_gate) > 0', scope); } finally { console.warn = origWarn3; }
 t('X10 正确写法结果为 true 且不触发告警', okResult === true && warned3 === '', warned3.slice(0, 120));
 
+// ★ X11~X14（2026-10-19 新增，真机 bug 回归锁）：python/bash 节点的 out 是**原始 stdout 字符串**，
+//   模板侧会解析它取字段，表达式侧曾不解析 ⇒ `py_store.ok` 得 undefined、`== true` 静默为 false
+//   （真机实证：py_store 的 ok 明明是 true，if 却走了 false 分支）。
+{
+  const c2 = { inputs: {}, vars: {}, results: { py_store: { out: '{"ok": true, "dirCount": 7}' } } };
+  const s2 = ctxToScope(c2);
+  t('X11 JSON 字符串 out 被解析（拍平式可取字段）', s2.py_store?.ok === true && evaluateBool('py_store.ok == true', s2) === true);
+  t('X12 results 命名空间同样可解析', evaluateBool('results.py_store.dirCount == 7', s2) === true);
+  const c3 = { inputs: {}, vars: {}, results: { bash1: { out: 'done' }, bad: { out: '{not json' } } };
+  const s3 = ctxToScope(c3);
+  t('X13 纯文本 out 保持原字符串（不误解析）', s3.bash1 === 'done');
+  t('X14 首字符像 JSON 但解析失败 → 保持原样不抛错', s3.bad === '{not json');
+}
+
+// ★ X15~X18（2026-10-19 新增）：模板侧 {{...}} 与表达式侧口径统一（共用 src/jsonish.ts）。
+//   旧实现两侧都取不到字符串 out 的字段，但模板侧**报错**、表达式侧**静默 false** —— 这里锁住模板侧。
+const OUT3 = join(tmp, 'dataflow.bundle.mjs');
+await build({
+  entryPoints: [join(ROOT, 'src/executor/dataflow.ts')],
+  bundle: true, format: 'esm', platform: 'node', target: 'node20',
+  outfile: OUT3, logLevel: 'silent',
+});
+const { resolveParams, DataflowError } = await import(pathToFileURL(OUT3).href);
+const mkOut = (out) => ({ status: 'success', out });
+{
+  const c = { inputs: {}, vars: {}, results: { py_store: mkOut('{"ok": true, "dirCount": 7}') } };
+  const r = resolveParams({ a: '{{py_store.out.ok}}', b: '{{py_store.out.dirCount}}' }, c, 'end');
+  t('X15 模板取 JSON 字符串 out 的字段（与表达式一致）', r.a === true && r.b === 7, JSON.stringify(r));
+  const r2 = resolveParams({ only: '{{py_store.out}}' }, c, 'end');
+  t('X16 纯引用 {{py.out}} 仍原样返回字符串（不改变既有拼接用法）', r2.only === '{"ok": true, "dirCount": 7}');
+}
+{
+  const c = { inputs: {}, vars: {}, results: { bash1: mkOut('done'), bad: mkOut('{not json') } };
+  const r = resolveParams({ m: 'x{{bash1.out}}y' }, c, 'end');
+  t('X17 纯文本 out 混合模板仍是字符串拼接', r.m === 'xdoney', JSON.stringify(r));
+  let threw = false;
+  try { resolveParams({ f: '{{bad.out.field}}' }, c, 'end'); } catch (e) { threw = e instanceof DataflowError; }
+  t('X18 首字符像 JSON 但解析失败 → 取字段仍按不可达报错', threw);
+}
+
 console.log(`\n=== expr-scope: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) process.exit(1);

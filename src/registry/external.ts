@@ -2,6 +2,7 @@
 // 第三方插件通过 registerNode() 扩展
 
 import type { NodeDefinition, Context, NodeResult, JsonValue } from '../types.js';
+import { maybeParseJsonish } from '../jsonish.js';
 
 class WorkflowNodeRegistryImpl {
   defs = new Map<string, NodeDefinition>();
@@ -54,7 +55,11 @@ export function ctxToScope(ctx: Context): Record<string, unknown> {
   //  修"py_gate.out 模板式写法在表达式里取 undefined → NaN 静默走 false"的坑）
   const results: Record<string, unknown> = {};
   for (const [id, r] of Object.entries(ctx.results)) {
-    const out = r.out ?? null;
+    // ★ 2026-10-19 修「if 条件把 true 判成 false」：python/bash 的 out 是**原始 stdout 字符串**、
+    //   file_read 的 out 是文件正文、log 的 out 是消息文本。表达式侧若不解析，`py_store.ok` 永远
+    //   得 undefined，`== true` 静默为 false（真机实证：ok 明明是 true，if 却走 false 分支）。
+    //   口径与模板侧（src/executor/dataflow.ts）共用 src/jsonish.ts，两侧严格一致。
+    const out = maybeParseJsonish(r.out ?? null);
     scope[id] = out;
     results[id] = out;
   }
