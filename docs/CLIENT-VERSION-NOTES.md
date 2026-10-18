@@ -7,6 +7,49 @@
 
 ---
 
+// v20261019-quietstatus（**宿主 + 客户端都改** ⇒ 需重启 dsh web + 硬刷新）：修用户报的控制台三个错。
+//   · 第 1/2 个错（`GET /run/status?name=… 404` + `Failed to load resource: 404`）：
+//     面板挂载期间后台监视器每 **2.5s** 轮询一次，宿主对「没有在跑的实例、也没有最近完成记录」回 **404**
+//     ⇒ 浏览器把每条轮询都打成红色网络错误（Network 层日志，JS 侧拦不住）。
+//     修法：`GET /run/status` 新增 `quiet=1` —— 无记录时回 **200 `{status:'idle'}`**；客户端后台监视器
+//     带上它，并识别 `idle` 后**不动**画布结果（与旧 404 完全等价，不会清掉上次运行留下的绿线）。
+//     不带 `quiet` 的老调用方（手动运行轮询 / 人工确认恢复 / 测试用例）**语义一字未改**。
+//   · 第 3 个错（`Uncaught NotFoundError: Failed to execute 'removeChild' on 'Node'`）：
+//     `panel-mount.tsx` 的 `unmount()` 原来在 `root.unmount()` 之后**再手动 `innerHTML = ''`**。
+//     React 自己会清空容器，抢着清会和 FlowGram 在 `requestAnimationFrame` 里的**延迟 DOM 清理**打架
+//     ⇒ 宿主那边 removeChild 的目标已不在 ⇒ NotFoundError。改为**正常路径不插手 DOM**，
+//     只在卸载真的抛异常时兜底清一次（并打一条 warn）。
+//   · 验证：typecheck 0 / 闸门 56/56 / 全量 CDP 64/64（`quiet` 分支靠产物断言 + 真机控制台复验）。
+
+// v20261019-canvasfp1（**纯客户端**，硬刷新；宿主仍 `v20261019-runsperf`）：画布首屏里程碑埋点。
+//   · 新增 `src/client/perf-marks.ts`：`fpReset()`（mountWorkflowPanel 里调，作计时起点）+ `fpMark(name)`
+//     + `fpInfo({nodes})`，只往 `window.__df_firstPaint` 写一个对象，**没有定时器、没有监听器、不进渲染路径**。
+//   · 里程碑：`panelMount`(0) → `canvasMount`（画布组件挂载）→ `layersRendered`（FlowGram 图层渲染完）
+//     → `initialView`（初始视图落位）→ `veilGone`（遮罩揭开＝用户看到画布）。
+//   · 为什么要它：P1 拆解后首屏在**夹具**里只有 150–182ms（6–23 节点），而上一轮报的 343/603ms 是重负载
+//     机器上的污染数字（同场景跨批差 2.6 倍 ⇒ 见 lesson「性能绝对值跨批不可比」）。夹具复刻不了真机的
+//     1.79MB bundle、dock 外壳、真实 def 体量 ⇒ 真机数字只能真机量，别按夹具猜着优化。
+//   · 读法：打开画布 → DevTools 控制台 `copy(JSON.stringify(window.__df_firstPaint))`。
+//   · 回归锁：新增 CDP `firstpaint`（断言埋点在挂载链路里真的产出数据 + 里程碑单调 + 节点数>0），
+//     产物闸门加一条 `__df_firstPaint` 锚点。夹具侧在 Fixture 挂载时调 `fpReset()`（夹具不走 mountWorkflowPanel）。
+//   · 行为变更：无。
+
+// v20261019-canvasperf1（**纯客户端**，硬刷新；宿主仍 `v20261019-runsperf`）：画布面板性能体检后的 P2+P4。
+//   · P2｜拖动中不再全量序列化：`node-shell.tsx` 新增模块级 `nodeDragActive`，拖动期间
+//     `onContentChange` 直接 `schedulePositionFlush(ctx)` 早退 —— 原来每帧都要
+//     `document.toJSON() → fromFG() → structSigOf()`（含每节点 data 的 JSON.stringify）跑完整套，
+//     算完才发现"只有位置变了"再整份丢弃。落盘仍由「松手（window mouseup capture）/ 静止 180ms」的
+//     `flushPosition` 做一次，且它上抛的是**整份 def** ⇒ 拖动期间的结构变化也不丢，只是延后到落定。
+//   · P4｜两处签名白算：`DefSync`（FlowGramCanvas.tsx）与 `RunPathSync`（run-path.tsx）的签名计算
+//     挪进 `useMemo`，按 nodes/edges/Set 引用命中；原来在 render 体里直接算，FlowPanel 每次重渲染
+//     （点选节点、运行状态刷新、开弹窗）都白跑一遍 O(n)。
+//   · 行为变更：无（拖动过程本来就不逐帧上抛，见 2026-10-15 的签名短路；落盘时机与内容不变）。
+//   · 实测（CDP CPU profile A/B，`tmp-test/cdp/perf-canvas-profile.mjs`）：
+//     拖动中主线程脚本 −15.6%（30 节点 / 95.6KB def）、−13.9%（100 节点）。
+//     · 体检基线（1440×900 无头，首屏为 4 次开页中位）：首屏 6 节点 343ms / 23 节点 603ms /
+//       30 节点·95KB 704ms / 100 节点 1348ms；拖动每帧 3.9 / 8.9 / 12.3 / 23.0ms；松手落定 1.6–6.1ms。
+//   · 验证：typecheck 0 / 闸门 54/54 / 全量 CDP 63/63。
+
 // v20261019-selbright2（**纯客户端**，硬刷新；宿主仍 `v20261019-runsperf`）：用户「选区同词的底色应该也要提一档」。
 //   · `.cm-selectionMatch`（同一词的其它出现）：底色 0.26 → **0.34**，内描边 0.30 → 0.38。
 //     仍明显淡于主选区（0.72 失焦 / 0.90 聚焦）⇒ "我选的"与"同词其它处"一眼可分。

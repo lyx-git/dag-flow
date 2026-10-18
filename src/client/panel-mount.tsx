@@ -6,6 +6,8 @@ import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { FlowPanel } from './FlowPanel';
 import { DEFAULT_WORKFLOW, type WorkflowDef } from './types';
+// 首屏里程碑（诊断，只写 window.__df_firstPaint，不参与业务；见 perf-marks.ts 头注释）
+import { fpReset } from './perf-marks';
 
 let activeRoot: Root | null = null;
 let activeEl: HTMLElement | null = null;
@@ -14,6 +16,7 @@ let activeEl: HTMLElement | null = null;
 export const WF_CACHE_KEY = 'dag-flow:def-cache';
 
 export function mountWorkflowPanel(target: HTMLElement, opts: any = {}): void {
+  fpReset();   // 首屏计时起点（停靠/窗口两种模式都经过这里 ⇒ 一次覆盖）
   if (activeRoot) unmount();
   activeEl = target;
   activeRoot = createRoot(target);
@@ -32,13 +35,21 @@ export function mountWorkflowPanel(target: HTMLElement, opts: any = {}): void {
 }
 
 export function unmount(): void {
-  if (activeRoot) {
-    activeRoot.unmount();
-    activeRoot = null;
-  }
-  if (activeEl) {
-    activeEl.innerHTML = '';
-    activeEl = null;
+  const el = activeEl;
+  const root = activeRoot;
+  activeRoot = null;
+  activeEl = null;
+  if (!root) return;
+  try {
+    root.unmount();
+  } catch (e) {
+    // ★ 2026-10-19（用户报 removeChild NotFoundError）：**正常路径不再手动 `innerHTML = ''`**。
+    //   React 的 `root.unmount()` 会自己清空容器；抢在它之前/之后强行清空，会和 FlowGram 在
+    //   requestAnimationFrame 里做的**延迟 DOM 清理**打架 —— 宿主那边就表现为
+    //   `Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node`。
+    //   只有卸载真的抛异常（容器可能残留）时才兜底清一次。
+    try { if (el) el.innerHTML = ''; } catch { /* 忽略 */ }
+    console.warn('[dag-flow] panel unmount failed:', e);
   }
 }
 

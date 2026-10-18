@@ -4,7 +4,7 @@
 // LineInside = renderInsideLine 挂载点（分支键标签 + 光点）；RunPathSync = 运行态 → 连线实体同步。
 // 2026-10-14 重构轮 4 自 FlowGramCanvas.tsx 纯搬运拆出。
 
-import { Fragment, createElement, useEffect, useRef, useState } from 'react';
+import { Fragment, createElement, useEffect, useMemo, useRef, useState } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { WorkflowLinesManager } from '@flowgram.ai/free-layout-editor';
 import type { RFEdge } from '../util/flowDef';
@@ -116,9 +116,12 @@ export function LineInside(props: any) {
 export function RunPathSync(props: { edges: RFEdge[]; activeEdges?: Set<string>; doneEdges?: Set<string>; runActive?: boolean }) {
   const ctx = useClientContext();
   // 用内容签名当依赖：两个 Set 每次渲染都是新的，直接进 deps 会每帧重跑
-  const activeIds = props.activeEdges ? [...props.activeEdges].sort().join(',') : '';
-  const doneIds = props.doneEdges ? [...props.doneEdges].sort().join(',') : '';
-  const sig = `${activeIds}##${doneIds}##${props.runActive ? 'run' : 'idle'}##${props.edges.map((e) => `${e.id}:${e.source}|${e.sourceHandle ?? ''}|${e.target}`).join(',')}`;
+  // ★ 2026-10-19 性能（P4）：三段签名各自 useMemo —— 原来每个 render 都要把全部边重新拼一遍字符串，
+  //   而 RunPathSync 随 FlowPanel 每次重渲染都会跑（点选节点、运行状态刷新…）。
+  const activeIds = useMemo(() => (props.activeEdges ? [...props.activeEdges].sort().join(',') : ''), [props.activeEdges]);
+  const doneIds = useMemo(() => (props.doneEdges ? [...props.doneEdges].sort().join(',') : ''), [props.doneEdges]);
+  const edgeSig = useMemo(() => props.edges.map((e) => `${e.id}:${e.source}|${e.sourceHandle ?? ''}|${e.target}`).join(','), [props.edges]);
+  const sig = `${activeIds}##${doneIds}##${props.runActive ? 'run' : 'idle'}##${edgeSig}`;
   // 给闭包外的 apply 一个稳定的读点（延迟重放时也要拿到最新值）
   const runActiveRef = useRef(!!props.runActive);
   runActiveRef.current = !!props.runActive;

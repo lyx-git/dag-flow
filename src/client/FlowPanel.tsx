@@ -364,7 +364,10 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
       if (stopped) return;
       try {
         if (!manualRunRef.current) {
-          const r = await fetch(`/api/dag-flow/run/status?name=${encodeURIComponent(def.name)}`);
+          // ★ quiet=1：宿主侧对「没有在跑的实例、也没有最近完成记录」回 200 {status:'idle'} 而不是 404
+          //   —— 这条轮询在面板挂载期间每 2.5s 跑一次，用 404 会让浏览器把每条都打成红色网络错误
+          //   （用户报「控制台一下 3 个错」的第一条就是这个）。
+          const r = await fetch(`/api/dag-flow/run/status?name=${encodeURIComponent(def.name)}&quiet=1`);
           if (!r.ok && cancellingRef.current) {
             // 404 = 宿主已没有这次运行的记录（已经停了）→ 取消完成：**浮窗提示「取消成功」**（右侧结果条不动 ✗）
             cancellingRef.current = false;
@@ -376,10 +379,14 @@ export function FlowPanel({ ctx, onClose, onCache, chromeSlot }: FlowPanelProps)
             const j = (await r.json()) as {
               status?: string; origin?: string; results?: Record<string, unknown>; running?: string[];
             };
-            const sig = JSON.stringify([j.status, j.results ?? {}, j.running ?? []]);
-            if (sig !== lastSigRef.current) {
-              lastSigRef.current = sig;
-              setRunResults(progressToStatusMap(nodesRef.current, { results: j.results as never, running: j.running }));
+            // ★ status==='idle' = quiet 查询的「没有运行记录」：与旧的 404 等价 —— 画布结果**保持不动**
+            //   （否则会把上次运行结束后留下的绿线/徽标清掉，那是用户可见的行为变化）。
+            if (j.status !== 'idle') {
+              const sig = JSON.stringify([j.status, j.results ?? {}, j.running ?? []]);
+              if (sig !== lastSigRef.current) {
+                lastSigRef.current = sig;
+                setRunResults(progressToStatusMap(nodesRef.current, { results: j.results as never, running: j.running }));
+              }
             }
             const active = j.status === 'running' || j.status === 'awaiting';
             // ★ 2026-10-08：取消中 → **不许**把界面写回"运行中"（那是用户报的"又恢复成运行中" ✗）；

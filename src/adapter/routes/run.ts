@@ -195,6 +195,12 @@ export function registerRunRoutes({ route, sendJson, readJsonBody, storage, logg
         //   回退后客户端能把节点点亮成最终态（进程内保留，dsh 重启即清空）。
         const rec = runId ? getRunById(runId) : (byName ? (getRunByName(byName) ?? getLastCompleted(byName)) : undefined);
         if (!rec) {
+          // ★ 2026-10-19（用户报「控制台一下 3 个 404/removeChild 错误」）：
+          //   面板挂载期间后台监视器每 2.5s 轮询一次，「没有在跑的实例、也没有最近完成记录」是**正常状态**。
+          //   用 404 表达它，浏览器会把每一条轮询都打成红色网络错误（这是 Network 层日志，JS 侧拦不住）。
+          //   ⇒ 带 `quiet=1` 时回 200 {status:'idle'}：客户端识别 idle 后**不动**画布结果（与旧 404 等价）；
+          //   不带 quiet 的老调用方（手动运行轮询 / 人工确认恢复 / 测试用例）仍拿 404，语义一个字没改。
+          if (url.searchParams.get('quiet') === '1') { sendJson(res, 200, { status: 'idle' }); return; }
           sendJson(res, 404, { error: '查无此运行——可能已结束，或 dsh 重启导致暂停中的运行丢失' });
           return;
         }

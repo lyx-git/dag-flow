@@ -55,12 +55,14 @@ import {
   worldBounds,
   type EdgeKeyEditPayload,
 } from './canvas-utils';
-import { CanvasInteractions, DefaultNodeWrapper, NodeQuickPanel, onDragLineEnd, disposeCanvasNode } from './node-shell';
+import { CanvasInteractions, DefaultNodeWrapper, NodeQuickPanel, nodeDragActive, onDragLineEnd, disposeCanvasNode } from './node-shell';
 import { computeProblems, ProblemPanel } from './problems';
 import { adoptChipCaseForNewLines, BranchKeyEditor } from './branch-editor';
 import { LineInside, linePropsFor, RunPathSync } from './run-path';
 import { NodePalette } from './node-palette';
 import { Minimap, StatusBar, Toolbar } from './canvas-chrome';
+// 首屏里程碑（诊断，只写 window.__df_firstPaint；读法见 perf-marks.ts 头注释）
+import { fpInfo, fpMark } from '../perf-marks';
 
 // 对外符号保持不变（FlowPanel 从本模块导入 disposeCanvasNode；EdgeKeyEditPayload 历史导出位）
 export { disposeCanvasNode };
@@ -152,6 +154,16 @@ function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
     materials: { renderDefaultNode: DefaultNodeWrapper },
     onContentChange: (ctx: any) => {
       try {
+        // ★ 2026-10-19 性能（画布体检 P2）：节点拖拽中**直接排程、不做序列化**。
+        //   拖动时 transform 每帧变 ⇒ 本回调每帧都跑；原路径每帧要 `document.toJSON()`（FlowGram 全量
+        //   序列化）→ `fromFG()`（全图重建对象）→ `structSigOf()`（含每节点 data 的 JSON.stringify），
+        //   算完才发现"只有位置变了"再整份丢弃 —— 纯白算 + 大量临时对象（实测 GC 占拖动总耗时 10~22%）。
+        //   现在：拖动中把 ctx 记下就返回，松手（window mouseup capture）或静止 180ms 后由 flushPosition
+        //   **落盘一次**；flushPosition 上抛的是整份 def ⇒ 拖动期间的结构变化也不丢，只是延后到落定。
+        //   CDP CPU profile A/B：拖动中主线程脚本 −15.6%（30 节点/95KB）、−13.9%（100 节点）。
+        //   ★ `__df_legacySerialize` 只是给 tmp-test/cdp/perf-canvas-profile.mjs 做**同批 A/B 对照**用的诊断开关，
+        //     真机永远是 undefined ⇒ 一律走新路径（早退）。
+        if (nodeDragActive.current && !(window as any).__df_legacySerialize) { schedulePositionFlush(ctx); return; }
         // ★ switch 单点端口（2026-10-03 用户拍板 B）：先按节点上选中的 chip 给**刚画的**线定分支键
         adoptChipCaseForNewLines(ctx);
         const { nodes, edges } = fromFG(ctx.document.toJSON());
@@ -166,6 +178,7 @@ function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
       }
     },
     onAllLayersRendered: (ctx: any) => {
+      fpMark('layersRendered');   // 首屏里程碑：FlowGram 所有图层渲染完（节点 DOM 已全在）
       // 首次渲染：设一次**看得清**的初始视图（自适应但夹在 [75%,100%]）；
       // 之后**不再自动改视图** —— 用户自己缩放/拖动后不会被抢回去（这正是「适应画布」按钮以前没用的原因）。
       if (didInitView) return;
@@ -174,9 +187,11 @@ function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
         const W = cfg?.config?.width ?? 0;
         if (!W && tryNo < 8) { window.setTimeout(() => apply(tryNo + 1), 40); return; }   // 视口尺寸可能晚一帧就绪
         didInitView = true;
+        fpMark('initialView');   // 首屏里程碑：初始视图算完并落位
         try {
           const doc = ctx.get(WorkflowDocument);
           const all: any[] = doc?.getAllNodes?.() ?? [];
+          fpInfo({ nodes: all.length });
           const start = all.find((n: any) => String(n?.id) === 'start')
             ?? all.find((n: any) => String(n?.id ?? '').startsWith('start'));
           const raw = rawFitZoom(ctx);
@@ -261,7 +276,10 @@ function buildEditorProps(initialNodes: RFNode[], initialEdges: RFEdge[]) {
 function DefSync(props: { nodes: RFNode[]; edges: RFEdge[] }) {
   const ctx = useClientContext();
   const lastApplied = useRef('');
-  const sig = structSigOf(props.nodes, props.edges);
+  // ★ 2026-10-19 性能（P4）：签名只在 nodes/edges **引用**变化时重算。
+  //   原来直接在 render 体里调 structSigOf ⇒ 本组件随 Canvas 每次重渲染（点选节点 / 运行状态刷新 /
+  //   开弹窗都会让 FlowPanel 重渲染）都白跑一遍 O(n) 全量签名（含每节点 data 的 JSON.stringify）。
+  const sig = useMemo(() => structSigOf(props.nodes, props.edges), [props.nodes, props.edges]);
   useEffect(() => {
     if (sig === lastEmittedSig.current) { lastApplied.current = sig; return; }
     if (sig === lastApplied.current) return;
@@ -334,7 +352,9 @@ export function Canvas(props: {
      初始视图落定后由 revealVeil() 淡出（fg.css 里 120ms transition）。
      ★ 500ms 兜底：万一 onAllLayersRendered 没来（异常/空图），也必须揭开 —— 遮罩永久盖住画布是红线。 */
   const [veil, setVeil] = useState(true);
-  revealVeil = () => setVeil(false);
+  revealVeil = () => { fpMark('veilGone'); setVeil(false); };
+  // 首屏里程碑：画布组件挂载（≈ FlowGram 编辑器容器已进 DOM）
+  useEffect(() => { fpMark('canvasMount'); }, []);
   useEffect(() => {
     const t = window.setTimeout(() => setVeil(false), 500);
     return () => window.clearTimeout(t);

@@ -21,8 +21,10 @@ const hasH = (s) => hTxt.includes(s);
 
 const rows = [
   // ===== A. 版本标记（产物闸门第一道）=====
-  ['client 含标记 v20261019-selbright2（选区 0.72/0.90 + 同词高亮 0.34）', cTxt.includes('v20261019-selbright2')],
-  ['host   含标记 v20261019-runsperf（运行记录枚举零 stat + prune 只扫本工作流）', hasH('v20261019-runsperf')],
+  ['client 含标记 v20261019-quietstatus（后台轮询走 quiet=1，控制台不再刷 404）', cTxt.includes('v20261019-quietstatus')],
+  ['首屏里程碑钩子在产物里（ASCII：__df_firstPaint，真机读数用）', c.includes('__df_firstPaint')],
+  ['host   含标记 v20261019-quietstatus（run/status 支持 quiet=1 回 idle）', hasH('v20261019-quietstatus')],
+  ['host run/status 静默查询分支存在（ASCII：quiet）', hasH('quiet')],
   ['编辑区问号容器类名（ASCII：dsh-wf-code-keys）', c.includes('dsh-wf-code-keys')],
   ['问号气泡文案：多光标操作（锚点：所有相同项 / 回到单光标）', hasC('所有相同项') && hasC('回到单光标')],
   ['CodeMirror6 编辑区宿主类在产物里（ASCII：dsh-wf-cmcode）', c.includes('dsh-wf-cmcode')],
