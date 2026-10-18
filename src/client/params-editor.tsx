@@ -15,6 +15,7 @@ import type { ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { CodeText } from './code-text';
 import type { CodeLang } from './code-text';
+import { cmFocusAt, cmSelection, cmText } from './cm-code';
 // ★ 2026-10-11 用户拍板方案 A：变量引用搬进参数弹窗（右侧抽屉），点变量**插入到当前值框的光标处**
 //   （面板里那行「🔗 变量引用」保留，两处共用同一套数据与视觉；分组数据由 FlowPanel 组装后传入）。
 import { VarPicker } from './var-picker';
@@ -213,13 +214,19 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
   // ★ 变量抽屉（默认展开：这轮的目的就是"写参数时随手插变量"）
   const [varOpen, setVarOpen] = useState(true);
   const [pickHint, setPickHint] = useState<string | null>(null);
-  /** 最近一次聚焦的「值」框（插变量插到它的光标处；不记参数名框） */
-  const lastEdit = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  /** 最近一次聚焦的「值」框（插变量插到它的光标处；不记参数名框）。
+   *  ★ 2026-10-19 富文本框换成 CodeMirror 6 后**没有 textarea 了**：焦点落在 contenteditable 的
+   *    `.cm-content` 上，读不到 `selectionStart` / `value`。现在改记**编辑器宿主**（`.dsh-wf-cmcode`），
+   *    光标与文本走 cm-code 导出的 API（cmSelection / cmText / cmFocusAt），别再摸 DOM 属性。 */
+  const lastEdit = useRef<HTMLElement | null>(null);
   const onEditCapture = (e: React.SyntheticEvent): void => {
-    const t = e.target as (HTMLInputElement | HTMLTextAreaElement) | null;
-    if (!t || typeof t.selectionStart !== 'number') return;
-    if (!(t as HTMLElement).closest?.('.dsh-wf-params-v')) return;
-    lastEdit.current = t;
+    const t = e.target as HTMLElement | null;
+    if (!t || !t.closest?.('.dsh-wf-params-v')) return;
+    // 单行输入框：仍是原生 input，直接用
+    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) { lastEdit.current = t; return; }
+    // 富文本框：记编辑器宿主（焦点 target 是内部的 .cm-content）
+    const host = t.closest('.dsh-wf-cmcode');
+    if (host) lastEdit.current = host as HTMLElement;
   };
   /** 把变量引用插到最近聚焦值框的光标处（并把光标移到插入内容之后） */
   const insertRef = (text: string): void => {
@@ -232,13 +239,34 @@ export function ParamsEditor({ nodeId, nodeLabel, params, varGroups = [], varHin
     const rowEls = Array.from(document.querySelectorAll('.dsh-wf-params-row'));
     const idx = rowEl ? rowEls.indexOf(rowEl) : -1;
     if (idx < 0) { setPickHint('找不到对应的参数行——重新点一下值框再点变量'); return; }
-    const start = el.selectionStart ?? el.value.length;
-    const end = el.selectionEnd ?? start;
-    const next = el.value.slice(0, start) + text + el.value.slice(end);
+    const isCm = el.classList.contains('dsh-wf-cmcode');
+    // 光标位置：富文本框（CM6）从视图拿；单行输入框仍读 selectionStart
+    let start: number;
+    let end: number;
+    let cur: string;
+    if (isCm) {
+      const sel = cmSelection(el);
+      cur = cmText(el);
+      start = sel?.from ?? cur.length;
+      end = sel?.to ?? start;
+    } else {
+      const inp = el as HTMLInputElement;
+      cur = inp.value;
+      start = inp.selectionStart ?? cur.length;
+      end = inp.selectionEnd ?? start;
+    }
+    const next = cur.slice(0, start) + text + cur.slice(end);
+    const caret = start + text.length;
     setPickHint(null);
     pushRows(rows.map((r, i) => (i === idx ? { ...r, text: next } : r)));
+    // 光标复位要等 React 把新文本同步进编辑器（CM6 走 value effect；input 走原生 value）
     requestAnimationFrame(() => {
-      try { el.focus(); el.setSelectionRange(start + text.length, start + text.length); } catch { /* 元素可能已卸载 */ }
+      if (isCm) { cmFocusAt(el, caret); return; }
+      try {
+        const inp = el as HTMLInputElement;
+        inp.focus();
+        inp.setSelectionRange(caret, caret);
+      } catch { /* 元素可能已卸载 */ }
     });
   };
 

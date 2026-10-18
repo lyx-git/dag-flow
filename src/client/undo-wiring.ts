@@ -99,7 +99,7 @@ export function useUndoWiring(
       if (k !== 'z' && k !== 'y') return;
       const t = e.target as HTMLElement | null;
       if (t && typeof t.closest === 'function'
-        && t.closest('input,textarea,select,[contenteditable="true"],.monaco-editor,.cm-editor,.dsh-wf-code-ta')) return;
+        && t.closest('input,textarea,select,[contenteditable="true"],.cm-editor,.dsh-wf-cmcode')) return;
       e.preventDefault();
       if (k === 'y' || e.shiftKey) redo(); else undo();
     };

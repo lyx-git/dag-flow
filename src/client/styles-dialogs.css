@@ -232,6 +232,13 @@
 }
 /* ★ 2026-10-13：文本区（行号槽 + 高亮层 + textarea）包在这里，占满除工具条以外的全部高度 */
 .dsh-wf-code-main { position: relative; flex: 1; min-height: 0; display: flex; }
+/* ★ 2026-10-19（第二版）用户要求：「编辑区提示信息可以改成放到编辑区内右上角的小问号图标，
+   点击查看，放在放大按钮左边」—— 撤掉上一版的头部提示带，改成右上角小问号（InfoTip 气泡）。
+   定位：放大把手 `right: 20px` + 宽 24px ⇒ 问号 `right: 50px`，两者同一水平线、同一高度。 */
+.dsh-wf-code-keys {
+  position: absolute; top: 4px; right: 50px; z-index: 3;
+  display: flex; align-items: center; height: 24px;
+}
 /* ★ 2026-10-13 用户要求：「复制，清除，tips 挪到富文本框里面右下角位置，并且不能遮挡输入操作」。
    ⇒ 工具条是编辑区内部**最底部一条带**（独占空间，不是浮层）：justify-content:flex-end ＝右下角，
    绝不覆盖 textarea、不拦截点击；代价是文本区矮 ~28px（上一版"绝对定位浮层"正是因遮挡被否）。 */
@@ -240,28 +247,136 @@
   padding: 4px 8px; border-top: 1px solid var(--wf-border, #22304a);
   background: color-mix(in srgb, var(--wf-panel2, #111e32) 60%, transparent);
 }
-.dsh-wf-code-gutter {
-  flex: none; width: 48px; overflow: hidden; padding: 10px 6px 10px 0; text-align: right;
-  color: var(--wf-muted, #8b9bb3); font: 12px/1.55 ui-monospace, Consolas, monospace;
-  user-select: none; border-right: 1px solid var(--wf-border, #22304a); background: rgba(255, 255, 255, 0.02);
+/* ★ 2026-10-19：编辑区换成 CodeMirror 6 —— 行号槽/高亮层/透明 textarea 三层已整体删除，
+   行号、语法着色、滚动、选中、Tab 缩进全部由 CM6 自己渲染（只渲染视口行，大文本不再卡）。
+   这里只剩：外壳（边框/高度）→ 文本区（.dsh-wf-cmcode 占满）→ 工具条 → 状态栏。 */
+.dsh-wf-cmcode { flex: 1; min-width: 0; height: 100%; overflow: hidden; }
+.dsh-wf-cmcode .cm-editor { height: 100%; }
+.dsh-wf-cmcode .cm-content { padding: 8px 0; }
+.dsh-wf-cmcode .cm-line { padding-left: 12px; padding-right: 12px; }
+/* 语义着色类名（CM6 的 HighlightStyle 里显式给的 class）：可被主题覆盖，也让自动化能断言"真的着色了" */
+.tok-keyword { color: #c792ea; }
+.tok-string { color: #a3e635; }
+.tok-comment { color: #64748b; font-style: italic; }
+.tok-num { color: #f78c6c; }
+
+/* ===== 折叠：自绘箭头 + 折叠占位胶囊（2026-10-19 用户「折叠块样式和折叠箭头有点丑」） ===== */
+.dsh-wf-cmcode .cm-editor { position: relative; }   /* 搜索浮层要绝对定位到右上角 */
+.dsh-wf-cmcode .cm-foldGutter .cm-gutterElement { display: flex; align-items: center; justify-content: center; padding: 0 2px; }
+.dsh-wf-foldmark {
+  display: flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; border-radius: 4px; color: #4d5f7d;
+  transition: color .12s ease, background-color .12s ease;
 }
-.dsh-wf-code-gutter pre { margin: 0; }
-.dsh-wf-code-wrap { position: relative; flex: 1; min-width: 0; }
-.dsh-wf-code-hl, .dsh-wf-code-ta {
-  position: absolute; inset: 0; margin: 0; padding: 10px 12px;
-  font: 12px/1.55 ui-monospace, Consolas, monospace; white-space: pre; overflow: auto;
-  tab-size: 4; border: none;
+.dsh-wf-foldmark svg { display: block; }
+.dsh-wf-foldmark:hover { color: #cfe0ff; background: rgba(79, 140, 255, .16); }
+.dsh-wf-foldmark.is-open { color: #6b83a6; }
+.dsh-wf-cmcode .cm-foldPlaceholder {
+  margin: 0 3px; padding: 0 7px; border-radius: 999px;
+  background: rgba(79, 140, 255, .16); border: 1px solid rgba(79, 140, 255, .32);
+  color: #a8c4ee; font-size: 11px;
 }
-.dsh-wf-code-hl { pointer-events: none; color: var(--wf-text, #e6edf7); }
-.dsh-wf-code-ta {
-  background: transparent; color: transparent; caret-color: var(--wf-text, #e6edf7);
-  outline: none; resize: none;
+
+/* ===== 选区高亮（2026-10-19 用户：「编辑器里面，选中的颜色感觉不明显，调整一下」） =====
+   原来 `rgba(79,140,255,0.32)` 在深空蓝底（#0b1120~#101a2b）上几乎看不出选区边界。
+   ★ 为什么写在 CSS 而不是 `EditorView.theme`：CM6 内置 baseTheme 对 `.cm-selectionBackground`
+     用了更深的选择器，theme 里那条会被盖掉（实测焦点态只生效到基础值 0.42）⇒ 这里用
+     `.dsh-wf-cmcode` 作用域 + `!important` 压住，焦点态更亮、失焦态也仍可辨。 */
+/* ★ 2026-10-19 用户两轮反馈：「编辑器选区现在是方形，改成圆角」→「圆还不明显」。
+   CM6 的 drawSelection 把选区画成 `.cm-selectionBackground` 的绝对定位块（单行一块、多行按行切块，
+   实测跨 3 行＝3 块且**块间有重叠**）⇒ `border-radius` 直接生效，5px 也不会在接缝处露出缺口。 */
+/* ★ 2026-10-19 用户：「选区底色可以在高一档试下」⇒ 在 0.62/0.82 的基础上再提一档到 0.72/0.90，
+   并保持内描边与 5px 圆角。0.90 已接近实色，选区内文字仍是亮色（语法色会偏亮但可读），
+   若真机觉得盖字再把聚焦态退回 0.82。 */
+.dsh-wf-cmcode .cm-selectionBackground {
+  background-color: rgba(96, 150, 255, 0.72) !important;
+  /* 内描边让选区边界一眼可见（只靠半透明底色在深空蓝上边界仍发虚） */
+  box-shadow: inset 0 0 0 1px rgba(140, 190, 255, 0.55);
+  border-radius: 5px;
 }
-.dsh-wf-code-ta::selection { background: color-mix(in srgb, var(--wf-accent, #4f8cff) 32%, transparent); }
-.tok-k { color: #c792ea; }
-.tok-s { color: #a3e635; }
-.tok-c { color: #64748b; font-style: italic; }
-.tok-n { color: #f78c6c; }
+.dsh-wf-cmcode .cm-editor.cm-focused .cm-selectionBackground {
+  background-color: rgba(110, 165, 255, 0.90) !important;
+  box-shadow: inset 0 0 0 1px rgba(170, 210, 255, 0.75);
+  border-radius: 5px;
+}
+/* ★ 2026-10-19 用户：「选中选区，会带出其他相同文本的选区，也统一改」——
+   那是 `highlightSelectionMatches()` 画的 `.cm-selectionMatch`，CM6 默认是**浅绿色方块**
+   （实测 `rgba(153,255,119,0.5)`、`border-radius: 0`），和蓝色选区完全两个风格。
+   这里统一成同色系（更淡 ⇒ 一眼区分"主选区"与"同一词的其它出现"）+ 同样的 5px 圆角。 */
+.dsh-wf-cmcode .cm-selectionMatch {
+  /* ★ 2026-10-19 用户：「选区同词的底色应该也要提一档」⇒ 0.26 → 0.34（内描边 0.30 → 0.38）。
+     仍明显淡于主选区（0.72 失焦 / 0.90 聚焦），保证"我选的"与"同词其它处"一眼可分。 */
+  background-color: rgba(110, 165, 255, 0.34) !important;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px rgba(140, 190, 255, 0.38);
+}
+.dsh-wf-cmcode ::selection {
+  background-color: rgba(110, 165, 255, 0.72);
+}
+
+/* ===== 光标（2026-10-19 用户：「编辑区的光标不明显」） =====
+   ★ 实测：CM6 baseTheme 给的是 `border-left: 1px solid rgb(221,221,221)`，
+   而 `.cm-content` 的原生 caret 是 `rgba(0,0,0,0)`（透明，靠 drawSelection 自绘），
+   ⇒ 全靠这 1px 竖线显示，在深空蓝底上又细又灰、很容易看不见。
+   改成 2px + 亮白 + 一点外发光（发光让线在深底上"立起来"，不是单纯变亮）。 */
+.dsh-wf-cmcode .cm-cursor,
+.dsh-wf-cmcode .cm-dropCursor {
+  border-left: 2px solid #eaf2ff !important;
+  box-shadow: 0 0 3px rgba(120, 170, 255, 0.85);
+}
+.dsh-wf-cmcode .cm-editor.cm-focused .cm-cursor {
+  border-left-color: #ffffff !important;
+}
+
+/* ===== 括号：①光标旁那一对**强高亮**（用户「选中括号颜色现在很浅，几乎看不到」）②同层同色、逐层循环 4 色 ===== */
+.dsh-wf-cmcode .cm-matchingBracket {
+  background: rgba(79, 140, 255, .34) !important;
+  outline: 1.5px solid rgba(130, 185, 255, .95);
+  border-radius: 3px;
+  color: #ffffff !important;
+}
+.dsh-wf-cmcode .cm-nonmatchingBracket {
+  background: rgba(255, 86, 86, .30) !important;
+  outline: 1.5px solid rgba(255, 130, 130, .95);
+  border-radius: 3px;
+  color: #ffd9d9 !important;
+}
+.dsh-wf-cmcode .cm-br-0 { color: #ffd580; }
+.dsh-wf-cmcode .cm-br-1 { color: #8ce99a; }
+.dsh-wf-cmcode .cm-br-2 { color: #74c0fc; }
+.dsh-wf-cmcode .cm-br-3 { color: #e599f7; }
+
+/* ===== 搜索：右上角圆角浮层（用户「ctrl+F 搜索框出现在底部，颜色、设计样式都很丑」） ===== */
+.dsh-wf-cmcode .cm-panels {
+  position: absolute; top: 0; right: 0; left: auto; z-index: 20;
+  padding: 6px; background: transparent; border: none; box-shadow: none;
+}
+.dsh-wf-cmcode .cm-panels-top { border: none; }
+.dsh-wf-find {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 6px 5px 9px; border-radius: 10px;
+  background: rgba(14, 23, 38, .97);
+  border: 1px solid var(--wf-border3, #2b3f61);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .5);
+}
+.dsh-wf-find > svg { color: #6b83a6; flex: none; }
+.dsh-wf-find-input {
+  width: 160px; height: 24px; padding: 0 8px; border-radius: 7px;
+  border: 1px solid var(--wf-border2, #22304a); background: #0a1320;
+  color: var(--wf-text, #e6edf7); font: 12px/1 ui-monospace, Consolas, monospace; outline: none;
+}
+.dsh-wf-find-input::placeholder { color: #566b8d; }
+.dsh-wf-find-input:focus { border-color: var(--wf-accent, #4f8cff); box-shadow: 0 0 0 2px rgba(79, 140, 255, .22); }
+.dsh-wf-find-count { min-width: 42px; text-align: center; font-size: 11px; color: #8b9bb3; }
+.dsh-wf-find button {
+  width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; border-radius: 7px; background: transparent;
+  color: #9fb3d1; cursor: pointer; transition: background-color .12s ease, color .12s ease;
+}
+.dsh-wf-find button:hover { background: rgba(79, 140, 255, .18); color: #dbe7ff; }
+.dsh-wf-find button svg { display: block; }
+.dsh-wf-cmcode .cm-searchMatch { background: rgba(255, 213, 128, .30); border-radius: 5px; }
+.dsh-wf-cmcode .cm-searchMatch-selected { background: rgba(255, 170, 70, .62); border-radius: 5px; }
 
 /* ===== 参数编辑器弹窗（2026-10-11 用户拍板：把「参数」从窄面板里独立出来） ===== */
 /* 代码级文本编辑框（code-text.tsx）：编辑区 + 状态栏 */

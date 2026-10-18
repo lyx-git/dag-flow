@@ -1,10 +1,15 @@
 // src/client/JsonView.tsx
-// JSON 编辑视图：优先 Monaco Editor，不可用时回退 textarea；
-// 右侧 ajv 实时 schema 校验。改动时双向同步到 FlowPanel 状态。
+// 工作流整份 JSON 的编辑视图：**CodeMirror 6**（`CodeText`）+ 右侧 ajv 实时 schema 校验。
+// ★ 2026-10-19 用户拍板方案 A（「保留 JSON 页签、把 Monaco 换成 CM6」）：
+//   原实现是 `@monaco-editor/react` + unpkg CDN（首开 1–5s，还要 8s 超时回退 textarea），
+//   而富文本框已经是 CM6（打进 bundle、同步可用）⇒ 统一后：①首开不再等网络；②少一套加载态/回退分支/依赖；
+//   ③快捷键（Ctrl+F 浮层 / 折叠 / 多光标 / Ctrl+Shift+L）、彩虹括号、搜索高亮与富文本框完全一致。
+// 保留的语义一个没动：可见时才与 def 对齐（隐藏期零开销）、校验防抖 400ms、ajv 单例、隐藏时跳过 stringify、
+// 「应用 JSON」显式提交、校验失败禁用应用。
 
 import { useEffect, useRef, useState, createElement } from 'react';
 import type { WorkflowDef } from './types';
-import { getThemeMode } from './theme';
+import { CodeText } from './code-text';
 // ★ 2026-10-11（审计②）：名字规则的唯一事实源是 src/name-rule.ts（client 另外 4 处都引它），
 //   这里此前把 pattern 抄了一份硬编码副本——两处当前恰好相同，改规则时必漂移（症状会是
 //   「保存得了、JSON 页报错」这类反向不一致）。改为一律引唯一源。
@@ -19,40 +24,6 @@ interface JsonViewProps {
    *  隐藏时**跳过全部同步**（不 stringify、不校验）⇒ 画布上的 def 变化在 JSON 隐藏期间零开销；
    *  切到可见的那一刻才与 def 对齐。缺省视为可见（兼容旧用法）。 */
   visible?: boolean;
-}
-
-/** monaco 内核的 vs 基址。★2026-10-16：`@monaco-editor/loader` 的默认值是
- *  `https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs`，而**本机实测 jsdelivr 不可达**
- *  （unpkg / npmmirror 均 200）⇒ 显式换到 unpkg。版本与 loader 默认一致（0.55.1），
- *  不用 `latest`，避免新内核与 `@monaco-editor/react@4.7.0` 不兼容。 */
-const MONACO_VS_BASE = 'https://unpkg.com/monaco-editor@0.55.1/min/vs';
-/** 首次加载 monaco 内核的等待上限（正常 1–5s）：超过就按「Monaco 不可用」处理、回退 textarea——
- *  宁可用大字板，也不要把用户永远挂在「编辑器加载中…」（2026-10-16 修的正是这个）。 */
-const MONACO_LOAD_TIMEOUT_MS = 8000;
-/** Monaco 编辑器选项（★ 模块常量：写在 render 里等于每次渲染都新建对象、Monaco 每次都收到新
- *  options 引用而重跑 options 更新——规范"render 里不建大常量/新对象引用"）。 */
-const MONACO_OPTIONS: Record<string, unknown> = {
-  minimap: { enabled: false }, fontSize: 12, wordWrap: 'on',
-  // ★ 2026-10-19 用户报「JSON 编辑框里报错：The character U+ff08 "（" could be confused with the
-  //   ASCII character U+0028 "("」——那是 Monaco 的 **unicodeHighlight（易混字符提示）**，
-  //   既不是 JSON 语法错、也不影响保存与运行，只是把中文全角标点（（） ，：）当成"可疑字符"标出来。
-  //   本视图显示的是用户自己的工作流数据，中文全角标点是正常内容 ⇒ 三项全关，消掉这类噪音。
-  //   JSON 的合法性由下方 ajv 校验（400ms 防抖）负责，不依赖这个提示。
-  unicodeHighlight: { ambiguousCharacters: false, invisibleCharacters: false, nonBasicASCII: false },
-};
-
-/** 超时竞速（★ 必须在 finally 清掉定时器）：内核通常 1s 就绪，裸 setTimeout 会让这个 8s 的 timer
- *  一直挂到卸载之后（虽无 setState 副作用，但属定时器泄漏；规范"超时/竞速类必须统一清理"）。 */
-async function withTimeout<T>(p: Promise<T>, ms: number, onTimeout: () => T): Promise<T> {
-  let timer = 0;
-  try {
-    return await Promise.race([
-      p,
-      new Promise<T>((resolve) => { timer = window.setTimeout(() => resolve(onTimeout()), ms); }),
-    ]);
-  } finally {
-    window.clearTimeout(timer);
-  }
 }
 
 // ★ 2026-10-11：改为 export —— 仅供一致性探针（tmp-test/verify-schema-parity.mjs）与将来的一致性
@@ -127,8 +98,7 @@ export const WORKFLOW_SCHEMA = {
 
 // ★ 2026-10-15 大 JSON 加载/编辑卡顿优化（用户反馈「针对大json加载有点慢」），行为不变：
 //   ① ajv validator **模块级只编译一次**（原每次按键都 await import + compile 全量 schema，大 JSON 双倍慢）；
-//   ② 校验**防抖 400ms**（原每个按键同步跑全文校验，打字卡）；
-//   ③ Monaco CDN 加载期间给占位提示（原白等无反馈）。
+//   ② 校验**防抖 400ms**（原每个按键同步跑全文校验，打字卡）。
 // 同步语义不变：外部 def 引用变化 → 重置编辑文本（syncedDefRef 保持原 useMemo [def] 的语义）。
 
 /** schema 是模块常量 ⇒ validator 全程只需编译一次（首键 ~几十 ms，之后复用） */
@@ -220,75 +190,21 @@ export function JsonView({ def, onChange, visible = true }: JsonViewProps) {
     } catch { /* ignore */ }
   };
 
-  // 尝试加载 Monaco（不可用就回退 textarea）
-  const [MonacoEditor, setMonacoEditor] = useState<React.ComponentType<{
-    value: string;
-    onChange?: (v: string | undefined) => void;
-    language?: string;
-    height?: string | number;
-    theme?: string;
-    options?: Record<string, unknown>;
-    loading?: React.ReactNode;
-  }> | null>(null);
-  const [monacoError, setMonacoError] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const mod = await import('@monaco-editor/react');
-        // ★ 2026-10-16 修：**`import('@monaco-editor/react')` 成功 ≠ monaco 内核就绪**。
-        //   内核由 loader 另外从 CDN 拉（默认写死 jsdelivr，本机实测不可达）⇒ 旧实现照样渲染
-        //   组件，却永远停在 `loading` 占位，且 `monacoError` 永不置位 ⇒ 回退 textarea 那一路
-        //   根本走不到（真机症状＝JSON 视图一直显示「编辑器加载中…」；CDP 用例 json-view 卡死）。
-        //   两处修：① vs 基址换成实测可达的 unpkg；② **显式等 loader.init() 就绪**（带超时），
-        //   失败或超时一律按「Monaco 不可用」处理 ⇒ 回退纯 textarea。
-        mod.loader.config({ paths: { vs: MONACO_VS_BASE } });
-        const state = await withTimeout(
-          mod.loader.init()
-            .then(() => 'ok' as const)
-            .catch((e: unknown) => String((e as Error)?.message ?? e ?? 'init-failed')),
-          MONACO_LOAD_TIMEOUT_MS,
-          () => '加载超时',
-        );
-        if (cancelled) return;
-        if (state !== 'ok') { setMonacoError(state); return; }
-        setMonacoEditor(() => mod.default);
-      } catch (e) {
-        if (!cancelled) setMonacoError((e as Error).message);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
   return createElement(
     'div',
     { className: 'dsh-wf-json-root' },
-    // 左：编辑器
+    // 左：编辑器（CodeMirror 6，同步就绪 —— 不再有"编辑器加载中…"这个第三态）
     createElement(
       'div',
       { className: 'dsh-wf-json-editor' },
-      MonacoEditor
-        ? createElement(MonacoEditor, {
-            value: text,
-            language: 'json',
-            height: '100%',
-            theme: getThemeMode() === 'nodeflow-light' || getThemeMode() === 'dsh' ? 'vs' : 'vs-dark',
-            options: MONACO_OPTIONS, // 模块常量，见文件头常量区
-            onChange: (v) => setText(v ?? ''),
-            loading: createElement('div', { className: 'dsh-wf-text-muted', style: { padding: 12, fontSize: 11 } }, '编辑器加载中…'),
-          })
-        : createElement('textarea', {
-            className: 'dsh-wf-textarea',
-            value: text,
-            onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => setText(e.target.value),
-            style: { width: '100%', height: '100%', border: 0, borderRadius: 0, fontSize: 12 },
-            spellCheck: false,
-          }),
-      monacoError && createElement(
-        'div',
-        { className: 'dsh-wf-json-fallback' },
-        `Monaco 不可用 (${monacoError})，回退 textarea`,
-      ),
+      createElement(CodeText, {
+        key: 'json-cm6',
+        value: text,
+        onChange: (v: string) => setText(v),
+        lang: 'json',
+        height: '100%',
+        status: false,
+      }),
     ),
     // 右：校验 + 提交
     createElement(

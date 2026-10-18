@@ -642,6 +642,23 @@
   overflow: hidden;
   background: var(--dsh-wf-panel);
 }
+/* ★ 2026-10-19：JSON 视图改用 CM6 的 `CodeText` 外壳（它默认带 1px 边框 + 8px 圆角 + 面板底色），
+   这里在 JSON 视图内铺满、去掉边框/圆角/底色，保持"编辑器贴着左右两栏"的原观感。 */
+.dsh-wf-json-editor .dsh-wf-code-ed {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+/* ★ 2026-10-19 用户报「JSON 页签改造完没有滚动了」：
+   真因＝`.dsh-wf-codetext` **没有任何高度样式**（height:auto）⇒ 里面 `.dsh-wf-code-ed` 的 `height:100%`
+   相对 auto 父级被算成 auto ⇒ CM6 的 `.cm-editor` 也按内容撑开成整篇高度，
+   再被 `.dsh-wf-json-editor { overflow:hidden }` 裁掉 ⇒ 超出部分既看不见、也滚不动。
+   这里把它变成**有确定高度**的纵向 flex 容器，高度链才能一路通到 `.cm-scroller { overflow:auto }`。 */
+.dsh-wf-json-editor .dsh-wf-codetext {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
 .dsh-wf-json-side {
   border-left: 1px solid var(--dsh-wf-border);
   padding: 12px;
@@ -659,14 +676,6 @@
   border-radius: 4px;
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
-}
-/* Monaco 不可用时的回退提示（编辑器右上角小字；走主题变量 ⇒ 双主题都跟随，2026-10-16 由内联样式改来） */
-.dsh-wf-json-fallback {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  font-size: 10px;
-  color: var(--dsh-wf-muted);
 }
 
 

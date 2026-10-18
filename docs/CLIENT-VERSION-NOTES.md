@@ -7,6 +7,174 @@
 
 ---
 
+// v20261019-selbright2（**纯客户端**，硬刷新；宿主仍 `v20261019-runsperf`）：用户「选区同词的底色应该也要提一档」。
+//   · `.cm-selectionMatch`（同一词的其它出现）：底色 0.26 → **0.34**，内描边 0.30 → 0.38。
+//     仍明显淡于主选区（0.72 失焦 / 0.90 聚焦）⇒ "我选的"与"同词其它处"一眼可分。
+//   · 回归锁：`editor-ui` 新增 ⑦d（同词高亮 alpha ≥ 0.30；原来是 0.34 之前的 0.26）。
+//   · 验证：typecheck 0 / 闸门 54/54 / 全量 CDP 63/63。
+//
+
+// v20261019-selbright（**纯客户端**，硬刷新；宿主仍 `v20261019-runsperf`）：用户「选区底色可以在高一档试下」。
+//   · 主选区底色再提一档：失焦 **0.62 → 0.72**、聚焦 **0.82 → 0.90**（`inset` 内描边与 5px 圆角不变）。
+//   · 0.90 已接近实色：选区内文字仍是亮色、可读，但语法色的层次会被压住 ——
+//     若真机觉得"盖字/看不清代码颜色"，把聚焦态退回 0.82 即可（一处常量）。
+//   · 「同一词的其它出现」仍保持 0.26（更淡 ⇒ 与主选区一眼可分）。
+//   · 验证：typecheck 0 / 闸门 54/54 / 全量 CDP 63/63（`editor-ui` ⑦ 断言 alpha ≥ 0.55 仍满足）。
+//
+
+// v20261019-selround2（**纯客户端**，硬刷新；宿主仍 `v20261019-runsperf`）：用户「编辑区的选区改成圆角，圆还不明显，
+//   而且选中选区，会带出其他相同文本的选区，也统一改」。
+//   · 圆角 3px → **5px**。实测 CM6 的 `drawSelection` 跨 3 行会切成 3 块，但**块间有重叠** ⇒ 5px 不会在接缝露出缺口。
+//   · 「其他相同文本的选区」＝ `highlightSelectionMatches()` 画的 `.cm-selectionMatch`，CM6 默认是**浅绿色方块**
+//     （实测 `rgba(153,255,119,0.5)`、`border-radius: 0`），和蓝色主选区完全两个风格 ⇒
+//     统一成同色系淡蓝 `rgba(110,165,255,0.26)`（比主选区淡 ⇒ 一眼区分"主选区"与"同一词的其它出现"）
+//     + 5px 圆角 + 内描边。
+//   · `.cm-searchMatch` / `-selected`（搜索面板的匹配高亮）圆角也一并 2px → 5px。
+//   · 回归锁：`editor-ui` ⑦b（选区圆角 ≥ 4px）、⑦c（选中重复词后 `.cm-selectionMatch` ≥ 1 个、圆角 ≥ 4px、
+//     颜色属 110,165,255 系而不是默认绿）。
+//   · 验证：typecheck 0 / 闸门 54/54 / 全量 CDP 63/63。
+//
+
+// v20261019-selround（**纯客户端**，硬刷新；宿主仍 `v20261019-runsperf`）：用户「编辑器选区现在是方形，改成圆角」。
+//   · CM6 的 `drawSelection` 把选区画成 `.cm-selectionBackground` 的绝对定位块（单行一块、多行按行切块），
+//     所以 `border-radius` 直接生效。取 **3px** 这个偏小值：单行圆角明显，多行每块各自圆角时接缝处的凹陷不明显。
+//   · 与 `inset` 内描边共存正常（描边跟着圆角走），光标（border-left 画的竖线）不受影响。
+//   · 回归锁：`editor-ui` ⑦b —— 选区 `borderTopLeftRadius` ≥ 2px（原来是直角 0）。
+//   · 出图复核：多行选区的截图见 `tmp-test/build/shot-selcolor.png`（脚本已改成跨 3 行选区，专门看接缝）。
+//   · 验证：typecheck 0 / 闸门 54/54 / 全量 CDP 63/63。
+//
+
+// v20261019-caret（**纯客户端**，硬刷新；宿主仍 `v20261019-runsperf`）：用户「编辑区的光标不明显」。
+//   · 实测：CM6 baseTheme 给 `.cm-cursor` 的是 `border-left: 1px solid rgb(221,221,221)`，
+//     而 `.cm-content` 的原生 caret 是 `rgba(0,0,0,0)`（透明，光标靠 `drawSelection` 自绘）
+//     ⇒ 全靠这 1px 灰线，在深空蓝底上又细又灰。
+//   · 改成 `border-left: 2px solid #eaf2ff !important` + `box-shadow: 0 0 3px rgba(120,170,255,.85)`
+//     （外发光让线在深底上「立起来」，不是单纯提亮）；焦点态 `#ffffff`；`.cm-dropCursor` 一并加粗。
+//   · 回归锁：CDP `editor-ui` ⑧ —— 用 `Emulation.setFocusEmulationEnabled` **强制页面焦点**
+//     （否则无头环境光标层根本不渲染、量不到），断 `.cm-cursor` 的 borderLeftWidth ≥ 2 且颜色亮度 > 200，测完关闭。
+//   · 探针：`tmp-test/cdp/probe-caret.mjs`（打印 cursor 的 borderLeft / 宽高 / 动画 + 原生 caretColor）。
+//   · 验证：typecheck 0 / 闸门 54/54 / 全量 CDP 63/63。
+//
+
+// v20261019-selcolor（**纯客户端**，硬刷新；宿主仍 `v20261019-runsperf`）：用户「编辑器里面，选中的颜色感觉不明显，调整一下」。
+//   · 原来统一 `rgba(79,140,255,0.32)`，在深空蓝底（#0b1120~#101a2b）上几乎看不出选区边界。
+//   · 现在：基础态 **0.62**、焦点态 **0.82**，各加一层**内描边**（`inset box-shadow`）让边界一眼可见
+//     （只靠半透明底色，在深底上边界仍发虚）。
+//   · ★ 为什么改在 CSS 而不是 `EditorView.theme`：CM6 内置 baseTheme 对 `.cm-selectionBackground`
+//     用了更深的选择器，写在 theme 里会被它盖掉（实测焦点态只生效到基础值 0.42）⇒ 只能在
+//     `styles-dialogs.css` 用 `.dsh-wf-cmcode .cm-selectionBackground { … !important }` 压住。
+//   · 回归锁：CDP `editor-ui` ⑦ —— 量**计算后**的 alpha ≥ 0.55、选区宽度 > 0（原来 0.32）。
+//   · 出图复核：`tmp-test/cdp/shot-selcolor.mjs` → `tmp-test/build/shot-selcolor.png`（肉眼看边界）。
+//   · 验证：typecheck 0 / 闸门 54/54 / 全量 CDP 63/63。
+//
+
+// v20261019-jsonscroll（**纯客户端**，硬刷新；宿主仍 `v20261019-runsperf`）：修「JSON 页签改造完没有滚动了」。
+//   用户原话：「JSON 页签改造完出问题了，没有滚动了」。
+//   · 真因（**我上一版引入的**）：`JsonView` 换成 CM6 的 `CodeText` 后，`.dsh-wf-codetext` **没有高度样式**——
+//     它是通用外壳，在参数弹窗里靠 `.dsh-wf-code-ed` 的**像素高度**定高，从来没需要过 `height:100%`。
+//     放进 JSON 视图后，`height:'100%'` 这条链在它这里断掉 ⇒ `.dsh-wf-code-ed` / `.cm-editor` 的计算高度
+//     变成 auto ⇒ CM6 按内容撑成**整篇 JSON 的高度** ⇒ 再被 `.dsh-wf-json-editor { overflow:hidden }` 裁掉
+//     ⇒ 超出部分既看不见、也滚不动。
+//   · 修法：`.dsh-wf-json-editor .dsh-wf-codetext { height:100%; display:flex; flex-direction:column }`，
+//     高度链一路通到 `.cm-scroller { overflow:auto }`。实测：scroller clientH 864 / scrollH 1987、
+//     scrollTop 0 → 200 可滚（maxScroll 1123）。
+//   · 回归锁：`json-view` 新增 D10（编辑器可视高度＝容器高度，**与文档长度无关**；塌陷时它会等于内容高度）
+//     与 D11（临时灌 200 节点长文档实测真能滚 —— 短夹具本来就没得滚，不能拿它判 bug）。
+//     探针：`tmp-test/cdp/probe-json-scroll.mjs`（逐层打印 clientHeight/scrollHeight，一眼定位是哪层塌的）。
+//   · 验证：typecheck 0 / 闸门 54/54 / 全量 CDP 63/63。
+//
+
+// v20261019-jsoncm6（**纯客户端**，硬刷新；宿主仍 `v20261019-runsperf`）：用户选方案 A ⇒
+//   **JSON 页签保留、Monaco 换成 CM6**。这是 Monaco 在客户端的最后一处残留，现已彻底移出。
+//   · 做法：`JsonView.tsx` 左栏由 `@monaco-editor/react`（unpkg CDN + 8s 超时回退 textarea）
+//     换成 `CodeText({ lang: 'json', height: '100%', status: false })`。校验/提交语义**一个没动**：
+//     可见时才与 def 对齐（隐藏期零开销）、校验防抖 400ms、ajv 单例、非法只报错不写回、校验失败禁用「应用 JSON」。
+//   · 收益：①首开不再等网络（原来首次 1–5s，且存在"编辑器加载中…"这个第三态）；②删掉 `MONACO_VS_BASE` /
+//     `MONACO_LOAD_TIMEOUT_MS` / `MONACO_OPTIONS` / `withTimeout` / textarea 回退分支；
+//     ③`@monaco-editor/react` 已卸载，产物里连 `@monaco-editor/loader` 的文案都不再出现（包体 1.80 → **1.79MB**）；
+//     ④快捷键与观感统一（Ctrl+F 浮层 / 折叠箭头 / 彩虹括号 / 多光标）。
+//   · 回归锁：`json-view` 的 D8/D9（就绪形态＝CM6、无 Monaco 实例）、E6（宿主未重建）、
+//     F1（未提交编辑切走再回，改成直接读 CM6 doc）；产物闸门加反向锁「不含 monaco-loader」。
+//   · 验证：typecheck 0 / 闸门 53/53 / 全量 CDP 63/63。
+//
+// v20261019-selall（**纯客户端**，硬刷新）：用户报「编辑区 ctrl+D，同一行有多个相同的文本只能选中一个」。
+//   · 实测结论：**Ctrl+D 没坏** —— 同行连续 / 分散 / 跨行三种布局，第 1/2/3 次分别得到 1/2/3 个选区
+//     （探针 `tmp-test/cdp/probe-ctrl-d.mjs`）。
+//   · 真坑在另一条命令：`selectSelectionMatches`（Ctrl+Shift+L「全选所有相同项」）在**空选区**下直接 `continue`
+//     （源码 `if (from == to) continue`）⇒ 光标停在词上按它毫无反应，看起来就像"只能选一个"。
+//   · 修法：`cm-code.tsx` 新增 `selectAllMatches` —— 选区为空时先 `state.wordAt(head)` 把词选上，再调
+//     `selectSelectionMatches`；并在 keymap 里排在 `searchKeymap` **之前**覆盖原绑定。
+//   · 回归锁：CDP `editor-ui` ⑥ 两条（Ctrl+D 三连＝1/2/3 个选区；Ctrl+Shift+L 光标停词上直接全选 3 处）。
+//   · 注：本改动先于 jsoncm6 落地、标记被后者覆盖，两处改动都在最终产物里。
+//
+
+// v20261019-keys2（**纯客户端**，硬刷新；宿主仍 `v20261019-runsperf`）：快捷键说明**改形态**。
+//   用户原话：「编辑区提示信息可以改成放到编辑区内右上角的小问号图标，点击查看，放在放大按钮左边」
+//   ⇒ 撤掉上一版头部提示带（`.dsh-wf-code-head`，占 24px 高），改成右上角 `InfoTip` 小问号：
+//   位置 `right: 50px`（放大把手 `right: 20px` + 宽 24px 的左边）、浮在编辑区内容上**不占高度**；
+//   点击弹气泡，内容是四条多光标操作（Alt+拖动 / Ctrl+D / Ctrl+Shift+L / 单击取消）。
+//   · 上一版整块删干净：CSS 的 `.dsh-wf-code-head*` 全删、`code-text.tsx` 不再渲染该条带。
+//   · 回归锁：CDP `editor-ui` ⓪ 改成 5 条 —— 问号存在、**在放大按钮左边**（几何判据）、在编辑区右上角
+//     且不占高度、**不残留上一版头部条带**（反向锁）、点开气泡文案含四种操作；闸门锚点改成 `dsh-wf-code-keys`。
+//   · 验证：typecheck 0 / 闸门 52/52 / 全量 CDP 63/63。
+//
+
+// v20261019-keys（**纯客户端**，硬刷新；宿主仍 `v20261019-runsperf`）：用户原话「多光标快捷键操作写成提示
+//   放到富文本框头部」。
+//   · 做法：`CodeText` 编辑框顶部加**独占一条带**的提示（`.dsh-wf-code-head`，与底部工具条对称），
+//     不是浮层、不遮挡任何输入；内容是 `<kbd>` 键帽 + 一行说明，只讲多光标四件事：
+//     `Alt` + 拖动 = 列选 ｜ `Ctrl+D` 选下一个相同词 ｜ `Ctrl+Shift+L` 全选全部相同项 ｜ 单击空白 = 回到单光标。
+//   · 取舍：不把查找/折叠/撤销塞进来（否则提示变说明书）；也不做成小问号（用户明确要"提示"＝直接可见）。
+//   · 键位逐个核对过实际绑定：`selectNextOccurrence`(Mod-d)、`selectSelectionMatches`(Mod-Shift-l)、
+//     `rectangularSelection` 默认 Alt+左键拖动 —— 都来自当前注册的 searchKeymap / 视口插件，不是凭印象写的。
+//   · 回归锁：CDP `editor-ui` 新增 ⓪ 三条（提示条存在且三个键位都在、文案含「列选」「回到单光标」、
+//     位置在文本区上方且不超出编辑框 = 不遮挡输入）；产物闸门新增 2 条锚点。
+//   · 验证：typecheck 0 / 闸门 52/52 / 全量 CDP 63/63。
+//
+
+// v20261019-cmui（**纯客户端**，硬刷新；宿主仍 `v20261019-runsperf`）：富文本框（CM6）的视觉与搜索体验一波。
+//   用户四条原话：「代码折叠块样式有点丑，折叠箭头有些丑」「括号匹配标注不同颜色，一对一种颜色」
+//   「选中括号颜色现在很浅，几乎看不到」「ctrl+F 搜索框出现在底部，颜色，设计样式，都很丑，没有现代化的设计方案」。
+//   · 折叠：**不再用 `basicSetup`**（它的 foldGutter 写死文本箭头 ⌄/›，没法只换箭头）⇒ 自己组装扩展，
+//     `foldGutter({ markerDOM })` 换成自绘 SVG chevron（展开朝下 / 折叠朝右，两态几何不同），
+//     折叠占位改成圆角胶囊，悬停有底色反馈，行号槽那一列也钉了尺寸不再抖。
+//   · 括号：新增 `src/client/cm-rainbow.ts` —— 栈式判定嵌套深度，**同层同色、逐层 4 色循环**（`cm-br-0..3`）；
+//     只为**视口内**的括号建装饰；文档 > 50 万字符自动跳过（不拿极端文本的性能换彩色）。
+//     同时加强 `.cm-matchingBracket`（实底色 + 1.5px 描边 + 白字）与 `.cm-nonmatchingBracket`（红底提示）。
+//   · 搜索：新增 `src/client/cm-search.ts` —— 用 CM6 官方 `search({ top, createPanel })` 换成**自绘右上角浮层**
+//     （放大镜 + 输入框 + 「N 处」计数 + 上一处/下一处/关闭三个图标按钮），中文文案、圆角深空蓝；
+//     输入防抖 150ms 才扫全文算计数（单字符最多数到 1000、零宽匹配防死循环）、Enter/Shift+Enter 跳转、Esc 关闭；
+//     `.cm-searchMatch` 换成暖黄高亮。默认那条"底部灰条 + next/previous 英文按钮"不再出现。
+//   · 回归锁：新增 CDP `editor-ui` —— 折叠箭头是 SVG 且两态几何不同、点击后出现胶囊占位、括号 ≥3 种颜色且分层、
+//     匹配括号 alpha ≥ 0.25 且有描边、搜索面板在编辑区**右上角**、计数 4 处、正文高亮、Esc 关闭，
+//     另加两条反向锁（没回退成底部条 / 没漏出英文按钮）。
+//   · 性能（30 万字符 3000 行，同口径）：按键 dispatch p50 **10.6ms**（加彩虹前 5.7ms，多的 ~5ms 是每键一次
+//     全文深度扫描，仍在 16.7ms 帧预算内）、灌入 68.6ms、滚动 p50 17ms、DOM 363 节点。
+//   · 验证：typecheck 0 / 闸门 50/50 / 全量 CDP 63/63。
+//
+
+// v20261019-cm6（**纯客户端**，硬刷新即可；宿主仍 `v20261019-runsperf`）：代码级富文本框**整体换成
+//   CodeMirror 6**，替掉原来的三层叠加（行号槽 + 高亮层 <pre> + **透明 textarea** + 自研高亮/滚动同步/
+//   光标计算/Tab 缩进）。用户 2026-10-19 拍板「采用 codemirror6」，且是在工作区回退后的干净基线上重做。
+//   · 为什么换：30 万字符时打一个字符 p50 **1103ms**（textarea 自身排版 ≈420ms 是硬成本，高亮层再排 ≈486ms），
+//     任何 CSS/React 微调都动不了；CM6 只渲染视口行，同规模实测按键 ≈1ms、滚动 17ms。
+//   · 为什么是 CM6 不是 Monaco：两者性能实测打平（灌入 66–79ms / 按键 33ms≈两帧等待 / 滚动 16.8–22.4ms），
+//     体积差 7.9 倍 —— CM6 最小集 **465KB（gzip 156KB）** vs Monaco 3672KB（无 worker）/ 4077KB（内联 worker）。
+//     CM6 还**不需要 worker**、同步可用（无 CDN 拉取、无 8s 超时回退、无"编辑器加载中"）。
+//   · 落位：新增 `src/client/cm-code.tsx`（basicSetup + 深空蓝主题 + `tok-*` 语义类名 + Compartment 切语言
+//     + updateListener 上报光标 + `__cmView` 句柄）；`code-text.tsx` 只剩外壳（高度/放大把手/工具条/状态栏）。
+//   · ★ 两类必须补回的"原功能"（CM6 默认不含）：
+//     ①**Tab 缩进** —— `basicSetup` 没有 Tab 绑定，不补则按 Tab 会去移动焦点；用
+//       `keymap.of([indentWithTab])` + `indentUnit.of('    ')` 恢复「Tab = 4 空格」；
+//     ②**插入到光标处** —— 参数弹窗的变量 chip 原本读 `textarea.selectionStart`，现在走
+//       `cmViewOf / cmSelection / cmText / cmFocusAt`（`params-editor.tsx` 的 lastEdit 改记编辑器宿主
+//       `.dsh-wf-cmcode`，插入后 rAF 里 `cmFocusAt` 复位光标）。
+//   · 回归锁：CDP `code-file` 新增 ③b（按 Tab → `    x`）；既有断言全部改成 CM6 的 DOM
+//     （`.dsh-wf-cmcode` / `.cm-gutters` / `.cm-content .tok-keyword`）；`params-editor` / `json-handled` /
+//     `params-varpick` / `params-images` 的读值·设值改走视图（`__cmView` + dispatch / doc 读值）。
+//   · 验证：typecheck 0 / 闸门 47/47 / **全量 CDP 62/62**。
+//
+
 // v20261019-tippos（**纯客户端**，硬刷新即可；宿主仍 `v20261019-runsperf`）：修节点结果浮窗「显示到
 //   离鼠标很远的上面」。用户原话：「画布里面的节点，鼠标悬浮上去的浮窗，明明底部还有空间，
 //   为啥不跟随鼠标显示，反而显示到了离鼠标比较远的上面去了」。

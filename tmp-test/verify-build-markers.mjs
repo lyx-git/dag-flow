@@ -21,8 +21,15 @@ const hasH = (s) => hTxt.includes(s);
 
 const rows = [
   // ===== A. 版本标记（产物闸门第一道）=====
-  ['client 含标记 v20261019-tippos（节点结果浮窗按真实高度贴边定位）', cTxt.includes('v20261019-tippos')],
+  ['client 含标记 v20261019-selbright2（选区 0.72/0.90 + 同词高亮 0.34）', cTxt.includes('v20261019-selbright2')],
   ['host   含标记 v20261019-runsperf（运行记录枚举零 stat + prune 只扫本工作流）', hasH('v20261019-runsperf')],
+  ['编辑区问号容器类名（ASCII：dsh-wf-code-keys）', c.includes('dsh-wf-code-keys')],
+  ['问号气泡文案：多光标操作（锚点：所有相同项 / 回到单光标）', hasC('所有相同项') && hasC('回到单光标')],
+  ['CodeMirror6 编辑区宿主类在产物里（ASCII：dsh-wf-cmcode）', c.includes('dsh-wf-cmcode')],
+  ['CM6 语法着色类名在产物里（ASCII：tok-keyword，证明 HighlightStyle 的 class 没被优化掉）', c.includes('tok-keyword')],
+  ['折叠箭头宿主类在产物里（ASCII：dsh-wf-foldmark，自绘 SVG 箭头）', c.includes('dsh-wf-foldmark')],
+  ['彩虹括号深度类在产物里（ASCII：cm-br-0，同层同色/逐层循环 4 色）', c.includes('cm-br-0')],
+  ['搜索浮层类在产物里（ASCII：dsh-wf-find，替换 CM6 默认底部灰条）', c.includes('dsh-wf-find')],
 
   // ===== B. 空名三禁（2026-10-19 用户：没名字禁止运行/保存/自动建）=====
   ['空名时运行按钮给禁用原因（锚点：才能运行）', hasC('才能运行')],
@@ -70,9 +77,10 @@ const rows = [
   // ===== K. 循环节点 =====
   ['loop 的「循环体」文案在产物里', hasC('循环体')],
 
-  // ===== L. JSON 视图（Monaco 选项 / next → edges 归一化）=====
-  ['Monaco 关掉易混字符提示（unicodeHighlight.ambiguousCharacters，2026-10-19 用户报 U+ff08）',
-    hasC('unicodeHighlight') && hasC('ambiguousCharacters')],
+  // ===== L. JSON 视图（2026-10-19 起改用 CM6；next → edges 归一化）=====
+  ['JSON 视图用 CM6（ASCII：dsh-wf-json-root 仍在产物里）', c.includes('dsh-wf-json-root')],
+  ['★ Monaco 已彻底移出客户端（反向锁：产物里不再有 @monaco-editor/loader 的文案 monaco-loader）', !c.includes('monaco-loader')],
+  ['★ Monaco 的 DOM 类名也不在产物里（反向锁：.monaco-editor，连撤销守卫里的选择器都删了）', !c.includes('.monaco-editor')],
   ['归一化提示「已统一为 edges 连线」（用户以为"next 被吞"时的反馈）', hasC('已统一为 edges 连线')],
 
   // ===== M. 文档解析（doc_parse）=====
