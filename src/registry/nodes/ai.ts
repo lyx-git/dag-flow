@@ -20,6 +20,11 @@ export const subagentDef: NodeDefinition<SubagentParams> = {
     properties: {
       prompt: { type: 'string', minLength: 1 },
       model: { type: 'string', description: '必填：dsh 已配置的模型 id（如 dsh:glm-5.3-flash），缺模型节点不执行' },
+      // ★ 2026-10-22（用户拍板「处理掉」）：isolated / agentPreset 这两个键**运行时从未被使用**
+      //   （callSubagent 的 host chat / host stream / 直连 fetch 三条路径都不读它们），面板上却写着
+      //   「独立会话 / 智能体预设」——属于误导，已从面板（client/param-meta.ts）移除。
+      //   schema 里仍**保留宽容**：删掉会让可能存在的旧工作流（带这两个键）撞 additionalProperties:false
+      //   校验失败；引擎依然不读，行为与保留前一致。
       isolated: { type: 'boolean' },
       agentPreset: { type: 'string' },
       system: { type: 'string' },

@@ -21,7 +21,8 @@ const hasH = (s) => hTxt.includes(s);
 
 const rows = [
   // ===== A. 版本标记（产物闸门第一道）=====
-  ['client 含标记 v20261021-noloopmark（移除循环出边的「循环」线标）', cTxt.includes('v20261021-noloopmark')],
+  ['client 含标记 v20261022-noagentpreset（AI 参数面板移除两个空转字段）', cTxt.includes('v20261022-noagentpreset')],
+  ['client 反向锁：空转字段已从面板移除（产物里没有「智能体预设」/「独立会话」）', !hasC('智能体预设') && !hasC('独立会话')],
   ['client 反向锁：循环出边的「循环」线标已删（产物里没有 line-label is-loop / line-label.is-loop）', !c.includes('line-label is-loop') && !c.includes('line-label.is-loop')],
   ['client 重载完成的提示文案在产物里（锚点：重新加载完成）', hasC('重新加载完成')],
   ['client 反向锁：悬停不再触发旋转（产物里没有 hover…reload-spin 规则）', !c.includes('dsh-wf-fg-reload:hover')],

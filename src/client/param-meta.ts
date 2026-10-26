@@ -186,8 +186,9 @@ export const PARAM_META: Record<string, Record<string, ParamMeta>> = {
     model: { label: '执行模型', desc: '用哪个 dsh 已配置的模型；下拉里带「📷 图片」的才支持传图。' },
     images: { label: '图片输入', desc: '三种写法：①**引用上游抽图**（推荐）——整串写 {{节点id.out.images}}，例如 {{doc_img.out.images}}，运行期自动换成那一次运行目录里的真实路径，不用管 runId；②每行一个本地路径或 http(s) 地址；③只写文件名（如 chart.png）＝在本工作流各次运行的图片目录 .dag-flow/tmp/<工作流名>/<runId>/images/ 里按新→旧找最新那份。只支持 png / jpg / jpeg / webp / gif，最多 20 张、单张不超 20MB（文档抽图超过 20 张会明确报错）。★只有走 dsh 宿主模型（下拉里带「📷 图片」的）才会真把图片发给模型；留空＝纯文本调用。', multi: true, placeholder: '{{doc_img.out.images}}\n或每行一个：\nchart.png\nC:\\图片\\a.jpg\nhttps://x.png' },
     system: { label: '系统提示词', desc: '可选的 system 指令，用来约束模型行为。', multi: true },
-    isolated: { label: '独立会话', desc: 'true＝不继承当前会话上下文，每次干净调用。', placeholder: 'false' },
-    agentPreset: { label: '智能体预设', desc: '可选：使用哪个 agent 预设（填预设名称）。' },
+    // ★ 2026-10-22 用户拍板「处理掉」：isolated（独立会话）/ agentPreset（智能体预设）两个字段
+    //   运行时从未被读取（callSubagent 三条路径都不看它们），面板上却像能配——纯误导，已移除。
+    //   schema 里仍保留这两个键（见 registry/nodes/ai.ts），只为兼容可能存在的旧工作流文件。
     timeoutMs: { label: '超时（毫秒）', desc: '单次模型调用超时。', placeholder: '120000' },
   },
 };
